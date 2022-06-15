@@ -1,0 +1,11 @@
+
+{# The dropzone forms handle local file uploads. #}
+<form class="middle-form" id="upload-{{ dz_type|lower }}-form" method="post" enctype="multipart/form-data"
+        onsubmit="preventDefault();">
+    <div id="upload-{{ dz_type|lower }}-dropzone" class="dropzone dropzone-block" action="/" data-type="{{ dz_type }}">
+        <h3>File Upload Instructions:</h3>
+        <div class="dz-message needsclick">
+            <p>Drag & drop files here from your hard drive or click here to select files.</p>
+        </div>
+    </div>
+</form>

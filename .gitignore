@@ -1,0 +1,9 @@
+sample_data/
+.venv/
+projects/
+
+*.log
+*.pyc
+*.db*
+launch.json
+data/

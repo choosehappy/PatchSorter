@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>PS - Project Selection</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-dialog.min.css') }}">
+{#    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">#}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jquery-ui.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ps_project.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ps_image_loader.css') }}">
+
+    <script src="{{ url_for('static', filename='js/angular.min.js') }}"></script>
+    {#    Jquery need to be laoded before bootstrap, other wise it will cause error#}
+    <script src="{{ url_for('static', filename='js/jquery-3.5.0.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap-dialog.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ps-utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/jquery-ui.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ps_projects.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ps_version.js') }}"></script>
+    <style>
+        tr:nth-of-type(odd){background-color:#eee;}
+        tr:hover td{background:#ccc;}
+        tr td:nth-of-type(2){cursor:pointer;}
+    </style>
+
+</head>
+<body onload='init();'>
+    <div id="headRow1" class="ps_layout_headRow1 row text-right">
+        <div class="col-sm-10 text-center">
+            <h3 class="hTag"><a id="projName" href="{{ url_for('html.index') }}" title="Go to Home Page" >PatchSorter</a><span id="version"></span></h3>
+        </div>
+        <div class="col-sm-2 text-right">
+            <h5 class="hTag"><a href="https://ccipd.case.edu" target="_blank">CCIPD</a></h5>
+        </div>
+    </div><!-- end of headRow1-->
+    <div class="ps_layout_headRow2">
+        <div>
+            <h1><b>Projects</b></h1>
+        </div>
+    </div>
+    <div ng-app="myApp" ng-controller="myCtrl">
+        <button type="button" class="ps_layout_headRow2 btn btn-primary" data-toggle="modal" data-target="#addNewProj">Add Project</button>
+        <div id="addNewProj" class="modal fade">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <form name="myForm">
+                        <div class="modal-header">
+                            <button type="button" class="close" data-dismiss="modal"><span
+                                    aria-hidden="true">&times;</span><span class="sr-only">Close</span>
+                            </button>
+                            <h3 class="modal-title">Add new project</h3>
+                        </div>
+                        <div class="modal-body" id="formBody">
+                            <div class="form-group">
+                                <label for="recipient-name" class="control-label" >Project Name</label>
+                                <input type="text" class="form-control" id="project_name_input" name="name" ng-model="formData.name" ng-required="true"
+                                       pattern="[A-Za-z0-9_ -]{1,}"
+                                       placeholder="Project name can only contain numbers, letters, hyphen, underline, and space"
+                                       title="Please enter a valid project name"
+                                       autocomplete="off"  >
+                            </div>
+                            <div class="form-group">
+                                <label for="message-text" class="control-label">Description</label>
+                                <textarea type="text" class="form-control" id="project_description" name="description"
+                                          ng-model="formData.description" autocomplete="off"></textarea>
+                            </div>
+                           <div class="form-group">
+                               <label for="message-text" class="control-label">No of Cell Labels</label>
+                               <input type="number" class="form-control" id="no_of_label_type" name="no_of_label_type" ng-model="formData.no_of_label_type"
+                               min="2" max="10"  ng-init="formData.no_of_label_type=2" ng-required="true">
+                           </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" id= "addProjectButton" ng-click="addProject()" class="btn btn-primary" data-dismiss="modal">
+                                Add
+                            </button>
+                            <button type="button" ng-click="cancelAdd()" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <br>
+        <br>
+        <div class="ps_layout_headRow2 table-responsive">
+        <table id="projects-table" class="table table-hover">
+            <thead>
+            <th style="text-align:center;"></th>
+            <th style="text-align:center;"></th>
+            <th style="text-align:center;">Name</th>
+            <th style="text-align:center;">Description</th>
+            <th style="text-align:center;">Creation date&time</th>
+            <th style="text-align:center;">No of images</th>
+            <th style="text-align:center;">Model iteration</th>
+            <th style="text-align:center;">No of Cell labels</th>
+            <th style="text-align:center;"></th>
+            <th style="text-align:center;"></th>
+            <th style="text-align:center;"></th>
+            </thead>
+            <tbody id="projects-body">
+            {% for project in projects %}
+                <tr id = "projectRow_{{project.id}}">
+                    <td style="text-align:center;">
+                        <button onclick="deleteProject('{{  project.id }}','{{  project.name}}')">Delete</button>
+                    </td>
+                    <td style="text-align:center;">
+                        <button onclick="editProject('{{  project.id }}','{{  project.name}}','{{ project.description }}')">Edit</button>
+        <div id="editProj" class="modal fade">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <form name="myEditForm">
+                        <div class="modal-header">
+                            <button type="button" class="close" data-dismiss="modal"><span
+                                    aria-hidden="true">&times;</span><span class="sr-only">Close</span>
+                            </button>
+                            <h3 class="modal-title">Edit project</h3>
+                        </div>
+                        <div class="modal-body" id="formEditBody">
+                            <input type="hidden" id="edit_project_id"/>
+                            <div class="form-group">
+                                <label for="recipient-name" class="control-label" >Project Name</label>
+                                <input type="text" class="form-control" id="edit_project_name" name="name" ng-model="formData.name" readonly>
+                            </div>
+                            <div class="form-group">
+                                <label for="message-text" class="control-label">Description</label>
+                                <textarea type="text" class="form-control" id="edit_project_desc" name="description"
+                                          ng-model="formData.description" autocomplete="off"></textarea>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" id= "editProjectButton" ng-click="saveProject()" class="btn btn-primary" data-dismiss="modal">
+                                Save
+                            </button>
+
+                            <button type="button" ng-click="cancelEdit()" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+
+                    </td>
+{#                    <td style="text-align:center;"> <a href="{{ url_for('html.view_embed',project_name=project.name) }}">{{project.name}}</a></td>#}
+                    <td style="text-align:center;"> <a href="{{ url_for('html.view_images',project_name = project.name) if project.nImages == 0 else url_for('html.view_embed',project_name=project.name)}}">{{project.name}}</a></td>
+                    <td id="cell_{{project.id}}_projdesc" style="text-align:center;">{{ project.description }}</td>
+                    <td style="text-align:center;">{{ project.date }}</td>
+                    <td style="text-align:center;">{{ project.nImages }}</td>
+                    <td style="text-align:center;">{{ project.iteration }}</td>
+                    <td style="text-align:center;">{{ project.no_of_label_type}}</td>
+                    <td style="text-align:center;"></td>
+                    <td style="text-align:center;"></td>
+                    <td style="text-align:center;"></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+    <div id="loader" class="row"></div>
+{#</div>#}
+
+</body>
+</html>

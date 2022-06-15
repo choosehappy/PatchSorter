@@ -1,0 +1,31 @@
+#custom-menu  {
+    display: none;
+    z-index:1000;
+    position: absolute;
+    background-color: rgba(229, 229, 229, 0.7);
+    border-width: 2px;
+    border-style: ridge;
+    border-color: white;
+    font-family: helvetica;
+    padding: 0px 0.25em 0px 1.5em;
+    width: 20em;
+    font-size: 18px;
+    overflow: hidden;
+    white-space:nowrap;
+    list-style: none;
+    margin: 0;
+  }
+  #custom-menu button {
+    display: block;
+    padding: 5px;
+    border: 5px ridge transparent;
+    outline: 0;
+    width: 100%;
+    text-align: left;
+  }
+  #custom-menu button:hover {
+    /*background-color: white;*/
+    cursor: pointer;
+    border: 5px ridge yellowgreen;
+  }
+  

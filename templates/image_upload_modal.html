@@ -1,0 +1,178 @@
+<div id="imageModal">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header border-0">
+                <div class="row text-right">
+                    <button type="button" class="btn-close text-right" data-bs-dismiss="modal" aria-label="Close"
+                            style="margin: 0 1rem;" onclick="cancelUpload()">X
+                    </button>
+                </div>
+                <h2 class="modal-title text-center" id="uploadModalLabel" data-step-num="{{ step_num }}">
+                    Upload Wizard
+                </h2>
+            </div>
+            <div id="modal-step-frame">
+                <span class="well-sm" id="modal-step-label-0">Approach</span>
+                <span class="well-sm" id="modal-step-label-1">Select Images</span>
+                <span class="well-sm" id="modal-step-label-2">Select Masks</span>
+                <span class="well-sm" id="modal-step-label-3">Select CSVs</span>
+                <span class="well-sm" id="modal-step-label-4">Select File List</span>
+                <span class="well-sm" id="modal-step-label-5">Review</span>
+                <span class="well-sm" id="modal-step-label-6">Done</span>
+            </div>
+
+            <div class="modal-body" id="modalBody">
+                {# First create the method-selection buttons #}
+                <div id="selector-upload_step_by_step" class="radio-selector"></div>
+                <div id="approach-descriptions">
+                    <div id="description-step_by_step">
+                        <h4>Upload Wizard <i>Step-By-Step</i> Instructions:</h4>
+                        <ul>
+                            <li>
+                                In this approach, you will be guided step by step through uploading first pathology images,
+                                then (optionally) masks and csv files.
+                            </li>
+                            <li>
+                                At each step of the process, you will have the option to drag and drop files from your hard drive for upload,
+                                or select a directory to scan for data on the machine hosting this app.
+                            </li>
+                            <li>
+                                Before any data is added, you will be shown a review pane where you will see
+                                the upload wizard's best guess matches between images, masks, and csv's based on their filenames.
+                            </li>
+                            <li>
+                                You will get to review the paired datasets before approving the upload operation
+                                and adding it to the dataset for this project.
+                            </li>
+                        </ul>
+                    </div>
+                    <div id="description-file_list">
+                        <h4>Upload Wizard <i>File List</i> Instructions:</h4>
+                        <ul>
+                            <li>
+                                In this approach, you drag and drop a single csv file containing three (3) columns with no header row:
+                                image_filename, mask_filename, csv_filename.    
+                            </li>
+                            <li>
+                                These filenames should be absolute paths on the machine hosting this app.
+                            </li>
+                            <li>
+                                Note: The data is not copied but instead stays where it is.
+                            </li>
+                            <li>
+                                Before any data is added, you will be shown a review pane where you will see
+                                a search for those filenames, and you will be notified if any files do not exist.
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                {# Then the hidden upload-frame, which will contain all the upload elements #}
+                <div id="modal-file-upload-frame" style="display: none;">
+                    <h2 id="upload-step-title">Upload Scan Images</h2>
+                    <p id="upload-step-details">Select your images and drop them in the frame below (or click to browse).
+                        Upload only scan images at this step.</p>
+                    
+                    {# The mask availability form is only shown on step 2 #}
+                    <div id="selector-mask_input" class="radio-selector"></div>
+                    {# The CSV availability form is only shown on step 3 #}
+                    <div id="selector-csv_input" class="radio-selector"></div>
+                    
+
+                    <div id="modal-input-selector-frame">
+                        <div id="selector-use_dropzone" class="radio-selector"></div>
+
+                        {# The mask-type form is only shown on step 2 #}
+                        <div id="selector-mask_type" class="radio-selector" />
+                        <form id="selector-mask_type-form">
+                            <h3>Mask Type</h3>
+                            <div class="radio" id="selector-mask_type-radio">
+                                <label>
+                                    <input type="radio" name="mask_type" id="mask_type1" value="QA" alt="Masks from Quick Annotator" checked>
+                                    Masks from Quick Annotator
+                                </label>
+                                <label>
+                                    <input type="radio" name="mask_type" id="mask_type2" value="Binary" alt="Binary Masks">
+                                    Binary Masks
+                                </label>
+                                <label>
+                                    <input type="radio" name="mask_type" id="mask_type3" value="Indexed" alt="Indexed Mask Input">
+                                    Indexed Mask Input
+                                </label>
+                                <label>
+                                    <input type="radio" name="mask_type" id="mask_type4" value="Labeled" alt="Labeled Input">
+                                    Labeled Input
+                                </label>
+                            </div>
+                        </form>
+
+                    </div>
+
+                    <div id="modal-dropzones">
+                        {# The dropzone forms handle local file uploads. #}
+                        {% for dz_type in ['image', 'mask', 'csv', 'list'] %}
+                            {% with dz_type=dz_type %}
+                                {% include 'image_upload_dropzone.html' %}
+                            {% endwith %}
+                        {% endfor %}
+                    </div>
+                    <div id="modal-upload-paths" style="display: none;">
+                        {# The path selector handles remote file processing #}
+                        {% for dz_type in ['image', 'mask', 'csv', 'list'] %}
+                            {% with dz_type=dz_type %}
+                                {% include 'image_upload_path.html' %}
+                            {% endwith %}
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <div id="modal-review-data-frame" style="display: none;">
+                <h2 id="modal-review-data-title">Review Data</h2>
+                <p id="modal-review-data-details"></p>
+                <div id="modal-progress-frame" class="progress" style="display: none;">
+                    <div class="progress-bar" role="progressbar" id="uploadProgress" style="min-width: 2em;"
+                            aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                        0%
+                    </div>
+                </div>
+                
+                <div class='review-table'>
+                    <table id="modal-review-data-table">
+                        <tr>
+                            <th>Image</th>
+                            <th>Mask</th>
+                            <th>CSV</th>
+                            <th>Error</th>
+                        </tr>
+                    </table>
+                    </div>
+                <div id="modal-review-error-message" style="display: none;">
+                    <p class="error">Please go back and fix the errors before uploading.</p>
+                </div>
+
+            </div>
+            
+            <div id="modal-complete-frame" style="display: none;">
+                <h3>Upload Complete!</h3>
+                <h3>You may now close this wizard.</h3>
+            </div>
+
+            <div class="text-right" id="modal-navigation-frame">
+                <div class="button-group">
+                    <button type="button" id="modal-back-button" class="btn btn-secondary buttonDisp">
+                        < Back
+                    </button>
+                    <button type="button" id="modal-next-button" class="btn btn-secondary buttonDisp">
+                        Next >
+                    </button>
+                </div>
+                <div class="button-group">
+                    <button id="modal-cancel-button" type="button" class="btn btn-secondary buttonDisp" onclick="cancelUpload()">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

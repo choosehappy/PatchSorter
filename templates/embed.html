@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>View Embed- {{ project.name }}</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-dialog.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jquery-ui.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ps_project.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ps_lasso.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ps_view_embed.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/logs.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/simplePagination.css') }}">
+
+    <script src="{{ url_for('static', filename='js/d3_v5_16_0/d3.min.js')}}"></script>
+    <!-- D3 lasso plugin for scatter plot selection -->
+    <script src="{{ url_for('static', filename='js/d3-lasso_v5/d3-lasso.js')}}"></script>
+    <script src="{{ url_for('static', filename='js/angular.min.js') }}"></script>
+<!--        Jquery need to be laoded before bootstrap, other wise it will cause error-->
+    <script src="{{ url_for('static', filename='js/jquery-3.5.0.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/jquery-ui.js') }}"></script>
+
+    <script src="{{ url_for('static', filename='js/bootstrap-dialog.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/shortcut.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ps-utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/jquery.simplePagination.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ps_version.js') }}"></script>
+
+    <script src="{{ url_for('html.view_embed_main' , project_name=project.name) }}"></script>
+    <script src="{{ url_for('html.view_embed_plot' , project_name=project.name) }}"></script>
+    <script src="{{ url_for('html.view_embed_utils' , project_name=project.name) }}"></script>
+    <script src="{{ url_for('html.view_patchgrid_plot' , project_name=project.name) }}"></script>
+</head>
+<body onload="init()">
+
+    <div id="headRow1" class="row text-right" style="margin-top: 5px; margin-left: 50px; margin-right: 50px;">
+        <div class="col-sm-10 text-center"><p>
+            <h3 class="hTag"><a id="projName" href="{{ url_for('html.index') }}" title="Go to Home Page" >PatchSorter</a><span id="version"></span></h3>
+        </div>
+        <div class="col-sm-2 text-right">
+            <h5 class="hTag"><a href="https://ccipd.case.edu" target="_blank">CCIPD</a></h5>
+        </div>
+    </div><!-- end of headRow1-->
+
+    <div class="titleflex">
+        <div class="controlsflex">
+                <table id="projects-info" class="table table-bordered projectinfo-body">
+                    <thead>
+                        <tr>
+                            <th class="ps_header_stats">Project</th>
+                            <th class="ps_header_stats">No of Images</th>
+                            <th class="ps_header_stats">No of Objects</th>
+                            <th class="ps_header_stats">Percent Annotated</th>
+                            <th class="ps_header_stats">Model Iteration</th>
+                            <th class="ps_header_stats">Embedding</th>
+                            <th class="ps_header_stats"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td id="project_name" style="text-align: center;">{{ project.name }}</td>
+                            <td id="no_of_images" style="text-align: center;">0</td>
+                            <td id="no_of_objects" style="text-align: center;">0</td>
+                            <td id="project_stats">
+                                <table class="lbl_legendtbl">
+                                    <tr><td id="percent_of_objects_annotated" class="lbl_legendcss">0%</td></tr>
+                                    <tr><td id="lbl_legend" class="lbl_legendcss"></td> </tr>
+                                </table>
+
+                            </td>
+                            <td id="iteration" style="text-align: center;">{{ project.iteration }}</td>
+                            <td>
+                                <span id="maxpoints">0%</span><br/>
+                                <progress id="embed_info_dot" value="0" max="100"/>
+                            </td>
+                            <td>
+                               <button id = "ImagesPage" type="button" title="View Images" class= "btn btn-secondary buttonDisp" style="color:black;" onclick='location.href = "{{ url_for('html.view_images',project_name=project.name) }}";'>Images</button>
+                               <button id="info" type="button" title="View Shortcuts" class="btn btn-secondary buttonDisp pull-right" style="margin-left:2px;color:black;" onclick="show_help()">Help</button>
+                            </td>
+
+                        </tr>
+                    </tbody>
+                    </table>
+        </div>
+        <div class="logflex">
+            <textarea id="notifications" class="logbase notification"
+                      readonly>Notifications will appear here.</textarea>
+        </div>
+    </div>
+
+
+
+    <div id="headRow3" class="row headRow2" style="margin-left: 50px; margin-right: 50px;">
+        <div id="labeldiv1" class="col-md-5 text-left" style="padding-left: 0px;padding-right: 0px;">
+            <div id="labelrow1" class="row" style="margin-left: 0px; margin-right: 0px;">
+                <div id="col1" class="col-md-12" style="padding-left: 0px;padding-right: 0px;">
+                    <label class="text-left" style="margin-left: 5px;">Color By: </label>
+                    <label class="labeltext text-left"><input type="radio" name="color_by"  value="1" checked/>Predicted</label>
+                    <label class="labeltext text-left"><input type="radio" name="color_by" value="2"/>Ground Truth</label>
+                    <label class="text-left" style="margin-left: 10px;">Filter By:</label>
+                    <label class="labeltext text-left"><input type="radio" name="filter_by" value="-1" checked/>All</label>
+                    <label class="labeltext text-left"><input type="radio" name="filter_by" value="1"/>Labeled</label>
+                    <label class="labeltext text-left"><input type="radio" name="filter_by" value="0"/>UnLabeled</label>
+                    <label class="labeltext text-left"><input type="radio" name="filter_by" value="2"/>Discordant</label>
+                    <select id="filterlabel" class="text-right" style="width:80px;"></select>
+                </div>
+            </div>
+        </div>
+        <div id="labeldiv" class="col-md-4 text-right" style="padding-left: 0px;padding-right: 0px;">
+
+        </div>
+        <div id="labeldiv2" class="col-md-3 text-right" style="padding-left: 0px;padding-right: 2px;">
+            <button type="button" id="searchRelatedPatch" class= "btn btn-secondary buttonDisp pull-right" style="margin-left:2px;" onclick="search_patch()">Search Patches</button>
+            <button type="button" id="makeEmbedButton" disabled class= "btn btn-secondary buttonDisp pull-right" style="margin-left:2px;" onclick= "make_embed()">Embed Patches</button>
+            <button type="button" id="trainDLButton"  disabled class= "btn btn-secondary buttonDisp pull-right"  style="margin-left:2px;" onclick= "train_dl()">Train DL</button>
+        </div>
+    </div><!-- end og headRow3-->
+
+    <div id="bodyRow1" class="row" style="margin-top:5px;margin-left: 50px; margin-right: 50px;">
+        <div id="message" class="col-sm-12 col-md-12 col-lg-12 jumbotron" style="margin-top:1px; display:none">
+            <p id="dispMessage" class="centerAlign" style="display:none;">Click on Images Button on top and Upload Images to begin</p>
+        </div>
+    </div>
+
+
+<div id="graphView" class="row " style="margin-left: 50px; margin-right: 50px; display:none;">
+    <div id="scatterChart" class="col-md-5 nopadding" style="border: 1px solid gray;height:750px;">
+        <div id="col2" style="margin-top:5px;">
+            <label class="text-left" style="margin-left: 5px;">Show Patches:</label>
+            <input type="checkbox" id="viewpatches" disabled name="View_Patches" onclick="toggle_patch_view_btn(this)">
+            <button type="button" id="resetBtn" disabled class= "btn-small btn-secondary buttonDisp pull-right" style="margin-right:75px;" onclick= "resetPlot()">Reset Plot</button>
+        </div>
+        <div id="scatterContainter" class="svg-container" style="margin-top:15px;">
+
+        </div>
+    </div>
+    <div id="gridChart"  class="col-md-7 nopadding grid-container" style="border: 1px solid gray;overflow-x:hidden;overflow-y:auto;height:750px;">
+        <div id="gridRow1" class="row">
+           <div id="labelgrid1" class="col-md-4 text-left" style="margin-top:5px;padding-left: 15px;padding-right: 0px;">
+                <label class="text-left">Sort By: </label>
+                <label class="labeltext text-left"><input type="radio" name="grid_sortby" value="3" onclick= "sortGT()" checked/>Ground Truth</label>
+                <label class="labeltext text-left"><input type="radio" name="grid_sortby" value="4" onClick="sortPred()"/>Predicted</label>
+                <label class="labeltext text-left"><input type="radio" name="grid_sortby" value="5" onclick= "sortPredScore()"/>PredScore</label>
+           </div>
+            <div class="col-md-4 text-right" style="margin-top:5px;">
+                <label id="selectPatchCnt">0 Patch-Selected</label>
+            </div>
+            <div class="col-md-4 text-right" style="margin-top:5px;">
+            <label for="filter_patch">FilterPatches:</label>
+                <select name="filter_patch" id="filter_patch" onchange="filterPatch()">
+                    <option value="All" selected>All</option>
+                    <option value="UL">UnLabelled</option>
+                    <option value="L">Labelled</option>
+                </select>
+            </div>
+        </div>
+        <div id="gridRow2" class="row">
+            <div class="col-md-2 text-right" style="margin-top:5px;">
+                <label for="no_of_patch">Patches:</label>
+                 <select name="no_of_patch" id="no_of_patch" onchange="changelimit()">
+                    <option value="300" selected>250</option>
+                    <option value="500" >500</option>
+                    <option value="1000">1000</option>
+                </select>
+            </div>
+            <div class="col-md-10 text-right pagination-holder clearfix">
+                <div id="compact-pagination">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="dialog-form"  title="Update Label Names" style="display:none;"></div>
+
+<div id="action_div" class="context-menu" style="display:none; background-color: lightgray"></div>
+
+<div class="modal fade" id="searchPatch" role="dialog">
+    <div class="modal-dialog">
+        <!-- Modal content-->
+        <div class="modal-content">
+            <form method="post" enctype="multipart/form-data" id="myPform">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                    <h4 class="modal-title">Patch Image Search</h4>
+                </div>
+                <div class="modal-body">
+                    <div class="row" id="imagePreviewDiv">
+                        <div id="patchimgDiv" class="col-sm-2 image-preview" style="margin-left:10px;" >
+                            <img id="imagePreview" src="" alt="Image Preview" class="preview_image" style="display:none;">
+                        </div>
+                        <div class="col-sm-2"><input type="file" id="file" name="file"></div>
+                    </div>
+                    <div id="search_approach">
+
+                    </div>
+                    <div id="search_params" style="margin-left:10px;">
+                        <label for="nneighbors">NNeighbors:</label>
+                        <input type="text" id="nneighbors" name="nneighbors" value="100" maxlength="6" autocomplete="off">
+
+                        <br>
+                        <label for="max_threshold">Maximum Threshold:</label>
+                        <!--input type="text" id="maximum_threshold" name="maximum_threshold" value="&#8734" autocomplete="off"><br><br-->
+                        <input type="text" id="max_threshold" name="max_threshold" value="-1" maxlength="6" autocomplete="off">
+                        <label style="font-size:12px;">-1 means Infinte</label>
+                        <br><br>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" id="but_upload" value="Submit" class="btn btn-default" onclick="uploadSearchImage('{{ project.name }}')">Upload And Search</button>
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+const inpFile = document.getElementById("file");
+const previewImage = document.getElementById("imagePreview");
+inpFile.addEventListener("change",function(){
+   const file = this.files[0];
+   if (file){
+                const reader = new FileReader();
+                previewImage.style.display = "block";
+                reader.addEventListener("load",function(){
+                previewImage.setAttribute('src',this.result);
+                });
+                reader.readAsDataURL(file);
+   }else{
+          previewImage.style.display = null;
+   }
+
+});
+</script>
+</body>
+</html>
