@@ -1,0 +1,103 @@
+#no_of_label_type {    
+    width: 60px;
+  }
+
+.headRow2 {
+  border:gray;
+  border-style: solid;
+  border-width: 1px;
+}
+
+#projName{
+    color:#007bff;
+    font-weight: bolder;
+    font-size: 24px;
+}
+
+#version{
+    color:black;
+    font-weight:bold;
+    font-size: small;
+}
+.hTag{
+      line-height: 0;
+}
+#groupName{
+    color:#007bff;
+}
+
+.buttonDisp {
+    color: black;
+    font-size: 1.0em;
+}
+.centerAlign{
+	text-align: center;
+}
+
+.titleflex {
+    display: flex;
+    border: 0px solid orange;
+    flex-direction: row;
+    justify-content: stretch;
+}
+.controlsflex {
+    border: 0px solid black;
+    flex-shrink: 1;
+    margin-left: 50px;
+    margin-right:2px;
+    margin-bottom:5px;
+}
+
+.logflex {
+    border: 0px solid black;
+    flex-grow: 1;
+    margin-right: 50px;
+    margin-bottom:5px;
+}
+.projectinfo-body{
+    margin-bottom: 0px;
+}
+
+table.table-bordered{
+    border:1px solid black;
+  }
+table.table-bordered > thead > tr > th{
+    border:1px solid black;
+
+}
+table.table-bordered > tbody > tr > td{
+    border:1px solid black;
+}
+
+.ps_layout_headRow1{
+    margin-top: 5px;
+    margin-left: 50px;
+    margin-right: 50px;
+}
+
+.ps_layout_headRow2{
+    margin-left: 50px;
+    margin-right: 50px;
+}
+
+.ps_header_stats{
+    text-align: center;
+    background-color: #eee;
+ }
+
+tr:hover td {
+	background: #ccc;
+}
+
+
+.lbl_legendcss{
+    word-wrap: break-word;
+    font-size: 12px;
+    text-align:center;
+    border: none;
+}
+.lbl_legendtbl{
+    table-layout:fixed;
+    width: 200px;
+}
+

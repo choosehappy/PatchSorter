@@ -1,0 +1,9 @@
+
+    {# The path selector handles remote file processing #}
+    <div id="upload-path-input-{{ dz_type|lower }}" class="well middle-form text-center" style="display: none">
+        <h3>Folder Selection Instructions:</h3>
+        <p>Please type in the full absolute path of a folder on the machine hosting this app. We will load all files from that folder.</p>
+        <p>Note: The machine hosting this app may not be the machine you are accessing the browser on!</p>
+        <label for="{{ dz_type|lower }}-folder-path">Path:</label>
+        <input type="text" id="{{ dz_type|lower }}-folder-path" class="upload-folder-path" />
+    </div>

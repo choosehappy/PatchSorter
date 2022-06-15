@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+     <title>{{ image_name }} {{ type }} - {{ project.name }}</title>
+    <script src="{{ url_for('static', filename='js/jquery-3.5.0.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap-dialog.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ps-utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/jquery-ui.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-dialog.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jquery-ui.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ps_project.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/logs.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ps_image_loader.css') }}">
+</head>
+<body onload='init()' style="margin:0;">
+
+<div id="main" class="container">
+    <div id="headRow2" class="row headRow2">
+        <div class="col-sm-3" id="project_name" style="margin-top:5px;"><b>Project:</b> {{ project.name }}</div>
+        <div class="col-sm-3" id="no_of_images" style="margin-top:5px;">Image Name: {{image_name }}</div>
+        <div  class="col-sm-6">
+            <textarea id="notifications" class="logbase notification" readonly>Notifications will appear here.</textarea>
+        </div>
+    </div><!-- end og headRow2-->
+
+    <div id="loader" class="row"></div>
+    <div id="view_image" class="animate-bottom" style="display: none">
+        <canvas id="image_canvas" width="1000" height="1000"></canvas>
+    </div>
+    <div id="error_image" class="animate-bottom" style="margin-top:25px;display: none">
+        <img src="{{url_for('static', filename='ImageNotFound.png')}}" />
+    </div>
+
+</div>
+</body>
+<script>
+function init() {
+    let img_name = "{{image_name}}";
+    let img_id = {{ image_id }};
+    let output_type = "{{ type }}";
+    myTimer();
+    if(output_type =="image"){
+        fetch_image(img_id,img_name);
+    }else if(output_type =="mask"){
+        fetch_mask(img_id,img_name);
+    }
+}
+
+
+var myVar;
+
+function myTimer() {
+   myVar = setInterval(showLoadingWheel, 3000);
+}
+
+function fetch_image(img_id,img_name){
+    let canvas_result_ori = document.getElementById("image_canvas");
+    let ctx_result_ori = canvas_result_ori.getContext("2d");
+    let url = "{{ url_for('api.image', project_name = project.name, image_id='^^^^^',image_name='!!!!!') | safe }}";
+    url = url.replace(escape("^^^^^"), img_id);
+    url = url.replace(escape("!!!!!"), img_name);
+    loadImageAndRetry(url,ctx_result_ori,showImage);
+
+}
+
+function fetch_mask(img_id,img_name){
+    let canvas_result_ori = document.getElementById("image_canvas");
+    let ctx_result_ori = canvas_result_ori.getContext("2d");
+    let url = "{{ url_for('api.mask', project_name = project.name, image_id='^^^^^',image_name='!!!!!') | safe }}";
+    url = url.replace(escape("^^^^^"), img_id);
+    url = url.replace(escape("!!!!!"), img_name);
+    loadImageAndRetry(url,ctx_result_ori,showImage);
+}
+
+
+function showImage() {
+   document.getElementById("view_image").style.display = "block";
+   document.getElementById("loader").style.display = "none";
+   clearInterval(myVar);
+}
+
+function showLoadingWheel(){
+    document.getElementById("loader").style.display = "block";
+}
+
+function imageNotFound(){
+    document.getElementById("error_image").style.display = "block";
+    document.getElementById("loader").style.display = "none";
+    clearInterval(myVar);
+}
+
+</script>
+</html>

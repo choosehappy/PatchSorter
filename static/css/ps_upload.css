@@ -1,0 +1,120 @@
+.well-sm {
+    margin: 1rem;
+}
+
+.bg-dark {
+    background: dimgrey;
+    color: lightgrey;
+}
+
+.modal-dialog {
+    min-height: 50vh;
+    width: 80vw;
+}
+
+.modal-content {
+    position: relative;
+    padding-bottom: 50px;
+    width: 100%;
+    height: 100%;
+}
+
+.modal-body {
+    min-height: 70vh;
+    max-height: 85vh;
+    width: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.btn-large {
+    margin: 5rem;
+    padding: 5rem;
+}
+
+.middle-form {
+    max-width: 90%;
+    margin: 1rem auto;
+}
+
+.dropzone-block {
+    height: 200px;
+    overflow-y: auto;
+}
+
+#modal-navigation-frame {
+    position: absolute;
+    bottom: 0;
+    height: 50px;
+}
+
+#modal-navigation-frame .button-group {
+    display: inline;
+    margin: 0 1rem;
+}
+
+button:disabled {
+    color: lightgrey;
+}
+
+div.review-table {
+    max-height: 50vh;
+    overflow: auto;
+}
+
+#modal-navigation-frame {
+    max-width: 90%;
+}
+
+#modal-step-frame, #modal-navigation-frame {
+    width: 100%;
+    padding: 1rem;
+}
+
+#modal-input-selector-frame {
+    width: 100%;
+    text-align: justify;
+}
+
+#modal-input-selector-frame:after, #selector-mask_type .radio:after {
+    content: '';
+    width: 100%; /* Ensures there are at least 2 lines of text, so justification works */
+    display: inline-block;
+    text-align: justify;
+    height: 0;
+}
+
+#selector-mask_type {
+    display: inline-block;
+    width: 50%;
+}
+
+.radio-selector form {
+    border: 1px solid black;
+    margin: 1rem;
+    display: none;
+}
+
+.radio-selector form h3 {
+    padding: 1rem 0.5rem 0.25rem;
+    margin: 0;
+    background: lightgrey;
+}
+
+.radio-selector {
+    width: 20%;
+}
+
+.radio-selector form div label {
+    margin: 0.5rem 2rem;
+    display: inline-block;
+}
+
+.modal-progress-frame {
+    min-height: 2rem;
+}
+
+
+#modal-review-data-table {
+    width: 100%;
+}

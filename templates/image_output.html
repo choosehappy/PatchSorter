@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+     <title>{{ image_name }} {{ type }} - {{ project.name }}</title>
+    <script src="{{ url_for('static', filename='js/jquery-3.5.0.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap-dialog.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ps-utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/jquery-ui.js') }}"></script>
+    <script src="{{ url_for('html.view_embed_utils' , project_name=project.name) }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-dialog.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jquery-ui.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ps_project.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/logs.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ps_image_loader.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ps_context_menu.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ps_view_embed.css') }}">
+</head>
+<body onload='init()' style="margin:0;">
+
+<div id="main" class="container">
+    <div id="headRow2" class="row headRow2">
+        <div class="col-sm-3" id="project_name" style="margin-top:5px;">
+            <div class="row" style="margin-left:5px;"><b>Project:</b> {{ project.name }}</div>
+            <div class="row" style="margin-top:5px;margin-left:3px;">
+                <button id="refresh" class= "btn" onCLick="regenerateOutput('{{ image_name }}','{{ image_id }}','{{ type }}')">Refresh Image</button>
+                <label class="text-left">View Patch_ids:</label>
+                <input type="checkbox" id="viewpatch_ids" disabled name="View_Patch_Ids" onCLick="open_overlay_ids('{{ image_name }}','{{ image_id }}','{{ type }}')">
+            </div>
+        </div>
+
+        <div class="col-sm-2" id="no_of_images" style="margin-top:5px;">
+            <div class="row" style="margin-top:5px;">Image Name: {{image_name }}</div>
+            <div class="row" style="margin-top:5px;">Annotation: {{ type }}</div>
+
+        </div>
+        <div  class="col-sm-7" style="margin-top:5px;">
+            <textarea id="notifications" class="logbase notification" readonly>Notifications will appear here.</textarea>
+        </div>
+    </div><!-- end og headRow2-->
+
+    <div id="loader" class="row"></div>
+    <div id="view_prediction" class="animate-bottom">
+        <canvas class="outputCanvas" id="prediction_canvas" width="1000" height="1000" style="position: absolute;"></canvas>
+        <canvas class="outputCanvas overlayCanvas" id="marks_canvas" width="1000" height="1000" style="position: absolute;"></canvas>
+        <canvas class="outputCanvas overlayCanvas" id="cross_canvas" width="1000" height="1000" style="position: absolute;"></canvas>
+    </div>
+
+</div>
+
+
+<div id='custom-menu'>
+</div>
+
+
+</body>
+<script>
+const image_name = "{{image_name}}";
+const image_id = {{ image_id }};
+var output_type = "{{ type }}";
+function init() {
+    const image_name = "{{image_name}}";
+    const image_id = {{ image_id }};
+    var output_type = "{{ type }}";
+    const overlay_alpha = 0.7;
+    $(".overlayCanvas").each(function() { this.getContext('2d').globalAlpha = overlay_alpha; });
+    createContextMenu(image_name, image_id, output_type);
+    regenerateOutput(image_name, image_id, output_type);
+}
+
+function get_image_url(image_name, image_id, output_type,overlay_type= 'na'){
+    let url = "{{ url_for('api.get_output_image_'+type, project_name = project.name, image_id='^^^^^', image_name= '!!!!!',output_type='###',overlay_type='^^#') | safe}}";
+    url = url.replace(escape("^^^^^"), image_id);
+    url = url.replace(escape("!!!!!"), image_name);
+    url = url.replace(escape("###"), output_type);
+    url = url.replace(escape("^^#"), overlay_type);
+    return url;
+}
+
+function fetch_output(image_name, image_id, output_type){
+    let canvas_result_ori = document.getElementById("prediction_canvas");
+    let ctx_result_ori = canvas_result_ori.getContext("2d");
+    const url = get_image_url(image_name, image_id, output_type);
+    console.log("fetch _{{ output_type }}  "+ url);
+    loadImageAndRetry(url,ctx_result_ori,imageLoadedCallback);
+}
+
+function delete_image(image_name, image_id, output_type, overlay, callback){
+    const url = get_image_url(image_name, image_id, output_type) + "&overlay=" + overlay;
+    fetch(url, {
+        method: 'DELETE'})
+        .then(response => response.json())
+        .then(data => {
+            if (callback != null) {
+                callback(image_name, image_id, output_type);
+            }
+        });
+}
+function regenerateOutput(image_name, image_id, output_type) {
+    clearMarksCanvas();
+    hideContextMenu();
+    hideImage();
+    document.getElementById("viewpatch_ids").checked=false;
+    document.getElementById("viewpatch_ids").disabled=true;
+    showLoadingWheel();
+    let overlay = 0
+    delete_image(image_name, image_id, output_type, overlay, null);
+    overlay = 1
+    delete_image(image_name, image_id, output_type, overlay, fetch_output);
+}
+
+var naturalWidth;
+var naturalHeight;
+function imageLoadedCallback(image) {
+    clearCrossCanvas();
+    /**
+     * Commented clearMarkCanvas() from here
+     * Now marks on canvas will be cleared only on Refresh or initialization
+     * modified for the view patchid feature and moved it to regenerateOutput function
+     */
+   // clearMarksCanvas();
+    showImage();
+    hideLoadingWheel();
+    naturalWidth = image.naturalWidth;
+    naturalHeight = image.naturalHeight;
+    document.getElementById("viewpatch_ids").disabled=false;
+}
+
+function showImage(){
+    $(".outputCanvas").show();
+}
+function hideImage(){
+    $(".outputCanvas").hide();
+}
+function showLoadingWheel(){
+    $("#loader").show();
+}
+function hideLoadingWheel(){
+    $("#loader").hide();
+}
+
+function getImageXY(event) {
+    const canvas = $("#prediction_canvas").get(0);
+
+    const canvas_W = canvas.width; // <-- these are in canvas size, not in image size
+    const canvas_H = canvas.height;
+    const canvas_X = event.offsetX;
+    const canvas_Y = event.offsetY;
+
+    const X_percent = canvas_X / canvas_W;
+    const Y_percent = canvas_Y / canvas_H;
+    const image_X = Math.round(X_percent * naturalWidth);
+    const image_Y = Math.round(Y_percent * naturalHeight);
+
+    const X = image_X;
+    const Y = image_Y;
+    return {X, Y};
+}
+
+function imageCoordsToCanvasCoords(image_X, image_Y) {
+    const X_percent = image_X / naturalWidth;
+    const Y_percent = image_Y / naturalHeight;
+
+    const canvas = $("#cross_canvas").get(0);
+    const canvas_W = canvas.width;
+    const canvas_H = canvas.height;
+
+    const canvas_X = canvas_W * X_percent;
+    const canvas_Y = canvas_H * Y_percent;
+
+    return {canvas_X, canvas_Y};
+}
+
+function drawLabel(input_patch_X, input_patch_Y, color){
+    const patch_canvas_coords = imageCoordsToCanvasCoords(input_patch_X, input_patch_Y);
+    const patch_X = patch_canvas_coords.canvas_X;
+    const patch_Y = patch_canvas_coords.canvas_Y;
+
+    const canvas = $("#marks_canvas").get(0);
+    const context = canvas.getContext('2d');
+
+    const radius = 10;
+    context.lineWidth = 3;
+
+    context.clearRect(patch_X-radius, patch_Y-radius, radius*2, radius*2);
+
+    context.beginPath();
+    context.arc(patch_X, patch_Y, radius, 0, 2 * Math.PI, false);
+    context.fillStyle = color;
+    context.fill();
+    context.strokeStyle = 'white'
+    context.stroke();
+
+}
+
+// Note: All inputs are in natural image coordinates, not canvas coordinates.
+function drawCross(input_mouse_X, input_mouse_Y, input_patch_X, input_patch_Y, color) {
+
+    clearCrossCanvas();
+
+    const patch_canvas_coords = imageCoordsToCanvasCoords(input_patch_X, input_patch_Y);
+    const patch_X = patch_canvas_coords.canvas_X;
+    const patch_Y = patch_canvas_coords.canvas_Y;
+
+    const mouse_canvas_coords = imageCoordsToCanvasCoords(input_mouse_X, input_mouse_Y);
+    const mouse_X = mouse_canvas_coords.canvas_X;
+    const mouse_Y = mouse_canvas_coords.canvas_Y;
+
+    const radius = 15;
+
+    const canvas = $("#cross_canvas").get(0);
+    const context = canvas.getContext('2d');
+
+    context.beginPath();
+    context.moveTo(patch_X - radius, patch_Y - radius);
+    context.lineTo(patch_X + radius, patch_Y + radius);
+    context.moveTo(patch_X + radius, patch_Y - radius);
+    context.lineTo(patch_X - radius, patch_Y + radius);
+
+    const strokeStyleOuterCross = color;
+    const strokeStyleInnerCross = 'white';
+    const strokeStyleOuterPin = color;
+    const strokeStyleInnerPin = '#000000AA';
+    const strokeStyleConnector = strokeStyleOuterPin;
+
+    context.lineWidth = 8;
+    context.strokeStyle = strokeStyleOuterCross;
+    context.stroke();
+
+    context.lineWidth = 2;
+    context.strokeStyle = strokeStyleInnerCross;
+    context.stroke();
+
+    context.beginPath();
+    context.arc(mouse_X, mouse_Y, radius/2, 0, 2 * Math.PI, false);
+    context.fillStyle = strokeStyleInnerPin;
+    context.fill();
+    context.lineWidth = 3;
+    context.strokeStyle = strokeStyleOuterPin;
+    context.stroke();
+
+    context.beginPath();
+    context.moveTo(mouse_X, mouse_Y);
+    context.lineTo(patch_X, patch_Y);
+    context.strokeStyle = strokeStyleConnector;
+    context.stroke();
+
+}
+
+function clearCanvas(canvas_id){
+    const canvas = $("#" + canvas_id).get(0);
+    const canvas_W = canvas.width;
+    const canvas_H = canvas.height;
+    const context = canvas.getContext('2d');
+    context.clearRect(0,0,canvas_W,canvas_H);
+}
+function clearCrossCanvas(){
+    clearCanvas("cross_canvas");
+}
+function clearMarksCanvas(){
+    clearCanvas("marks_canvas");
+}
+
+const animationTime = 200;
+function hideContextMenu() {
+    clearCrossCanvas();
+    $("#custom-menu").hide(animationTime);
+}
+
+var maxMenuH = 0;
+var maxMenuW = 0;
+function updateMenuSize() {
+    const menuW = $("#custom-menu").width()
+    const menuH = $("#custom-menu").height()
+    //console.log('menuW', menuW)
+    //console.log('menuH', menuH)
+    if (menuW > maxMenuW) { maxMenuW = menuW }
+    if (menuH > maxMenuH) { maxMenuH = menuH }
+}
+
+function createContextMenu(image_name, image_id, output_type) {
+
+    const project_labels = get_project_labels();
+
+    var lastClickedEvent;
+
+    $("#cross_canvas").off("contextmenu").on("contextmenu", function (event) {
+        event.preventDefault();
+        console.log(event);
+        lastClickedEvent = event;
+
+        $("#custom-menu").hide(animationTime);
+
+        const clicked_xy = getImageXY(event)
+        let closest_patch_url = "{{url_for('api.closest_patch',project_name=project.name,image_id=image_id,X=-1,Y=-2) | safe}}";
+        closest_patch_url = closest_patch_url.replace(escape("-1"),clicked_xy.X);
+        closest_patch_url = closest_patch_url.replace(escape("-2"),clicked_xy.Y);
+        console.log(closest_patch_url);
+
+        $(".dropdown-toggle").dropdown();
+
+        fetch(closest_patch_url)
+            .then(response => response.json())
+            .then(closest_patch => {
+                console.log(closest_patch);
+                const label_value = (output_type == 'pred' ? closest_patch.prediction : closest_patch.ground_truth);
+                const label = (label_value == -1 ? {label_color: 'grey'} : project_labels[label_value])
+                drawCross(clicked_xy.X, clicked_xy.Y, closest_patch.X, closest_patch.Y, label.label_color);
+                for (let new_gt = 0; new_gt < project_labels.length; new_gt++) {
+                    const buttonID = "buttonLabel" + new_gt.toString();
+                    if (new_gt == label_value) {
+                        $("#" + buttonID).hide();
+                    } else {
+                        $("#" + buttonID).show();
+                        $("#" + buttonID).off('click'); // remove any previously bound click events
+                        $("#" + buttonID).click(function() {
+                            hideContextMenu();
+                            let run_url = "{{ url_for('api.patch_data', project_name=project.name, patch_id = '!!!!!', gt='###' ) }}"
+                            run_url = run_url.replace(escape("!!!!!"), closest_patch.patch_id);
+                            run_url = run_url.replace(escape("###"), new_gt);
+                            fetch(run_url, {
+                                method: 'PUT',
+                                mode: 'cors', // no-cors, *cors, same-origin
+                                cache: 'no-cache', // *default, no-cache, reload, force-cache, only-if-cached
+                                credentials: 'same-origin', // include, *same-origin, omit
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                }
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                drawLabel(closest_patch.X, closest_patch.Y, project_labels[new_gt].label_color);
+                            });
+                        });
+                    }
+                }
+
+                let newX = event.pageX
+                let newY = event.pageY
+                updateMenuSize()
+                const windowW = window.innerWidth
+                const windowH = window.innerHeight
+                console.log('newX', newX)
+                console.log('newY', newY)
+                console.log('windowW', windowW)
+                console.log('windowH', windowH)
+                if (newX + maxMenuW > windowW) {
+                    newX -= maxMenuW
+                }
+                if (newY + maxMenuH > windowH) {
+                    newY -= maxMenuH
+                }
+                console.log('newX', newX)
+                console.log('newY', newY)
+                $("#custom-menu").show(animationTime).
+                    css({
+                        top: newY + "px",
+                        left: newX + "px"
+                    });
+                updateMenuSize()
+            });
+        
+    });
+
+    for (let i = 0; i < project_labels.length; i++) {
+        const buttonID = "buttonLabel" + i.toString();
+        $('#custom-menu').append(
+            '<button type="button" class="label_' + i + '" id="' + buttonID + '">Change label to "' + project_labels[i].label_name + '"</button>'
+        );
+    }
+    
+    $('#custom-menu').append(
+        '<button type="button" id="buttonCancel">Cancel (close this menu)"</button>'
+    );
+    $("#buttonCancel").click(function() {
+        hideContextMenu();
+    });
+}
+
+function open_overlay_ids(image_name, image_id, output_type){
+    overlay_type = 'wo_ids';
+    if(document.getElementById('viewpatch_ids').checked) {
+        overlay_type = 'w_ids'
+     }
+    let canvas_result_ori = document.getElementById("prediction_canvas");
+    let ctx_result_ori = canvas_result_ori.getContext("2d");
+    const url = get_image_url(image_name, image_id, output_type,overlay_type);
+    console.log("fetch _{{ output_type }}  "+ url);
+    loadImageAndRetry(url,ctx_result_ori,imageLoadedCallback);
+}
+</script>
+</html> 

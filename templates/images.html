@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <title>Images - {{ project.name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-dialog.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dropzone.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jquery-ui.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/basic.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/imageselection.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/logs.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ps_project.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ps_upload.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ps_image_loader.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/simplePagination.css') }}">
+
+    <script src="{{ url_for('static', filename='js/angular.min.js') }}"></script>
+{#        Jquery need to be laoded before bootstrap, other wise it will cause error#}
+    <script src="{{ url_for('static', filename='js/jquery-3.5.0.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/jquery-ui.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap-dialog.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/dropzone.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ps-utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ps-upload.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/jquery.simplePagination.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ps_version.js') }}"></script>
+    <script src="{{ url_for('html.images_main' , project_name=project.name) }}"></script>
+</head>
+<body onload="init()">
+    <!-- Modal -->
+    <div class="modal fade" id="uploadModal" tabindex="-1" aria-labelledby="uploadModalLabel" aria-hidden="true">
+    </div>
+
+    <div id="headRow1" class="row text-right ps_layout_headRow1">
+        <div class="col-sm-10 text-center"><h3 class="hTag"><a id="projName" href="{{ url_for('html.index') }}" title="Go to Home Page" >PatchSorter</a>
+            <span id="version"></span>
+        </h3></div>
+        <div class="col-sm-2 text-right"><h5 class="hTag"><a href="https://ccipd.case.edu" target="_blank">CCIPD</a></h5></div>
+    </div><!-- end of headRow1-->
+    <div class="titleflex">
+        <div class="controlsflex">
+                <table id="projects-info" class="table table-bordered projectinfo-body">
+                        <thead>
+                            <tr>
+                                <th class="ps_header_stats">Project</th>
+                                <th class="ps_header_stats">No of Images</th>
+                                <th class="ps_header_stats">No of Objects</th>
+                                <th class="ps_header_stats">Percent Annotated</th>
+                                <th class="ps_header_stats">Model Iteration</th>
+                                <th class="ps_header_stats"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td id="project_name" style="text-align: center;">{{ project.name }}</td>
+                                <td id="no_of_images" style="text-align: center;">0</td>
+                                <td id="no_of_objects" style="text-align: center;"> 0</td>
+{#                                <td id="percent_of_objects_annotated" style="text-align: center;">0%</td>#}
+                                <td id="project_stats">
+                                    <table class="lbl_legendtbl">
+                                        <tr><td id="percent_of_objects_annotated" class="lbl_legendcss">0%</td></tr>
+                                        <tr><td id="lbl_legend" class="lbl_legendcss"></td> </tr>
+                                    </table>
+
+                                </td>
+                                <td id="iteration" style="text-align: center;">{{ project.iteration }}</td>
+                                <td>
+                                   <button id="make_patches" type="button" class="btn btn-secondary buttonDisp" style="color:black;" disabled onclick="make_patches()">Make Patches</button>
+                                   <button id="view_embed" type="button" class="btn btn-secondary buttonDisp" style="color:black;" disabled onclick='location.href = "{{ url_for('html.view_embed',project_name=project.name) }}";'>View Embed</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+        </div>
+        <div class="logflex">
+            <textarea id="notifications" class="logbase notification"
+                      readonly>Notifications will appear here.</textarea>
+        </div>
+    </div>
+
+    <div class="text-center">
+        {# Upload Button #}
+        <button class="btn btn-primary" style="height: 10rem; width: 50rem; margin: 2rem; font-size: x-large;"
+                onclick="launchUploadWizard()">Upload Images</button>
+
+        {# Button Bar #}
+        <div id="buttonBar" class="row ps_layout_headRow1">
+            <h4> Select an Image and Click on buttons below to view details</h4>
+            <div class="col-md-6 text-center">
+                <button type="button" id="viewImage" class="btn btn-secondary buttonFont" disabled onclick="viewImage()">View Image</button>
+                <button type="button" id="viewMaskImage" class="btn btn-secondary buttonFont" disabled onclick="viewMask()">View Mask Image</button>
+                <button type="button" id="viewAnnotations" class="btn btn-secondary buttonFont" disabled onclick="viewAnnotations()">View Annotations</button>
+                <button type="button" id="viewPredictions" class="btn btn-secondary buttonFont" disabled onclick="viewPredictions()">View Predictions</button>
+            </div>
+            <div class="col-md-4 text-right pagination-holder clearfix">
+                <div id="compact-pagination" class="pagination compact-theme simple-pagination">
+                </div>
+            </div>
+            <div class="form-group text-right col-md-2" id="lbl_no_of_imgs" style="display:none">
+                <div>
+                   <label for="no_of_imgs" style="display: inline-block;">No of Images:</label>
+                   <div style="display: inline-block;">
+                       <select name="no_of_imgs" id="no_of_imgs" onchange="changelimit()" style="display: inline-block;">
+                            <option value="16" selected>16</option>
+                            <option value="32" >32</option>
+                            <option value="48">48</option>
+                        </select>
+                   </div>
+                </div>
+            </div>
+        </div><!-- end of buttonBar -->
+    </div>
+    <div id ="selectionCount" class="counter-container">
+        <h2 id="noSelectedImages" class="counter-child ">Selected</h2>
+        <button id="clearAllSelected" class="btn btn-danger "  onclick="clearAllSelected()">Clear</button>
+    </div>
+    <div  class="row ps_layout_headRow1">
+        <div id="loader" style="display:none"></div>
+        <div id="imageSection" class="row"></div>
+    </div>
+</body>
+</html>
+
+
