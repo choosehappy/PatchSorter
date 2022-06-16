@@ -1,6 +1,7 @@
 # PatchSorter
 ---
 PatchSorter is an open-source digital pathology tool for histologic object labeling.
+![PS user interface screenshot](https://github.com/choosehappy/PatchSorter/wiki/images/patchsorter_tool.gif)
 
 # Requirements
 ---
