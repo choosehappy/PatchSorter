@@ -1,6 +1,6 @@
 # PatchSorter
 ---
-PatchSorter is an open-source digital pathology tool for Cell Labeling.
+PatchSorter is an open-source digital pathology tool for histologic object labeling.
 
 # Requirements
 ---
