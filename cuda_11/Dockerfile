@@ -1,5 +1,6 @@
 FROM nvidia/cuda:11.0.3-cudnn8-devel-ubuntu20.04
 CMD nvidia-smi
+ENV PYTHONPATH "${PYTHONPATH}:/opt"
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" --no-install-recommends \
          build-essential \
