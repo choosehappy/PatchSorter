@@ -1,0 +1,14 @@
+Metadata-Version: 2.1
+Name: PatchSorter
+Version: 1.0.0
+Summary: PatchSorter is an open-source digital pathology tool for histologic object labeling.
+Home-page: https://github.com/choosehappy/PatchSorter
+Author: choosehappy
+Author-email: None
+License: BSD-3-Clause
+Classifier: Intended Audience :: Science/Research
+Classifier: Programming Language :: Python
+Classifier: Topic :: Digital Pathology
+Classifier: Operating System :: Unix
+Requires-Python: >=3.8
+License-File: LICENSE.txt

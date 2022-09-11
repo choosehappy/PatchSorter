@@ -1,21 +1,23 @@
 # Imports:
-import logging
 import os
+import logging
 
-from flask import current_app, jsonify, make_response, send_from_directory
-from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.ext.automap import automap_base
 
+from flask import jsonify, current_app, send_from_directory, make_response
+from flask_sqlalchemy import SQLAlchemy
+
+from PS_worker import run_script
+
 import PS_db
-from .PS_config import config
-from .PS_db import Job, JobidBase, get_project_id, set_job_status
-from .PS_worker import run_script
+from PS_db import Job, JobidBase, set_job_status, get_project_id
+from PS_config import config
 
 # seconds to sleep before re-querying the server:
-retry_seconds = config.getint("frontend", "retry_seconds", fallback=20)
+retry_seconds = config.getint('frontend', 'retry_seconds', fallback=20)
 
 db = SQLAlchemy()
-jobs_logger = logging.getLogger("jobs")
+jobs_logger = logging.getLogger('jobs')
 
 
 ################################################################################
@@ -26,15 +28,13 @@ jobs_logger = logging.getLogger("jobs")
 def getUnfinishedJob(project_name, command, imageid):
     # get the job:
     project_id = get_project_id(project_name)
-    current_app.logger.info(
-        f'Checking if a job is free for project {project_id} ("{project_name}").'
-    )
-    job = (
-        Job.query.filter_by(projId=project_id, cmd=command, imageId=imageid)
-        .filter(Job.status != "DONE")
-        .filter(Job.status != "ERROR")
-        .first()
-    )
+    current_app.logger.info(f'Checking if a job is free for project {project_id} ("{project_name}").')
+    job = Job.query.filter_by(
+        projId=project_id,
+        cmd=command,
+        imageId=imageid).filter(
+        Job.status != "DONE").filter(
+        Job.status != "ERROR").first()
 
     return job
 
@@ -52,21 +52,21 @@ def update_completed_job_status(result):
     if isinstance(retval, int) and retval != 0:
         status = "ERROR"
 
-    jobs_logger.info(f"Setting job status to {status}")
+    jobs_logger.info(f'Setting job status to {status}')
     set_job_status(job_id, status)
 
 
 # If no callback has been assigned after an async job is run, call this function:
 def worker_default_callback(result):
-    jobs_logger.info("Default callback upon job completion called.")
-    jobs_logger.info(f"Full result = {result}")
+    jobs_logger.info('Default callback upon job completion called.')
+    jobs_logger.info(f'Full result = {result}')
     update_completed_job_status(result)
-    jobs_logger.info("Worker callback done.")
+    jobs_logger.info('Worker callback done.')
 
 
 # This gets called once an async job is complete and updates the database status:
 def error_default_callback(error):  # TODO update!! This is very important!
-    jobs_logger.error(f"Worker ERROR callback upon job completion fail. {error}")
+    jobs_logger.error(f'Worker ERROR callback upon job completion fail. {error}')
 
 
 ################################################################################
@@ -81,21 +81,12 @@ def error_default_callback(error):  # TODO update!! This is very important!
 #
 # It will output the 202 html response code
 # and a json request to check again in a few seconds.
-def add_async_job(
-    project_id, command, parameters, arguments, what_to_run, imageid=None, callback=None
-):
+def add_async_job(project_id, command, parameters, arguments, what_to_run, imageid=None, callback=None):
     # log message:
     current_app.logger.info(f"Adding {command} to thread pool.")
 
     # create a new queued job:
-    new_job = Job(
-        projId=project_id,
-        imageId=imageid,
-        cmd=command,
-        status="QUEUE",
-        params=str(arguments),
-        retval="",
-    )
+    new_job = Job(projId=project_id, imageId = imageid, cmd=command, status="QUEUE", params=str(arguments), retval="")
     db.session.add(new_job)
     db.session.commit()
 
@@ -120,18 +111,13 @@ def add_async_job(
     arguments_and_job = (arguments, new_job.id)
 
     # spin up a new thread and run the whatToRun function in that thread:
-    current_app.logger.info(f"Running {command} via {what_to_run}:")
-    PS_db._pool.apply_async(
-        what_to_run,
-        args=arguments_and_job,
-        callback=worker_default_callback if callback is None else callback,
-        error_callback=error_default_callback,
-    )
+    current_app.logger.info(f'Running {command} via {what_to_run}:')
+    PS_db._pool.apply_async(what_to_run, args=arguments_and_job,
+                            callback=worker_default_callback if callback is None else callback,
+                            error_callback=error_default_callback)
 
     # output the 202 response code and a message to retry:
-    current_app.logger.info(
-        "Reporting to the browser that the job was submitted with HTML response code 202."
-    )
+    current_app.logger.info('Reporting to the browser that the job was submitted with HTML response code 202.')
     return make_response(jsonify(job=new_job.as_dict(), retry=retry_seconds), 202)
 
 
@@ -143,28 +129,17 @@ def add_async_job(
 #
 # full_command should be a list of an external command
 # and its arguments
-def pool_run_script(
-    project_name, command_name, full_command, imageid=None, callback=None
-):
+def pool_run_script(project_name, command_name, full_command, imageid=None, callback=None):
     # check if the job is free:
     parameters = project_name  # <-- by convention for running scripts
     job = getUnfinishedJob(project_name, command_name, imageid)
 
     if job is None:
         project_id = get_project_id(project_name)
-        return add_async_job(
-            project_id,
-            command_name,
-            parameters,
-            full_command,
-            run_script,
-            imageid=imageid,
-            callback=callback,
-        )
+        return add_async_job(project_id, command_name, parameters, full_command, run_script, imageid=imageid,
+                             callback=callback)
     else:
-        return make_response(
-            jsonify(job=job.as_dict(), retry=retry_seconds), 409
-        )  # --job exists, return the job
+        return make_response(jsonify(job=job.as_dict(), retry=retry_seconds), 409)  # --job exists, return the job
 
 
 ################################################################################
@@ -178,27 +153,15 @@ def pool_run_script(
 #
 # If the image exists, it will be output.
 # If not, it will be calculated asynchronously.
-def pool_get_image(
-    project_name,
-    command_name,
-    full_command,
-    image_filename,
-    imageid=None,
-    callback=None,
-):
-    current_app.logger.info(
-        f"Getting image {image_filename} from project {project_name}."
-    )
+def pool_get_image(project_name, command_name, full_command, image_filename, imageid=None, callback=None):
+    current_app.logger.info(f'Getting image {image_filename} from project {project_name}.')
 
     # check if the image exists on disk:
     if not os.path.isfile(image_filename):
 
         current_app.logger.info(
-            f"Image does not exist. Running function {command_name} with parameters {full_command}."
-        )
-        return pool_run_script(
-            project_name, command_name, full_command, imageid=imageid, callback=callback
-        )
+            f'Image does not exist. Running function {command_name} with parameters {full_command}.')
+        return pool_run_script(project_name, command_name, full_command, imageid=imageid, callback=callback)
 
     else:
 
@@ -212,6 +175,6 @@ def pool_get_image(
         # response.headers['Expires'] = '-1'
         # response.headers["Content-type"] = "application/json"
         # return response
-
-
 ################################################################################
+
+
