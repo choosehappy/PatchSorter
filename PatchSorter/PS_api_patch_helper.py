@@ -1,26 +1,31 @@
 import base64
-import uuid
-import os
-import logging
 import json
-
+import logging
+import os
+import uuid
 from datetime import datetime
+from time import perf_counter
 
 import cv2
 import numpy as np
 import tables
-from flask import current_app, jsonify, request, make_response
+from flask import current_app, jsonify, make_response, request
+from scipy.spatial import distance
 from shapely.geometry import Polygon
 
-from PS_config import config
-from PS_db import Image, Project, db, Metrics, get_filtered_ids, SearchCache, FilterPlot,get_annotations_percent
-
-from PS_searchtree_store import SearchResultStore, SearchTreeStore
-
-from scipy.spatial import distance
-from time import perf_counter
-from PS_utils import mutex
-
+from .PS_config import config
+from .PS_db import (
+    FilterPlot,
+    Image,
+    Metrics,
+    Project,
+    SearchCache,
+    db,
+    get_annotations_percent,
+    get_filtered_ids,
+)
+from .PS_searchtree_store import SearchResultStore, SearchTreeStore
+from .PS_utils import mutex
 
 # from multiprocessing import Lock
 
@@ -32,21 +37,28 @@ def get_patch_data(project_name, patch_id):
     # TODO: needs error checking, project + patch id need to exist
     pytableLocation = f"./projects/{project_name}/patches_{project_name}.pytable"
     if not os.path.isfile(pytableLocation):
-        return make_response(jsonify(error="Embedding pytable file does not exist"), 400)
+        return make_response(
+            jsonify(error="Embedding pytable file does not exist"), 400
+        )
     patch_ids = patch_id.split(",")
     with mutex:
-        with tables.open_file(pytableLocation, mode='a') as hdf5_file:
+        with tables.open_file(pytableLocation, mode="a") as hdf5_file:
             patch_list = []
             for id in patch_ids:
                 patch = int(id)
-                patch_obj = {'patch_id': patch, 'imgID': hdf5_file.root.imgID[patch].item(),
-                             'patch_row': hdf5_file.root.patch_row[patch].item(),
-                             'patch_column': hdf5_file.root.patch_column[patch].item(),
-                             'prediction': hdf5_file.root.prediction[patch].item(),
-                             'ground_truth_label': hdf5_file.root.ground_truth_label[patch].item(),
-                             'predscore': hdf5_file.root.pred_score[patch].item(),
-                             'embed_x': hdf5_file.root.embed_x[patch].item(),
-                             'embed_y': hdf5_file.root.embed_y[patch].item()}
+                patch_obj = {
+                    "patch_id": patch,
+                    "imgID": hdf5_file.root.imgID[patch].item(),
+                    "patch_row": hdf5_file.root.patch_row[patch].item(),
+                    "patch_column": hdf5_file.root.patch_column[patch].item(),
+                    "prediction": hdf5_file.root.prediction[patch].item(),
+                    "ground_truth_label": hdf5_file.root.ground_truth_label[
+                        patch
+                    ].item(),
+                    "predscore": hdf5_file.root.pred_score[patch].item(),
+                    "embed_x": hdf5_file.root.embed_x[patch].item(),
+                    "embed_y": hdf5_file.root.embed_y[patch].item(),
+                }
                 patch_list.append(patch_obj)
     return make_response(jsonify(patch_list), 200)
 
@@ -57,24 +69,28 @@ def get_patch_image(project_name, patch_id):
     # TODO: needs error checking, project + patch id need to exist
     proj = db.session.query(Project).filter_by(name=project_name).first()
     if proj is None:
-        return make_response(jsonify(error=f"project {project_name} doesn't exist"), 400)
+        return make_response(
+            jsonify(error=f"project {project_name} doesn't exist"), 400
+        )
     pytableLocation = f"./projects/{project_name}/patches_{project_name}.pytable"
     if not os.path.isfile(pytableLocation):
-        return make_response(jsonify(error="Embedding pytable file does not exist"), 400)
+        return make_response(
+            jsonify(error="Embedding pytable file does not exist"), 400
+        )
 
     with mutex:
-        with tables.open_file(pytableLocation, mode='r') as hdf5_file:
+        with tables.open_file(pytableLocation, mode="r") as hdf5_file:
             img = hdf5_file.root.patch[int(patch_id), ::].squeeze()
 
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     # Was using this to save patch images for the new Patch Image Search Feature.
     # basedir = f"./projects/{project_name}/"
     # cv2.imwrite(basedir+"img_"+patch_id+".png", img)
-    success, img_encoded = cv2.imencode('.png', img)
+    success, img_encoded = cv2.imencode(".png", img)
 
     response = make_response(img_encoded.tobytes())
-    response.headers['Content-Type'] = 'image/png'
-    response.headers['Content-Disposition'] = f'inline; filename = "{patch_id}.png"'
+    response.headers["Content-Type"] = "image/png"
+    response.headers["Content-Disposition"] = f'inline; filename = "{patch_id}.png"'
     return response
 
 
@@ -83,32 +99,50 @@ def get_patch_context_image(project_name, patch_id):
     # TODO: needs error checking, project + patch id need to exist
     proj = db.session.query(Project).filter_by(name=project_name).first()
     if proj is None:
-        return make_response(jsonify(error=f"project {project_name} doesn't exist"), 400)
+        return make_response(
+            jsonify(error=f"project {project_name} doesn't exist"), 400
+        )
     pytableLocation = f"./projects/{project_name}/patches_{project_name}.pytable"
     if not os.path.isfile(pytableLocation):
-        return make_response(jsonify(error="Embedding pytable file does not exist"), 400)
+        return make_response(
+            jsonify(error="Embedding pytable file does not exist"), 400
+        )
 
     with mutex:
-        with tables.open_file(pytableLocation, mode='r') as hdf5_file:
+        with tables.open_file(pytableLocation, mode="r") as hdf5_file:
             c = hdf5_file.root.patch_column[int(patch_id)]
             r = hdf5_file.root.patch_row[int(patch_id)]
             imgid = hdf5_file.root.imgID[int(patch_id)]
 
-    imageobj = db.session.query(Image.id, Image.img_name, Image.img_path).filter(Image.id == int(imgid)).first()
+    imageobj = (
+        db.session.query(Image.id, Image.img_name, Image.img_path)
+        .filter(Image.id == int(imgid))
+        .first()
+    )
     img = cv2.imread(imageobj.img_path)
 
-    contextsize = config.getint('frontend', 'context_patch_size', fallback=128)
-    img = np.pad(img, [(contextsize, contextsize), (contextsize, contextsize),[0,0]], mode="constant", constant_values=0)
-    r+=contextsize #allow for cropping around center of object, even if it is on the edge
-    c+=contextsize #visually this will make the object in the middle of the ROI
+    contextsize = config.getint("frontend", "context_patch_size", fallback=128)
+    img = np.pad(
+        img,
+        [(contextsize, contextsize), (contextsize, contextsize), [0, 0]],
+        mode="constant",
+        constant_values=0,
+    )
+    r += contextsize  # allow for cropping around center of object, even if it is on the edge
+    c += contextsize  # visually this will make the object in the middle of the ROI
 
-    img = img[max(0, r - contextsize // 2):min(img.shape[0], r + contextsize // 2),
-          max(0, c - contextsize // 2):min(img.shape[1], c + contextsize // 2), :]
-    success, img_encoded = cv2.imencode('.png', img)
+    img = img[
+        max(0, r - contextsize // 2) : min(img.shape[0], r + contextsize // 2),
+        max(0, c - contextsize // 2) : min(img.shape[1], c + contextsize // 2),
+        :,
+    ]
+    success, img_encoded = cv2.imencode(".png", img)
 
     response = make_response(img_encoded.tobytes())
-    response.headers['Content-Type'] = 'image/png'
-    response.headers['Content-Disposition'] = f'inline; filename = "{patch_id}_context.png"'
+    response.headers["Content-Type"] = "image/png"
+    response.headers[
+        "Content-Disposition"
+    ] = f'inline; filename = "{patch_id}_context.png"'
     return response
 
 
@@ -118,20 +152,24 @@ def get_patch_mask(project_name, patch_id):
     # TODO: needs error checking, project + patch id need to exist
     proj = db.session.query(Project).filter_by(name=project_name).first()
     if proj is None:
-        return make_response(jsonify(error=f"project {project_name} doesn't exist"), 400)
+        return make_response(
+            jsonify(error=f"project {project_name} doesn't exist"), 400
+        )
     pytableLocation = f"./projects/{project_name}/patches_{project_name}.pytable"
     if not os.path.isfile(pytableLocation):
-        return make_response(jsonify(error="Embedding pytable file does not exist"), 400)
+        return make_response(
+            jsonify(error="Embedding pytable file does not exist"), 400
+        )
     with mutex:
-        with tables.open_file(pytableLocation, mode='r') as hdf5_file:
+        with tables.open_file(pytableLocation, mode="r") as hdf5_file:
             img = hdf5_file.root.mask[int(patch_id), ::].squeeze()
 
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-    success, img_encoded = cv2.imencode('.png', img * 255)
+    success, img_encoded = cv2.imencode(".png", img * 255)
 
     response = make_response(img_encoded.tobytes())
-    response.headers['Content-Type'] = 'image/png'
-    response.headers['Content-Disposition'] = f'inline; filename = "{patch_id}.png"'
+    response.headers["Content-Type"] = "image/png"
+    response.headers["Content-Disposition"] = f'inline; filename = "{patch_id}.png"'
     return response
 
 
@@ -140,45 +178,62 @@ def get_patch_mask(project_name, patch_id):
 def update_ground_truth(project_name, patch_id):
     proj = db.session.query(Project).filter_by(name=project_name).first()
     if proj is None:
-        return make_response(jsonify(error=f"project {project_name} doesn't exist"), 400)
+        return make_response(
+            jsonify(error=f"project {project_name} doesn't exist"), 400
+        )
 
     pytableLocation = f"./projects/{project_name}/patches_{project_name}.pytable"
     if not os.path.isfile(pytableLocation):
-        return make_response(jsonify(error="Embedding pytable file does not exist"), 400)
+        return make_response(
+            jsonify(error="Embedding pytable file does not exist"), 400
+        )
     patch_ids = patch_id.split(",")
-    if 'gt' not in request.args:
+    if "gt" not in request.args:
         return make_response(jsonify(error="gt variable not set"), 400)
 
-    gt = request.args.get('gt', default=-1, type=int)
+    gt = request.args.get("gt", default=-1, type=int)
     with mutex:
-        with  tables.open_file(pytableLocation, mode='a') as hdf5_file:
+        with tables.open_file(pytableLocation, mode="a") as hdf5_file:
             for patch in patch_ids:
-                hdf5_file.root.prediction[int(patch)] = gt,
+                hdf5_file.root.prediction[int(patch)] = (gt,)
                 hdf5_file.root.ground_truth_label[int(patch)] = gt
 
             gt_label = hdf5_file.root.ground_truth_label[:]
 
-    object_count, percent_annotated,percent_dist = get_annotations_percent(gt_label)
+    object_count, percent_annotated, percent_dist = get_annotations_percent(gt_label)
 
     no_id = len(patch_ids)
-    new_metric = Metrics(projId=proj.id, label_update_time=datetime.utcnow(),
-                             no_of_objects_labelled=no_id)
+    new_metric = Metrics(
+        projId=proj.id,
+        label_update_time=datetime.utcnow(),
+        no_of_objects_labelled=no_id,
+    )
     db.session.add(new_metric)
     db.session.commit()
 
-    return make_response(jsonify(patch_id=patch_id, ground_truth=gt,object_count=object_count,
-                                 percent_annotated=percent_annotated,percent_dist=percent_dist), 200)
+    return make_response(
+        jsonify(
+            patch_id=patch_id,
+            ground_truth=gt,
+            object_count=object_count,
+            percent_annotated=percent_annotated,
+            percent_dist=percent_dist,
+        ),
+        200,
+    )
 
 
 def update_label_metrics(no_patchs_labelled, projId):
     if no_patchs_labelled > 0:
-        current_app.logger.info('Updating Metrics in database:')
+        current_app.logger.info("Updating Metrics in database:")
         # create a metrics row:
 
 
 # @SearchCache.memoize()
 def patch_by_polygon(project_name, polygonstring, plot_by, filter_by, class_by):
-    points = [point.strip().split(' ') for point in polygonstring.replace("M", "").split("L")]
+    points = [
+        point.strip().split(" ") for point in polygonstring.replace("M", "").split("L")
+    ]
     points = np.asarray(points).astype(np.float)
     try:
         polygon = Polygon(points)
@@ -187,16 +242,21 @@ def patch_by_polygon(project_name, polygonstring, plot_by, filter_by, class_by):
     tree = SearchTreeStore[project_name]
     if tree is None:
         return make_response(jsonify(error="Search table does not exist"), 400)
-    hits = tree.query(polygon)  # the .query ofthe STree returns not the points within the polygon made by the lasso,
+    hits = tree.query(
+        polygon
+    )  # the .query ofthe STree returns not the points within the polygon made by the lasso,
     # but the points within the extent of the polygon made by the lasso.
     # The extent in this case is essentially the bounding box.
     # https://shapely.readthedocs.io/en/stable/manual.html#strtree.STRtree.strtree.query
 
     if not hits:
-        return make_response(jsonify(message="No Patches obtained, please lasso over the points."), 400)
+        return make_response(
+            jsonify(message="No Patches obtained, please lasso over the points."), 400
+        )
 
-    idx = [hit.id for hit in hits if
-           hit.intersects(polygon)]  # --- note this should be stored in memory on server side in a cache
+    idx = [
+        hit.id for hit in hits if hit.intersects(polygon)
+    ]  # --- note this should be stored in memory on server side in a cache
     # idx = [int(hit.id) for hit in hits]
     if filter_by != int(FilterPlot.ALL) or class_by != int(FilterPlot.ALL):
         idx = get_filtered_ids(idx, plot_by, filter_by, class_by, project_name)
@@ -217,16 +277,22 @@ def patch_by_page(project_name, embedKey, pageNo, pageLimit):
     patch_ids = allids[start:end]
     pytableLocation = f"./projects/{project_name}/patches_{project_name}.pytable"
     with mutex:
-        with tables.open_file(pytableLocation, mode='r') as hdf5_file:
+        with tables.open_file(pytableLocation, mode="r") as hdf5_file:
             rowCount = np.arange(int(hdf5_file.root.embed_x.shape[0]))
-            patch_data = np.asarray([
-                rowCount[patch_ids],
-                hdf5_file.root.embed_x[patch_ids],
-                hdf5_file.root.embed_y[patch_ids],
-                hdf5_file.root.ground_truth_label[patch_ids],
-                hdf5_file.root.prediction[patch_ids],
-                hdf5_file.root.pred_score[patch_ids],
-            ]).transpose().tolist()
+            patch_data = (
+                np.asarray(
+                    [
+                        rowCount[patch_ids],
+                        hdf5_file.root.embed_x[patch_ids],
+                        hdf5_file.root.embed_y[patch_ids],
+                        hdf5_file.root.ground_truth_label[patch_ids],
+                        hdf5_file.root.prediction[patch_ids],
+                        hdf5_file.root.pred_score[patch_ids],
+                    ]
+                )
+                .transpose()
+                .tolist()
+            )
     #         image_dict = {}
     #         for id in patch_ids:
     #             image_dict[id] = base64.b64encode(cv2.imencode('.png',cv2.cvtColor(hdf5_file.root.patch[int(id), ::].squeeze(), cv2.COLOR_RGB2BGR))[1]).decode()
@@ -238,7 +304,7 @@ def closeset_patch(project_name, image_id, x, y):
     t_start = perf_counter()
     pytableLocation = f"./projects/{project_name}/patches_{project_name}.pytable"
     with mutex:
-        with tables.open_file(pytableLocation, mode='r') as hdf5_file:
+        with tables.open_file(pytableLocation, mode="r") as hdf5_file:
             patch_idxs = np.nonzero(hdf5_file.root.imgID[:] == image_id)[0]
             rows = hdf5_file.root.patch_row[patch_idxs]
             cols = hdf5_file.root.patch_column[patch_idxs]
@@ -252,7 +318,9 @@ def closeset_patch(project_name, image_id, x, y):
             closest_patch_row = rows[closest]
             closest_patch_col = cols[closest]
             closest_patch_prediction = hdf5_file.root.prediction[closest_patch_idx]
-            closest_patch_ground_truth = hdf5_file.root.ground_truth_label[closest_patch_idx]
+            closest_patch_ground_truth = hdf5_file.root.ground_truth_label[
+                closest_patch_idx
+            ]
     t_end = perf_counter()
 
     return make_response(
@@ -262,5 +330,7 @@ def closeset_patch(project_name, image_id, x, y):
             X=int(closest_patch_col),
             prediction=int(closest_patch_prediction),
             ground_truth=int(closest_patch_ground_truth),
-            query_ms=round(1000 * (t_end - t_start))),
-        200)
+            query_ms=round(1000 * (t_end - t_start)),
+        ),
+        200,
+    )

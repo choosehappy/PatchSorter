@@ -5,10 +5,10 @@ import threading
 
 import sqlalchemy
 
-from PS_config import get_database_uri
-from PS_db import set_job_status
+from .PS_config import get_database_uri
+from .PS_db import set_job_status
 
-jobs_logger = logging.getLogger('jobs')
+jobs_logger = logging.getLogger("jobs")
 
 
 ################################################################################
@@ -22,16 +22,21 @@ def run_script(external_command, job_id):
     # say the job is running:
     engine = sqlalchemy.create_engine(get_database_uri())
 
-    jobs_logger.info(f'Running command {command_id}: {external_command}')
+    jobs_logger.info(f"Running command {command_id}: {external_command}")
 
     # from https://stackoverflow.com/a/18422264
-    process = subprocess.Popen(external_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(
+        external_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
 
     # display the output:
-    for line in iter(process.stdout.readline, b''):
-        output = line.strip().decode('utf-8')
+    for line in iter(process.stdout.readline, b""):
+        output = line.strip().decode("utf-8")
         jobs_logger.debug(output)
-        engine.connect().execute(f"insert into jobid_{job_id} (timestamp,procout) values  (datetime('now'), :output);", output = output)
+        engine.connect().execute(
+            f"insert into jobid_{job_id} (timestamp,procout) values  (datetime('now'), :output);",
+            output=output,
+        )
 
     # https://stackoverflow.com/a/39477756
     jobs_logger.info("Waiting for the job and then getting stdout and stderr:")
@@ -40,14 +45,17 @@ def run_script(external_command, job_id):
     process.stdout.close()
 
     # check if there were any errors:
-    stderr = stderr.strip().decode('utf-8')
+    stderr = stderr.strip().decode("utf-8")
     if stderr != "":
-        jobs_logger.error(f'stderr = {stderr}')
+        jobs_logger.error(f"stderr = {stderr}")
 
     jobs_logger.info("Polling for completion:")
     return_value = process.poll()
-    jobs_logger.info(f'Return value = {return_value}')
-    engine.connect().execute(f"insert into jobid_{job_id} (timestamp,procout) values  (datetime('now'), :retval);",retval = f"Return value: {return_value}")
+    jobs_logger.info(f"Return value = {return_value}")
+    engine.connect().execute(
+        f"insert into jobid_{job_id} (timestamp,procout) values  (datetime('now'), :retval);",
+        retval=f"Return value: {return_value}",
+    )
     engine.dispose()
 
     return return_value, job_id  # <-- output the command's output

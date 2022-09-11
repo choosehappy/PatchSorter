@@ -6,7 +6,8 @@ from flask import current_app, jsonify, make_response, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.ext.automap import automap_base
 
-import PS_db
+from PatchSorter import PS_db
+
 from .PS_config import config
 from .PS_db import Job, JobidBase, get_project_id, set_job_status
 from .PS_worker import run_script
