@@ -10,23 +10,15 @@ from flask_restless import APIManager, ProcessingException
 from sqlalchemy import delete
 from waitress import serve
 
+from PatchSorter import PS_db
 from PatchSorter.PS_api import api_blueprint
 from PatchSorter.PS_api_image import delete_image
 from PatchSorter.PS_api_image_upload import upload_modal
 from PatchSorter.PS_api_project_helper import delete_label
 from PatchSorter.PS_config import config, get_database_uri
-from PatchSorter.PS_db import (
-    Image,
-    Job,
-    Labelnames,
-    Metrics,
-    Project,
-    SearchCache,
-    check_projectexists,
-    create_newproj_dir,
-    db,
-    setup_flask_admin,
-)
+from PatchSorter.PS_db import (Image, Job, Labelnames, Metrics, Project,
+                               SearchCache, check_projectexists,
+                               create_newproj_dir, db, setup_flask_admin)
 from PatchSorter.PS_html import html
 
 
