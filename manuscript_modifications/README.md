@@ -4,7 +4,7 @@
 Modifications were made for use case 2 of the PatchSorter article to allow for the presentation of additional context.
 For replicating the behaviour of the modified PatchSorter instance, copy the `view_patchgrid_plot.js` and `view_embed_plot.js` files into the `templates` folder of your PatchSorter instance.
 
-Quick overview of the made changes using the diff syntax:
+Quick overview of the changes made using the diff syntax:
 
 ``` 
 --- PatchSorter/templates/view_patchgrid_plot.js
