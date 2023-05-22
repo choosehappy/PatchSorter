@@ -1,3 +1,13 @@
+## PatchSorter manuscript additional information
+
+### Data set generation and labels per second over time statistics
+
+* nuclei_data_set_generation_script.py
+    Script for generating a data set for replcating nuclei labeling use case.
+
+* time_analysis
+    Generate an excel file with lps over time measuruments as shown in figure 2.
+
 ### PatchSorter modifications for the detection of tumor buds in pulmonary squamous cell carcinoma use case
 
 
