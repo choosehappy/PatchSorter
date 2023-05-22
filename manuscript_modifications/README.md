@@ -2,11 +2,13 @@
 
 ### Data set generation and labels per second over time statistics
 
-* nuclei_data_set_generation_script.py  
-    Script for generating labled image tile for nuclei labeling use case.
+* nuclei_data_set_generation_script.py 
+   
+    Script for generating image tiles with labled nuclei masks from whole slide images for nuclei labeling use case.
 
 * time_analysis.py  
-    Generate an excel file with lps over time measuruments as shown in figure 2.
+   
+    Script for measuring lps over time (Figure 2).
 
 ### PatchSorter modifications for the detection of tumor buds in pulmonary squamous cell carcinoma use case
 
