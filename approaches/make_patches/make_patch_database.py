@@ -242,8 +242,8 @@ try:
             if img_csv_path:
                 rows, cols, ground_truth_labels = _process_csvlabels(img_csv_path)
             else:
-                idxs = np.asarray(range((imgshape_orig[0] - patchsize) * (imgshape_orig[1] - patchsize))).reshape(
-                    np.asarray(imgshape_orig)[0:2] - patchsize)
+                idxs = np.asarray(range((imgshape_orig[0]) * (imgshape_orig[1]))).reshape(
+                    np.asarray(imgshape_orig)[0:2])
                 # idx_out = sklearn.feature_extraction.image.extract_patches(idxs, (patchsize, patchsize), patchsize)
                 idx_out = extract_patches(idxs, (patchsize, patchsize), patchsize)
                 idx_out = idx_out[:, :, 0, 0]
