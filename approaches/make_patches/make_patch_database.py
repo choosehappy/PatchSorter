@@ -24,7 +24,7 @@ import numpy as np
 import skimage.measure
 import tables
 from PS_scikitlearn import extract_patches
-from PatchSorter.PS_db import MaskTypeEnum
+from patchsorter.db import MaskTypeEnum
 import csv
 
 

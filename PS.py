@@ -7,19 +7,19 @@ from multiprocessing import Pool
 from flask import Flask
 from flask_restless import APIManager, ProcessingException
 from waitress import serve
+from patchsorter.config import get_database_uri
 from sqlalchemy import delete
 import signal
 
 
-
-import PS_db
-from PS_api import api_blueprint
-from PS_api_image import delete_image
-from PS_api_project_helper import delete_label
-from PS_config import config, get_database_uri
-from PS_db import db, Image, Project, Job, Labelnames, Metrics, create_newproj_dir, check_projectexists, setup_flask_admin, SearchCache
-from PS_html import html
-from PS_api_image_upload import upload_modal
+import patchsorter.db as psdb
+from patchsorter.api import api_blueprint
+from patchsorter.api.image import delete_image
+from patchsorter.api.project.helper import delete_label
+from patchsorter.config import config
+from patchsorter.db import db, Image, Project, Job, Labelnames, Metrics, create_newproj_dir, check_projectexists, setup_flask_admin, SearchCache
+from patchsorter.html import html
+from patchsorter.api.image.upload import upload_modal
 
 
 def add_project(**kw):
@@ -116,7 +116,7 @@ if __name__ == '__main__': #This seems like the correct place to do this
     # ----
     app.logger.info('Clearing stale jobs')
     if config.getboolean('flask', 'clear_stale_jobs_at_start', fallback=True):
-        njobs = PS_db.clear_stale_jobs()  # <-- clear old queued jobs from last session
+        njobs = psdb.clear_stale_jobs()  # <-- clear old queued jobs from last session
         db.session.commit()
         app.logger.info(f'Deleted {njobs} queued jobs.')
 
@@ -148,7 +148,7 @@ if __name__ == '__main__': #This seems like the correct place to do this
 
     app.logger.info('Starting up worker pool.')
 
-    PS_db._pool = Pool(processes=config.getint('pooling', 'npoolthread', fallback=4),initializer=init_worker)
+    psdb._pool = Pool(processes=config.getint('pooling', 'npoolthread', fallback=4),initializer=init_worker)
 
     try:
 
@@ -159,10 +159,10 @@ if __name__ == '__main__': #This seems like the correct place to do this
     #       threads=config.getint('flask', 'threads', fallback=8),)
     except KeyboardInterrupt:
         print("Caught KeyboardInterrupt, terminating workers")
-        PS_db._pool.terminate()
-        PS_db._pool.join()
+        psdb._pool.terminate()
+        psdb._pool.join()
 
     else:
         print("PS application terminated by user")
-        PS_db._pool.close()
-        PS_db._pool.join()
+        psdb._pool.close()
+        psdb._pool.join()
