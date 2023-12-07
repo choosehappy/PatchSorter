@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import shutil
@@ -20,7 +21,7 @@ from patchsorter.config import config
 from patchsorter.db import db, Image, Project, Job, Labelnames, Metrics, create_newproj_dir, check_projectexists, setup_flask_admin, SearchCache
 from patchsorter.html import html
 from patchsorter.api.image.upload import upload_modal
-
+from patchsorter.utils import init_worker
 
 def add_project(**kw):
     projectName = kw['result']['name']
@@ -72,11 +73,10 @@ def check_existing_project(data):
             raise ProcessingException(description=f'Project [{project_name}] require labels between(1-10).', code=400)
 
 
-def init_worker():
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
 
-if __name__ == '__main__': #This seems like the correct place to do this
 
+
+def run_patchsorter():
     # Create the Flask-Restless API manager
     app = Flask(__name__)
 #    app.debug = True
@@ -166,3 +166,9 @@ if __name__ == '__main__': #This seems like the correct place to do this
         print("PS application terminated by user")
         psdb._pool.close()
         psdb._pool.join()
+
+
+
+if __name__ == '__main__': #This seems like the correct place to do this
+    # parser = argparse.ArgumentParser(description='Split histoqc tsv into training and testing')
+    run_patchsorter()

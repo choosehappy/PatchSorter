@@ -49,12 +49,12 @@ def make_patches(project_name):
         current_app.logger.warn(f'Unable to find {project_name} in database. Returning HTML response code 400.')
         return make_response(jsonify(error=f"Project {project_name} does not exist"), 400)
 
-    csvfileName = f"./projects/{project_name}/image_details.csv";
+    csvfileName = f"./projects/{project_name}/image_details.csv"
     str_delimiter = config.get('image_details', 'delimitby', fallback=',')
     if str_delimiter == ',':
-        csvfileName = f"./projects/{project_name}/image_details.csv";
+        csvfileName = f"./projects/{project_name}/image_details.csv"
     else:
-        csvfileName = f"./projects/{project_name}/image_details.txt";
+        csvfileName = f"./projects/{project_name}/image_details.txt"
     current_app.logger.info(f'Saving to {csvfileName}:')
     # -- Changed the f.write to not have mask and csv path if None 10/22/2020
     images = get_images(project.id)

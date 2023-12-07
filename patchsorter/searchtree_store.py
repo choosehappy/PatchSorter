@@ -9,7 +9,7 @@ from flask import current_app
 from patchsorter.utils import mutex
 from time import perf_counter
 
-class PS_SearchTreeStore():
+class PatchSorterSearchTreeStore():
     def __init__(self, maxstoreitems=1):
         self.store = OrderedDict()
         self.maxstoreitems = maxstoreitems
@@ -49,7 +49,7 @@ class PS_SearchTreeStore():
         self.store[key] = value  # moved the data storage after popitem to end up with right maxstoreitems.
 
 
-class PS_SearchResultStore():
+class PatchSorterSearchResultStore():
     def __init__(self, maxstoreitems=1):
         self.store = OrderedDict()
         self.maxstoreitems = maxstoreitems
@@ -62,8 +62,5 @@ class PS_SearchResultStore():
     def __getitem__(self,key):
         return self.store[key]
 
-
-
-
-SearchResultStore = PS_SearchResultStore(config.getint('caching', 'searchqueries', fallback=5))
-SearchTreeStore = PS_SearchTreeStore(config.getint('caching', 'searchtreestorageitems', fallback=1))
+SearchResultStore = PatchSorterSearchResultStore(config.getint('caching', 'searchqueries', fallback=5))
+SearchTreeStore = PatchSorterSearchTreeStore(config.getint('caching', 'searchtreestorageitems', fallback=1))

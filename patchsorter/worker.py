@@ -2,14 +2,12 @@ import logging
 import subprocess
 import sys
 import threading
-
 import sqlalchemy
-
+import signal
 from patchsorter.config import get_database_uri
 from patchsorter.db import set_job_status
 
 jobs_logger = logging.getLogger('jobs')
-
 
 ################################################################################
 # Run an external command and block until it's finished:
