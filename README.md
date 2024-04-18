@@ -55,7 +55,7 @@ The general guides for installing Pytorch can be summarized as following:
 ```
  E:\<<folder_path>>\PatchSorter>python3 -m patchsorter
 ```
-By default, it will start up on localhost:5558
+By default, it will start up on localhost:5555
 
 *Warning*: virtualenv will not work with paths that have spaces in them, so make sure the entire path to `env/` is free of spaces.
 ### Config Sections

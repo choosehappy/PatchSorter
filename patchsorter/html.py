@@ -3,12 +3,12 @@ from flask import render_template, Blueprint, request, current_app
 from flask_sqlalchemy import SQLAlchemy
 
 from patchsorter.config import config
-from patchsorter.db import Image, Project, Job, get_latest_modelid, get_images
+from patchsorter.db import db, Image, Project, Job, get_latest_modelid, get_images
 
 print(__name__)
 print(os.getcwd())
 html = Blueprint("html", __name__, static_folder="static", template_folder="templates", static_url_path="/lists/static")
-db = SQLAlchemy()
+# db = SQLAlchemy()
 @html.route('/favicon.ico')
 def favicon():
     return html.send_static_file("favicon.ico")

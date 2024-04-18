@@ -87,7 +87,7 @@ class ImageSearch(Resource):
 
         # --- figure out which key
         approach_script_name = config.get('image_search', 'approach_options',
-                                          fallback='embed:Embedding:./approaches/image_search/image_search_embed.py')
+                                          fallback='embed:Embedding:./patchsorter/approaches/image_search/image_search_embed.py')
         approaches = approach_script_name.splitlines()  # this part should really be done by converting the list to a dict, and then accesing tuple by key
         keys = [a.split(":")[0] for a in approaches]
         approach = request.form.get('approach',

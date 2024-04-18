@@ -74,7 +74,7 @@ def make_patches(project_name):
     # get config properties:
     patchsize = config.getint('make_patches', 'patchsize', fallback=32)
     makepatch_script_name = config.get('make_patches', 'makepatch_script_name',
-                                       fallback='./approaches/make_patches/make_patch_database.py')
+                                       fallback='./patchsorter/approaches/make_patches/make_patch_database.py')
     pytablefile = f"./projects/{project_name}/patches_{project_name}.pytable";
     # get the command:
     full_command = [sys.executable, f"{makepatch_script_name}", f"{project_name}",
@@ -96,7 +96,7 @@ def make_patches_callback(result):
     update_completed_job_status(result)
 
     retval, jobid = result
-    engine = sqlalchemy.create_engine(get_database_uri())
+    engine = db.engine # sqlalchemy.create_engine(get_database_uri())
     dbretval = engine.connect().execute(f"select procout from jobid_{jobid} where procout like 'RETVAL:%'").first()
     if dbretval is None:
         # no retval, indicating make_patches didn't get to the end, leave everything as is
@@ -130,7 +130,7 @@ def train_dl(project_name):
     current_app.logger.info(f'New model path = {output_model_path}')
 
     # get config properties:
-    train_script_name = config.get('train_dl', 'train_script_name', fallback="./approaches/simclr/train_dl_simclr.py")
+    train_script_name = config.get('train_dl', 'train_script_name', fallback="./patchsorter/approaches/simclr/train_dl_simclr.py")
     num_epochs = config.getint('train_dl', 'numepochs', fallback=1000)
     num_epochs_earlystop = config.getint('train_dl', 'num_epochs_earlystop', fallback=-1)
     numepochs_inital = config.getint('train_dl', 'numepochs_inital', fallback=100)
@@ -186,7 +186,7 @@ def train_dl_callback(result):
     update_completed_job_status(result)
 
     jobid = result[1]
-    engine = sqlalchemy.create_engine(get_database_uri())
+    engine = db.engine # sqlalchemy.create_engine(get_database_uri())
 
     dbretval = engine.connect().execute(f"select procout from jobid_{jobid} where procout like 'RETVAL:%'").first()
     if dbretval is None:
@@ -225,7 +225,7 @@ def make_embed(project_name):
     modelid = request.args.get('modelid', default=get_latest_modelid(project_name), type=int)
     outdir = f"./projects/{project_name}/models/{modelid}"
 
-    embed_script_name = config.get('embed', 'embed_script_name', fallback='./approaches/simclr/make_embed_simclr.py')
+    embed_script_name = config.get('embed', 'embed_script_name', fallback='./patchsorter/approaches/simclr/make_embed_simclr.py')
     maskpatches = config.getboolean('embed', 'maskpatches', fallback=False)
     batch_size = config.getint('embed', 'batchsize', fallback=32)
     patch_size = config.getint('embed', 'patchsize', fallback=32)
@@ -264,7 +264,7 @@ def make_embed_callback(result):
     # update the job status in the database:
     update_completed_job_status(result)
     jobid = result[1]
-    engine = sqlalchemy.create_engine(get_database_uri())
+    engine = db.engine # sqlalchemy.create_engine(get_database_uri())
 
     dbretval = engine.connect().execute(f"select procout from jobid_{jobid} where procout like 'RETVAL:%'").first()
     if dbretval is None:
@@ -456,7 +456,7 @@ def make_searchdb(project_name):
     searchdbfile = f"./projects/{project_name}/searchtree_{project_name}.pkl";
 
     searchdb_script_name = config.get('search_db', 'searchdb_script_name',
-                                      fallback='./approaches/search_db/make_search_database.py')
+                                      fallback='./patchsorter/approaches/search_db/make_search_database.py')
     # get the command:
     full_command = [sys.executable, f"{searchdb_script_name}", f"{pytablefile}", f"{searchdbfile}"]
     # run the command asynchronously

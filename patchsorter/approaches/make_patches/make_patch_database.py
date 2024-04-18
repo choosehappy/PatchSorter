@@ -24,9 +24,14 @@ import numpy as np
 import skimage.measure
 import tables
 from PS_scikitlearn import extract_patches
-from patchsorter.db import MaskTypeEnum
+# from patchsorter.db import MaskTypeEnum
 import csv
-
+import enum
+class MaskTypeEnum(str, enum.Enum):
+    QA = 'QA'
+    Binary = 'Binary'
+    Indexed = 'Indexed'
+    Labeled = 'Labeled'
 
 def find_nearest_non_black_pixel(img, target):
     nonzero = np.argwhere(img>0)

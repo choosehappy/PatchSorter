@@ -280,7 +280,7 @@ def get_output_image(project_name, image_id,image_name, output_type = None):
 
     outdir = f"./projects/{project_name}/"
     imgoutput_script_name = config.get('image_output', 'imgoutput_script_name',
-                                      fallback='./approaches/image_output/make_img_outputs.py')
+                                      fallback='./patchsorter/approaches/image_output/make_img_outputs.py')
     # get the command, note its easier to always generate overlay even if it isn't requested
     full_command = [sys.executable,
                     f"{imgoutput_script_name}", f"-t{output_type}", f"-o{outdir}","--overlay",
@@ -302,7 +302,7 @@ def make_output_callback(result):
     # update the job status in the database:
     update_completed_job_status(result)
     retval, jobid = result
-    engine = sqlalchemy.create_engine(get_database_uri())
+    engine = db.engine # sqlalchemy.create_engine(get_database_uri())
     dbretval = engine.connect().execute(f"select procout from jobid_{jobid} where procout like 'RETVAL:%'").first()
     if dbretval is None:
         # no retval, indicating make_output didn't get to the end, leave everything as is

@@ -5,7 +5,7 @@ import threading
 import sqlalchemy
 import signal
 from patchsorter.config import get_database_uri
-from patchsorter.db import set_job_status
+from patchsorter.db import db, set_job_status
 
 jobs_logger = logging.getLogger('jobs')
 
@@ -18,8 +18,8 @@ def run_script(external_command, job_id):
     set_job_status(job_id, "RUNNING")
 
     # say the job is running:
-    engine = sqlalchemy.create_engine(get_database_uri())
-
+    engine = db.engine # sqlalchemy.create_engine(get_database_uri())
+    
     jobs_logger.info(f'Running command {command_id}: {external_command}')
 
     # from https://stackoverflow.com/a/18422264

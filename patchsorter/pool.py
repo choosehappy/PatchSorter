@@ -10,13 +10,13 @@ from flask_sqlalchemy import SQLAlchemy
 from patchsorter.worker import run_script
 
 import patchsorter.db as psdb
-from patchsorter.db import Job, JobidBase, set_job_status, get_project_id
+from patchsorter.db import db, Job, JobidBase, set_job_status, get_project_id
 from patchsorter.config import config
 
 # seconds to sleep before re-querying the server:
 retry_seconds = config.getint('frontend', 'retry_seconds', fallback=20)
 
-db = SQLAlchemy()
+# db = SQLAlchemy()
 jobs_logger = logging.getLogger('jobs')
 
 

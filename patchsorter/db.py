@@ -143,7 +143,7 @@ def clear_stale_jobs():
 
 def set_job_status(job_id, status, retval = ""):
     if job_id:
-        engine = sqlalchemy.create_engine(get_database_uri())
+        engine = db.engine # sqlalchemy.create_engine(get_database_uri())
         if status == 'DONE':
             engine.connect().execute(f"update job set status= :status, retval = :retval, end_date= datetime('now') "
                                      f"where id={job_id}", status=status, retval = retval)

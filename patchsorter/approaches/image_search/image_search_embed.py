@@ -70,7 +70,7 @@ if __name__ == '__main__':
         device = torch.device(args.gpuid if args.gpuid != -2 and torch.cuda.is_available() else 'cpu')
 
         # ---
-        sys.path.append(f'./approaches/{model_type}')
+        sys.path.append(f'./patchsorter/approaches/{model_type}')
         model_class = getattr(__import__(f"model.{model_type}"), model_type)
         model_class = getattr(model_class, model_type.capitalize())
 
