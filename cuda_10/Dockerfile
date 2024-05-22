@@ -22,4 +22,4 @@ RUN pip3 install -r requirements.txt
 COPY . /opt/PatchSorter
 
 ADD . /opt/PatchSorter
-CMD ["python3", "PS.py"]
+CMD ["python3", "-m", "patchsorter"]

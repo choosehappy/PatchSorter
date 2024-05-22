@@ -53,7 +53,7 @@ The general guides for installing Pytorch can be summarized as following:
 
 ### Run
 ```
- E:\<<folder_path>>\PatchSorter>python PS.py
+ E:\<<folder_path>>\PatchSorter>python3 -m patchsorter
 ```
 By default, it will start up on localhost:5555
 
