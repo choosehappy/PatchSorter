@@ -118,6 +118,6 @@ See
 
 Please use below to cite PatchSorter if you find this repository useful or if you use the software shared here in your research.
 
-<pre> <code>Walker, C., Talawalla, T., Toth, R., Ambekar, A., Rea, K., Chamian, O., Fan, F., Berezowska, S., Rottenberg, S., Madabhushi, A., Maillard, M., Barisoni, L., Horlings, H.M., Janowczyk, A., 2023. PatchSorter: A High Throughput Deep Learning Digital Pathology Tool for Object Labeling. Preprint at <a href="https://arxiv.org/abs/2307.07528">https://arxiv.org/abs/2307.07528</a> (2023)</code></pre>
+`Walker, C., Talawalla, T., Toth, R. et al. PatchSorter: a high throughput deep learning digital pathology tool for object labeling. npj Digit. Med. 7, 164 (2024). https://doi.org/10.1038/s41746-024-01150-4.`
 
-Preprint available at [Arxiv](https://arxiv.org/abs/2307.07528).
+Paper available at [Nature Digital Medicine](https://www.nature.com/articles/s41746-024-01150-4).
