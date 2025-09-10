@@ -1,32 +1,37 @@
-# PatchSorter v2.0: Vision Document
+<style>
+.reveal section {
+  font-size: 20px;
+  text-align: left;
+}
+</style>
 
+# PatchSorter v2.0: Vision Document
 ## 1. Document Purpose
 
 The purpose of this document is:
 
-- Introduce the general motivations for developing PatchSorter (PS) v2.0
-- Identify core areas of functionality
-- Catalogue existing technical knowledge and unknowns requiring research and prototyping.
+1. Introduce the general motivations for developing PatchSorter (PS) v2.0  
+2. Identify core areas of functionality  
+3. Catalogue existing technical knowledge and unknowns requiring research and prototyping  
 
-**Definitions**:  
-- **QA**: QuickAnnotator  
-- **PS**: PatchSorter  
+**Definitions:**  
+- **QA**: QuickAnnotator (annotation system)  
+- **PS**: PatchSorter (labeling system — to avoid confusion, we will consistently use "labeling" for PS and "annotating" for QA, as suggested in review comments)  
 
 ---
+
 ## 2. General Goals & Motivation
 
-PS v2.0 is designed to support efficient labeling of extremely large-scale histologic datasets, enabling an active learning workflow for labeling, training, and prediction at a scale of up to **1 billion segmented histologic objects**.
+PS v2.0 is designed to support efficient **labeling** of extremely large-scale histologic datasets, enabling an active learning workflow for labeling, training, and prediction at a scale of up to **1 billion segmented histologic objects**.  
 
-Peripheral goals:
+Peripheral goals include:
 
-- Support Whole Slide Images and GeoJSON, compatible with QA v2.0  
-- Couple patches with annotations in QA  
-  - Select annotations in QA and label the respective patches in PS  
-  - Click on a patch in PS and view the respective annotation in QA  
-  - Direct coupling may be complex → alternative: store XY coords of each patch so ROI can be viewed on the WSI  
-- Standardize and improve API  
-  - External clients (e.g., mobile labeling tool, LabelStudio) should consume PS API to receive patch data and submit labels  
-- Integrate with Ray for parallelized training, prediction, and other intensive operations  
+- Support Whole Slide Images (WSI) and geojson, compatible with QA v2.0  
+- Couple patches with annotations in QA (e.g., select annotations in QA and label respective patches in PS, or click on a patch in PS and view the annotation in QA).  
+  - To avoid complexity, it may be easier to store **XY coordinates** of each patch so that the ROI can be viewed on the WSI.  
+- Standardize and improve the API: external clients (e.g., mobile labeling tools, LabelStudio) should be able to consume the PatchSorter API to receive patch data and submit labels  
+- Integrate with **Ray** for parallelized training, prediction, and other intensive operations  
+- Facilitate initial **UI prototyping**: quick-and-dirty prototypes of basic user stories are needed early to avoid technology lock-in issues that may prevent later UI flexibility  
 
 ---
 
@@ -34,165 +39,173 @@ Peripheral goals:
 
 ### 3.1 Importing Data
 
-**Functionality & Constraints**
+**Functionality & Constraints**  
 
-- Upload image and object segmentation data to PS  
-- Must be compatible with standard image formats **and** WSIs  
-- Must accept slide-level GeoJSON annotation files  
-- Efficient upload if project already exists in QA:  
-  - Avoid moving image data over the network  
-  - Access QA database directly or copy tables efficiently  
-  - Avoid duplication if possible  
+PatchSorter must support uploading image and object segmentation data with the following constraints:  
 
-**Knowns**: –  
+- Compatible with both standard image formats and WSIs  
+- Accept slide-level geojson annotation files, for importing annotations from arbitrary (non-QA) workflows  
+- If a project already exists in QA, PS should support efficient upload by:  
+  - Avoiding data duplication wherever possible (e.g., link directly to QA’s NAS storage)  
+  - Efficiently copying tables into PS  
+  - Assume QA database and file storage are network-accessible  
+- Postconditions
+    - Each patch will be stored in the PS db with subtype information (both gt and pred) and origin information (parent annotationclass, image, project)
 
-**Unknowns**:  
-- What queries/storage operations are required at object level?  
-- Should subtype GT/Pred be stored?  
-- Should embedded coordinates use a spatial index/hierarchical tile index?  
+**Knowns**  
+- Compatibility between PS and QA requires storing subtype GT/Pred and embedded coordinates with a spatial index (e.g., hierarchical tile index), and WSI + project ids.
+- PS should not use the QA database. All project, image, and patch information should be imported via one of two upload options.
+- **Primary upload option (default):** upload patches using annotation geojson files.
+    - 1 geojson file per image is uploaded.
+- **Secondary upload option:** upload patches by connecting to QA db **(post-MVP)**
+
+**Unknowns**  
+
 
 ---
 
 ### 3.2 Data Loading
 
 **Functionality & Constraints**  
-Mechanism for loading patch data into distributed DL training.
+Mechanism for loading patch data into distributed DL models for training.  
 
-**Knowns**:
+**Knowns**  
+- Tiered storage solution for feature vectors:  
+  - Tier 1: pre-extracted feature vectors stored in db (with caching)  
+  - Tier 2: read patch region from WSI and extract features  
+  vectors  
+- Same WSI storage structure as QA (NAS accessible)  
+- GT/Pred labels, embedded coordinates, and patch pointers must be efficiently stored  
 
-- **Storage of image data**  
-  - Tiered storage:  
-    - Tier 1: memcached  
-    - Tier 2: pre-extracted patches  
-    - Tier 3: read patch region from WSI  
-  - Option: database storage with caching  
-  - Option: avoid storing patches, store feature vectors instead  
-- Same WSI storage structure as QA (NAS read access assumed)  
-- Store: feature vectors, GT/Pred labels, embedded coordinates, pointer to patch  
+**Unknowns**  
 
-**Unknowns (Moderate)**:  
-- Should QA’s patch loading strategy (direct from WSI + caching) be reused?  
-- Centralized vs decentralized DB (Postgres vs CockroachDB)?  
-- How to store feature vectors for large histologic objects?  
-- Should there be configurable padding when extracting patches?  
+- Should PS cache tiles as QA does, or directly rely on WSI reads?  
+- How to handle histologic objects of **varied sizes**?  
+  - Possible: configurable padding setting for patch extraction  
+- Should each WSI have its own database for distributed querying?  
+- How to efficiently store and query **feature vectors**?  
 
 ---
 
 ### 3.3 Training
 
 **Functionality & Constraints**  
-Govern PS’s active learning abilities: continuous training + predictions + embeddings in loop.
 
-**Knowns**:
-
-- Use Ray for distributed training (fractional GPU spreading supported)  
-- Workers likely sample randomly from training set  
-- Train-pred loop for conditional predictions + embeddings before each cycle  
+- Active learning loop: PS continuously trains and generates predictions + embeddings  
+- Distributed training with Ray (as in QA), with workers spread across GPUs  
+- Train-pred loop: generate predictions & embeddings before each training cycle  
 - GT labels assigned in real-time  
 
-**Unknowns (Moderate)**:  
-- Should a GNN be trained alongside the CNN feature extractor (“GraphSorter”)?  
+**Knowns:**  
+
+- Consider training a **self-supervised model (SSL/auto-encoder)** to reduce raw patch dimensions into feature vectors (e.g., 32×32×3 = 3072 dims → 256 dims). This allows PS to operate in reduced feature space, improving scalability.  
+- PS usage patterns differ from QA:  
+  - In QA, only a few tiles per WSI are reviewed at once, so caching works well  
+  - In PS, all patches may need frequent re-embedding → caching may not be sufficient (need hybrid RAM + HDD database-backed cache)  
+
+**Unknowns**  
+
+- Should we explore training a **Graph Neural Network (GNN)** alongside the CNN feature extractor?  
 
 ---
 
 ### 3.4 Embedding
 
 **Functionality & Constraints**  
+Embedded points must support:  
+- Fast insertions (≥100,000 points/sec)  
+- Hierarchical views of the distribution  
+- Configurable number of dimensions  
+- Efficient visualization  
 
-- Must rapidly insert (e.g., 100k points/sec)  
-- Must rapidly return hierarchical views of regions  
-- Approach should allow customization (#dimensions configurable)  
+**Knowns**  
 
-**Knowns**:
+- Parametric UMAP allows incremental updates but requires all data in memory during training  
+- Transformers can be leveraged for scalable dimensionality reduction  
+- Normal UMAP is not scalable (benchmark: ~27min for 1M points)  
 
-- Parametric UMAP enables mapping new vectors without retraining full space  
-- Normal UMAP not scalable (30s for 10k → 27min+ for 1M)  
-- Transformers can be used for scalable dimensionality reduction  
+**Unknowns**  
 
-**Unknowns**:
+- Should embedding be **two-stage** (feature extraction + embedding) or transformer → embedding?  
+- Should embedding methods be **modular and swappable**?  
+- For scalability:  
+  - Small datasets → direct UMAP  
+  - Large datasets (up to 1B points) → random projection + downsampling + learned embedding function  
 
-- One-stage (direct transformer → coords + label) vs two-stage (feature extraction + DR)?  
-- Should embedding approaches be hot-swappable?  
-- Best storage paradigm for scalability:  
-  - S2 or H3 with PostGIS  
-  - Hierarchical binning (bin counts updated on insert)  
-  - Dynamic bin counts/raster tiles  
+
+**Technical Notes**
+
+- H3 library for hierarchical, hexagonal indexing.
+- S2 library for square indexing.
 
 ---
 
 ### 3.5 Prediction
 
-**Functionality & Constraints**  
+Each patch must be mapped to a predicted subtype label. Predictions can:  
 
-- Each patch mapped to predicted subtype label  
-- Pred label used to:  
-  - Suggest GT labels to user  
-  - Identify pred-GT discrepancies for refinement  
-
-**Knowns**: –  
-**Unknowns (Low)**: –  
+- Suggest ground truth labels to users  
+- Identify discrepancies between predicted and GT labels, prompting model refinement  
 
 ---
 
 ### 3.6 Visualizing the Patch Distribution
 
-**Functionality & Constraints**  
+**Constraints:**  
 
-- Visual representation of entire patch distribution  
-- Requirements:  
-  - Differentiate subtypes (e.g., color)  
-  - Embedding shows 2 dims at a time (user controlled)  
-  - Conditional coloring by GT or Pred label  
-  - Filters: All / Labeled / Unlabeled / Discordant / GT vs Pred / Class  
-  - Capture density info for subtypes  
-  - Update UI frequently (<200ms for viewport updates, <5s on embedding refresh)  
-  - Latency budget includes network (<50ms)  
+- Must differentiate subtypes (e.g., color)  
+- Embed in 2D with user-selectable dimensions  
+- Apply filters (all, labeled, unlabeled, discordant, class, GT vs PRED)  
+- Must support density visualization without losing sparse data  
+- Update UI frequently and with low latency:  
+  - ≤200ms for rendering updates  
+  - ≤50ms network latency expected  
+  - New labels applied should update in ≤200ms  
+- Implement incremental visualization: show a fast 10% sample first, then progressively refine (e.g., singletons vs hyperpoints)  
 
-**Knowns**: –  
+**Knowns:**  
 
-**Unknowns (High)**:  
-- Serverside rendering almost certainly required (Datashader recommended)  
-- Binned statistics may be preferable to raw points  
-- Consider PostGIS, H3, S2, MVT tiling strategies  
+- Use checkbox-based logical filters (e.g., show only Class1 GT + Class2 Pred)  
+- Client should poll or be pushed updated point data  
+- Hover interactions: when hovering on bins/regions, backend should fetch representative patches (e.g., last-added patch in a bin)  
+- Global patch view: show representative patches from across the distribution.
+
+**Unknowns:**  
+
+- Exact method of fast visualization (Datashader, 2D histograms, MVT, PostGIS spatial indexes)  
+- Best way to represent multiple classes in binned visualization  
 
 ---
 
 ### 3.7 Labeling
 
-**Functionality & Constraints**  
+**Constraints:**  
 
-- Query patches in ROI and apply labels  
-- Features:  
-  - Single/bulk labels  
-  - Prioritize difficult cases  
-  - Lasso selection supported  
+- Apply single or bulk labels  
+- Lasso select multiple patches  
+- Prioritize difficult cases  
 
-**Knowns**: –  
+**Considerations:**  
 
-**Unknowns (Moderate)**:  
-- Should users view additional context in WSI viewer?  
-  - Pros: context may improve prioritization  
-  - Cons: slows down labeling, patch size may be too small  
-- Should labeling occur in distribution viewport or a separate pane?  
-- Infinite scroll vs pagination for patch list?  
-- Efficient queries for lassoed regions (e.g., ST_HexagonGrid + geohash)  
+- Should labeling occur directly in the embedding viewport or in a dedicated pane?  
+- Infinite scroll preferred over pagination for patch images  
+- Efficient lasso queries (e.g., via PostGIS HexagonGrid)  
+- "Label all" option for large query results (e.g., lasso returns 100k patches, label subset then apply to rest)  
 
 ---
 
 ### 3.8 Export Labels
 
-**Functionality & Constraints**  
+**Constraints:**  
 
-- Scale: up to 1B labeled objects in DB  
-- Must support export for DL workflows  
-- Constraints:  
-  - Group labels by image (e.g., QuPath compatibility)  
-  - Digital Slide Archive compatibility  
-  - PS should ingest its own export format  
+- Store up to 1B labeled objects  
+- Export subtyped annotations grouped by image (e.g., for QuPath)  
+- Digital Slide Archive (DSA) compatibility  
+- Support re-import of PS’s own exports  
 
-**Knowns**:
+**Implementation Notes:**  
 
-- `ogr` library supports progressive writing to GeoJSON  
-- Ray actors can parallelize export and generate manifest file with download links  
+- OGR library for progressive geojson export  
+- Ray actors for parallelized export, with manifest files for download links  
 
-**Unknowns**: –  
+---
