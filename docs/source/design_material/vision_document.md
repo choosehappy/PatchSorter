@@ -6,6 +6,20 @@
 </style>
 
 # PatchSorter v2.0: Vision Document
+
+Table of Contents
+- [1. Document Purpose](#1-document-purpose)
+- [2. General Goals \& Motivation](#2-general-goals--motivation)
+- [3. Core Functionality](#3-core-functionality)
+  - [3.1. Importing Data](#31-importing-data)
+  - [3.2. Data Loading](#32-data-loading)
+  - [3.3. Training](#33-training)
+  - [3.4. Embedding](#34-embedding)
+  - [3.5. Prediction](#35-prediction)
+  - [3.6. Visualizing the Patch Distribution](#36-visualizing-the-patch-distribution)
+  - [3.7. Labeling](#37-labeling)
+  - [3.8. Export Labels](#38-export-labels)
+
 ## 1. Document Purpose
 
 The purpose of this document is:
@@ -37,7 +51,7 @@ Peripheral goals include:
 
 ## 3. Core Functionality
 
-### 3.1 Importing Data
+### 3.1. Importing Data
 
 **Functionality & Constraints**  
 
@@ -64,7 +78,7 @@ PatchSorter must support uploading image and object segmentation data with the f
 
 ---
 
-### 3.2 Data Loading
+### 3.2. Data Loading
 
 **Functionality & Constraints**  
 Mechanism for loading patch data into distributed DL models for training.  
@@ -87,7 +101,7 @@ Mechanism for loading patch data into distributed DL models for training.
 
 ---
 
-### 3.3 Training
+### 3.3. Training
 
 **Functionality & Constraints**  
 
@@ -98,7 +112,7 @@ Mechanism for loading patch data into distributed DL models for training.
 
 **Knowns:**  
 
-- Consider training a **self-supervised model (SSL/auto-encoder)** to reduce raw patch dimensions into feature vectors (e.g., 32×32×3 = 3072 dims → 256 dims). This allows PS to operate in reduced feature space, improving scalability.  
+- Consider training a **self-supervised model (SSL/auto-encoder)** to reduce raw patch dimensions into feature vectors (e.g., $32 \times 32 \times 3 = 3072$ dims $\rightarrow$ 256 dims). This allows PS to operate in reduced feature space, improving scalability.  
 - PS usage patterns differ from QA:  
   - In QA, only a few tiles per WSI are reviewed at once, so caching works well  
   - In PS, all patches may need frequent re-embedding → caching may not be sufficient (need hybrid RAM + HDD database-backed cache)  
@@ -109,7 +123,7 @@ Mechanism for loading patch data into distributed DL models for training.
 
 ---
 
-### 3.4 Embedding
+### 3.4. Embedding
 
 **Functionality & Constraints**  
 Embedded points must support:  
@@ -140,7 +154,7 @@ Embedded points must support:
 
 ---
 
-### 3.5 Prediction
+### 3.5. Prediction
 
 Each patch must be mapped to a predicted subtype label. Predictions can:  
 
@@ -149,7 +163,7 @@ Each patch must be mapped to a predicted subtype label. Predictions can:
 
 ---
 
-### 3.6 Visualizing the Patch Distribution
+### 3.6. Visualizing the Patch Distribution
 
 **Constraints:**  
 
@@ -177,7 +191,7 @@ Each patch must be mapped to a predicted subtype label. Predictions can:
 
 ---
 
-### 3.7 Labeling
+### 3.7. Labeling
 
 **Constraints:**  
 
@@ -194,7 +208,7 @@ Each patch must be mapped to a predicted subtype label. Predictions can:
 
 ---
 
-### 3.8 Export Labels
+### 3.8. Export Labels
 
 **Constraints:**  
 
