@@ -7,19 +7,6 @@
 
 # PatchSorter v2.0: Vision Document
 
-Table of Contents
-- [1. Document Purpose](#1-document-purpose)
-- [2. General Goals \& Motivation](#2-general-goals--motivation)
-- [3. Core Functionality](#3-core-functionality)
-  - [3.1. Importing Data](#31-importing-data)
-  - [3.2. Data Loading](#32-data-loading)
-  - [3.3. Training](#33-training)
-  - [3.4. Embedding](#34-embedding)
-  - [3.5. Prediction](#35-prediction)
-  - [3.6. Visualizing the Patch Distribution](#36-visualizing-the-patch-distribution)
-  - [3.7. Labeling](#37-labeling)
-  - [3.8. Export Labels](#38-export-labels)
-
 ## 1. Document Purpose
 
 The purpose of this document is:
@@ -70,11 +57,19 @@ PatchSorter must support uploading image and object segmentation data with the f
 - Compatibility between PS and QA requires storing subtype GT/Pred and embedded coordinates with a spatial index (e.g., hierarchical tile index), and WSI + project ids.
 - PS should not use the QA database. All project, image, and patch information should be imported via one of two upload options.
 - **Primary upload option (default):** upload patches using annotation geojson files.
-    - 1 geojson file per image is uploaded.
-- **Secondary upload option:** upload patches by connecting to QA db **(post-MVP)**
+  - 1 geojson file per image is uploaded.
+- **Secondary upload option:** direct connection between QA and PS applications for data transfer.
+  ```{admonition} Post-MVP Feature
+  :class: note
+  This feature is planned for after the MVP release.
+  ```
+  - Define import API endpoint within PS similar to the DSA annotation import endpoint.
+  - Stream data into PS from QA.
+
+
 
 **Unknowns**  
-
+N/A
 
 ---
 
