@@ -14,3 +14,6 @@ This page contains design materials for the PatchSorter project.
 :maxdepth: 1
 
 vision_document.md
+design_document.md
+technical_design.md
+```
