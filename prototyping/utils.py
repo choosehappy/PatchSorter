@@ -4,7 +4,8 @@ DB_PARAMS = {
     'host': 'localhost',
     'database': 'testdb',
     'user': 'testuser',
-    'password': 'mypassword'
+    'password': 'mypassword',
+    'port': 5432
 }
 
 def insert_n_rows(n=1_000_000):
