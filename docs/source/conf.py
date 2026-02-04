@@ -22,6 +22,10 @@ extensions = [
     'myst_parser',
 ]
 
+myst_enable_extensions = [
+    "tasklist"
+]
+
 # Allow .md files as source
 source_suffix = {
     ".rst": "restructuredtext",

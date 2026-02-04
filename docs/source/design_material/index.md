@@ -16,4 +16,5 @@ This page contains design materials for the PatchSorter project.
 vision_document.md
 design_document.md
 technical_design.md
-```
+db_technical_design.md
+patch_technical_design.md

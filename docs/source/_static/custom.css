@@ -1,0 +1,11 @@
+/* Underline all main content headings */
+.content h1,
+.content h2,
+.content h3,
+.content h4,
+.content h5,
+.content h6 {
+    border: 1px solid var(--color-foreground-border);
+    padding-bottom: 1px;
+    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+}
