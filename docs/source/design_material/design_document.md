@@ -1,7 +1,5 @@
 # Design Document: Patch Sorter Interface
 
-What is the value of a design document like this one?
-
 ## 1. Project Management & Overview
 
 ### 1.1. Projects Landing Page
