@@ -9,4 +9,3 @@ __pycache__/
 *.pyo
 *.pyd
 *.log
-bulk_load_chunks/

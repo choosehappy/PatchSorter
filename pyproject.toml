@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools >= 64", "setuptools_scm >= 8", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "patchsorter"
+license = {file = "LICENSE.txt"}
+authors = [{name = "Andrew Janowczyk"}]
+maintainers = [{name = "Jackson Jacobs"}]
+description = "PatchSorter is an open-source histologic object labeling tool."
+readme = {file = "README.md", content-type = "text/markdown"}
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Topic :: Scientific/Engineering :: Digital Pathology",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Utilities",
+    "Operating System :: Unix"
+]
+dynamic = ["version"]  # ← version comes from setuptools_scm
+
+requires-python = ">=3.11"
+dependencies = [
+]
+
+# ----------------------------------------------------------------------------------
+[project.urls]
+Homepage = "https://github.com/choosehappy/PatchSorter"
+
+# ----------------------------------------------------------------------------------
+[project.scripts]
+patchsorter = "patchsorter.__main__:main"
+
+# ----------------------------------------------------------------------------------
+[tool.setuptools]
+packages = ["patchsorter"]
+
+# ----------------------------------------------------------------------------------
+[tool.setuptools_scm]
+write_to = "patchsorter/_version.py"
+version_scheme = "post-release"
+local_scheme = "node-and-date"
+
+# ----------------------------------------------------------------------------------
+[tool.pytest.ini_options]
+addopts = "-v"
+
+# ----------------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["patchsorter"]
+
+# ----------------------------------------------------------------------------------
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "raise NotImplementedError",
+  "if TYPE_CHECKING:",
+  "if MYPY:",
+  "except ImportError:",
+]
+
+[tool.distutils.egg_info]
+egg_base = "../"

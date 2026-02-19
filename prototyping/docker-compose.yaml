@@ -1,0 +1,37 @@
+services:
+  postgres-test:
+    image: postgres:15
+    container_name: postgres-test
+    environment:
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_USER: testuser
+      POSTGRES_DB: testdb
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    networks:
+      - default
+
+  ps-prototype:
+    user: root
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ps-prototype:latest
+    depends_on:
+      - postgres-test
+    command:
+      /bin/bash
+    stdin_open: true
+    tty: true
+    container_name: ps-prototype
+    # ports:
+    #   - "8080:8080"
+    networks:
+      - default
+    volumes:
+      - ..:/opt/PatchSorter
+
+networks:
+  default:
+    name: ps-prototype-network

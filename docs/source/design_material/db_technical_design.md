@@ -65,7 +65,7 @@ Docs indicate that IMVs are less effective when there are many updates to the ba
 | **pred_ts**        | TIMESTAMP | Time when the prediction was made.                 |
 | **pred_version**   | INT       | Version of the prediction.                         |
 | **label_class_id** | INT       | Identifier for the class of the label.             |
-| **patch_coords**   | JSON      | Coordinates of the patch within the image.         |
+| **patch_coords**   | POINT     | Coordinates of the patch within the image.         |
 
 ### 1.5. `image` Table
 
@@ -102,25 +102,31 @@ Docs indicate that IMVs are less effective when there are many updates to the ba
 - A customizeable script will handle the extraction approach (e.g., crop, resize, or strided), resulting in an output array of patch objects, each following the schema of the patch table. A bulk insert operation will be performed on the patch table.
 
 
-### Update ground truth labels
+### 2.2. Update ground truth labels
 Each time the user updates ground truth labels for patches (e.g., via the patch gallery):
 - Upsert the `gt_label` in the patch table for specific `patch_id`s as needed.
 
-### 2.2. Lasso Query
+### 2.3. Lasso Query
 Each time the user performs a lasso operation to select patches:
 
 - Join ground truth and prediction tables on `patch_id` to retrieve combined labels for selected patches.
 
-### 2.3. Toggle show patches
+### 2.4. Hover over scatter plot
+
+When the user hovers over a region of the scatter plot, get a single corresponding patch.
+
+### 2.5. Toggle show patches
 
 When the user requests to view a representative patch for a set of grid cells (< 1000 grid cells):
 - Get patches from the prediction table for the specified grid cells, limiting to one patch per grid cell.
 
-### 2.4. Assign & Reassign Ground Truth Labels
+### 2.6. Assign & Reassign Ground Truth Labels
 
 Each time the user assigns labels to patches (e.g., via the patch gallery):
 
 - Upsert the `ground_truth_label` in the ground truth table for specific `patch_id`s as needed.
+
+
 
 ## 3. DL Operations
 

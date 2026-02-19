@@ -1,5 +1,6 @@
 Link,Title,Description,Result
 [](#lasso-query),Lasso patches,Time to return 1 million patches from a lasso operation,
+[](#hover-over-scatter-plot),Get patch by bucket,Time to return a single patch by cell id,
 [](#toggle-show-patches),Show patches,Time to return the first patch for 1000 cells,
 [](#assign-reassign-ground-truth-labels),Assign labels,Time to update ground truth labels for selected patches,
 [](#insert-new-predictions),Insert 1 pred,Time to insert 1 pred in 1b row table w/o index,
@@ -9,4 +10,4 @@ Link,Title,Description,Result
 [](#insert-new-predictions),insert 1 pred w/ TimescaleDB,Time to insert 1 pred in 1b row table w/ TimescaleDB,
 [](#insert-new-predictions),insert 1000 pred w/ TimescaleDB,Time to insert 1000 pred in 1b row table w/ TimescaleDB,
 [](#remove-old-predictions),Clean up partitions,Time to drop old TimescaleDB partitions,
-,,,
+[](#patch-extraction),insert 1 billion rows sequentially,patch_extraction.ipynb: time to insert 1B rows into un-indexed table,1.02h (est)
