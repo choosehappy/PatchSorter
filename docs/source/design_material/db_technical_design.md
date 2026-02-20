@@ -9,13 +9,13 @@ We separate ground truth and prediction data into distinct tables because:
 
 ### 1.1. Project Table
 #### 1.1.1. Schema:
-| Column Name     | Data Type | Description                         |
-| --------------- | --------- | ----------------------------------- |
-| **project_id**  | INT       | Identifier for the project, unique. |
-| **name**        | TEXT      | Name of the project.                |
-| **description** | TEXT      | Description of the project.         |
-| **patch_size**  | INT       | The size of each patch.             |
-| **create_ts**   | TIMESTAMP | Time when the project was created.  |
+| Column Name     | Data Type | Key Type | Description                         |
+| --------------- | --------- | -------- | ----------------------------------- |
+| **id**          | SERIAL       | Primary  | Identifier for the project, unique. |
+| **name**        | TEXT      | Column   | Name of the project.                |
+| **description** | TEXT      | Column   | Description of the project.         |
+| **patch_size**  | INT       | Column   | The size of each patch.             |
+| **create_ts**   | TIMESTAMP | Column   | Time when the project was created.  |
 
 
 ### 1.2. `agg_patch` Table
@@ -29,71 +29,72 @@ Docs indicate that IMVs are less effective when there are many updates to the ba
 
 #### 1.2.1. Schema:
 
-| Column Name      | Data Type | Description                                |
-| ---------------- | --------- | ------------------------------------------ |
-| **grid_cell_id** | BIGINT    | Identifier for the grid cell.              |
-| **bucket_date**  | TIMESTAMP | The date when the bucket was last updated. |
-| **pred_label**   | INT       | Predicted label for the bucket.            |
-| **gt_label**     | INT       | Ground truth label for the bucket.         |
-| **count**        | INT       | Count of patches in the bucket.            |
-| **pred_version** | INT       | Version of the prediction.                 |
+| Column Name      | Data Type | Key Type | Description                                |
+| ---------------- | --------- | -------- | ------------------------------------------ |
+| **grid_cell_id** | INT       | Primary  | Identifier for the grid cell.              |
+| **bucket_date**  | TIMESTAMP | Primary  | The date when the bucket was last updated. |
+| **pred_label**   | INT       | Primary  | Predicted label for the bucket.            |
+| **gt_label**     | INT       | Primary  | Ground truth label for the bucket.         |
+| **count**        | INT       | Column   | Count of patches in the bucket.            |
+| **pred_version** | INT       | Primary  | Version of the prediction.                 |
 
 ### 1.3. `patch` Table
 
 #### 1.3.1. Schema:
 
-| Column Name     | Data Type | Description                                                |
-| --------------- | --------- | ---------------------------------------------------------- |
-| **patch_id**    | UUID      | Identifier for the patch, unique.                          |
-| **gt_label**    | INT       | Ground truth label for the patch.                          |
-| **gt_ts**       | TIMESTAMP | Time when the ground truth label was created/last updated. |
-| **image_id**    | INT       | Identifier for the image containing the patch.             |
-| **working_mag** | FLOAT     | The working magnification level of the patch.              |
+| Column Name     | Data Type | Key Type | Description                                                |
+| --------------- | --------- | -------- | ---------------------------------------------------------- |
+| **id**          | BIGSERIAL | Primary  | Identifier for the patch, unique.                          |
+| **patch_uid**   | INT       | Column   | Identifier for the patch, unique.                          |
+| **gt_label**    | INT       | Foreign  | Ground truth label for the patch.                          |
+| **gt_ts**       | TIMESTAMP | Column   | Time when the ground truth label was created/last updated. |
+| **image_id**    | INT       | Foreign  | Identifier for the image containing the patch.             |
+| **working_mag** | FLOAT     | Column   | The working magnification level of the patch.              |
 
 ### 1.4. `pred_patch` Table
 
 #### 1.4.1. Schema:
 
-| Column Name        | Data Type | Description                                        |
-| ------------------ | --------- | -------------------------------------------------- |
-| **id**             | UUID      | Identifier for the patch, unique.                  |
-| **embed_x**        | FLOAT     | X coordinate of the patch embedding.               |
-| **embed_y**        | FLOAT     | Y coordinate of the patch embedding.               |
-| **grid_cell_id**   | BIGINT    | Identifier for the grid cell containing the point. |
-| **event_ts**       | TIMESTAMP | Time when the point was appended.                  |
-| **pred_label**     | INT       | Predicted label for the point.                     |
-| **pred_ts**        | TIMESTAMP | Time when the prediction was made.                 |
-| **pred_version**   | INT       | Version of the prediction.                         |
-| **label_class_id** | INT       | Identifier for the class of the label.             |
-| **patch_coords**   | POINT     | Coordinates of the patch within the image.         |
+| Column Name        | Data Type | Key Type | Description                                        |
+| ------------------ | --------- | -------- | -------------------------------------------------- |
+| **uid**             | BIGSERIAL | Primary  | Identifier for the patch, unique.                  |
+| **embed_x**        | FLOAT     | Column   | X coordinate of the patch embedding.               |
+| **embed_y**        | FLOAT     | Column   | Y coordinate of the patch embedding.               |
+| **grid_cell_id**   | INT       | Foreign  | Identifier for the grid cell containing the point. |
+| **event_ts**       | TIMESTAMP | Column   | Time when the point was appended.                  |
+| **pred_label**     | INT       | Column   | Predicted label for the point.                     |
+| **pred_ts**        | TIMESTAMP | Column   | Time when the prediction was made.                 |
+| **pred_version**   | INT       | Column   | Version of the prediction.                         |
+| **label_class_id** | INT       | Foreign  | Identifier for the class of the label.             |
+| **patch_coords**   | POINT     | Column   | Coordinates of the patch within the image.         |
 
 ### 1.5. `image` Table
 
 #### 1.5.1. Schema:
-| Column Name         | Data Type | Description                            |
-| ------------------- | --------- | -------------------------------------- |
-| **image_id**        | INT       | Identifier for the image, unique.      |
-| **project_id**      | INT       | Project identifier. Foreign Key        |
-| **name**            | TEXT      | Name of the image.                     |
-| **image_path**      | TEXT      | File path or URI of the image.         |
-| **upload_ts**       | TIMESTAMP | Time when the image was uploaded.      |
-| **base_mag**        | FLOAT     | Base magnification level of the image. |
-| **base_width**      | INT       | Width of the image in pixels.          |
-| **base_height**     | INT       | Height of the image in pixels.         |
-| **dz_tilesize**     | INT       | Tile size used in DeepZoom format.     |
-| **embedding_coord** | POINT     | Image embedding from CohortFinder      |
-| **group_id**        | INT       | Group id from CohortFinder             |
-| **split**           | INT       | Split from CohortFinder                |
+| Column Name         | Data Type | Key Type | Description                            |
+| ------------------- | --------- | -------- | -------------------------------------- |
+| **id**              | SERIAL    | Primary  | Identifier for the image, unique.      |
+| **project_id**      | INT       | Foreign  | Project identifier. Foreign            |
+| **name**            | TEXT      | Column   | Name of the image.                     |
+| **image_path**      | TEXT      | Column   | File path or URI of the image.         |
+| **upload_ts**       | TIMESTAMP | Column   | Time when the image was uploaded.      |
+| **base_mag**        | FLOAT     | Column   | Base magnification level of the image. |
+| **base_width**      | INT       | Column   | Width of the image in pixels.          |
+| **base_height**     | INT       | Column   | Height of the image in pixels.         |
+| **dz_tilesize**     | INT       | Column   | Tile size used in DeepZoom format.     |
+| **embedding_coord** | POINT     | Column   | Image embedding from CohortFinder      |
+| **group_id**        | INT       | Column   | Group id from CohortFinder             |
+| **split**           | INT       | Column   | Split from CohortFinder                |
 
 ### 1.6. `label_class` Table
 #### 1.6.1. Schema:
-| Column Name        | Data Type | Description                                         |
-| ------------------ | --------- | --------------------------------------------------- |
-| **label_class_id** | INT       | Identifier for the label class, unique.             |
-| **project_id**     | INT       | Identifier for the project, Foreign Key             |
-| **name**           | TEXT      | Name of the label class.                            |
-| **color**          | TEXT      | Color associated with the label class.              |
-| **event_ts**       | TIMESTAMP | Time when the label class was created/last updated. |
+| Column Name    | Data Type | Key Type | Description                                         |
+| -------------- | --------- | -------- | --------------------------------------------------- |
+| **id**         | SERIAL    | Primary  | Identifier for the label class, unique.             |
+| **project_id** | INT       | Foreign  | Identifier for the project, Foreign                 |
+| **name**       | TEXT      | Column   | Name of the label class.                            |
+| **color**      | TEXT      | Column   | Color associated with the label class.              |
+| **event_ts**   | TIMESTAMP | Column   | Time when the label class was created/last updated. |
 
 ## 2. User Operations
 
@@ -133,6 +134,14 @@ Each time the user assigns labels to patches (e.g., via the patch gallery):
 
 ### 3.1. Insert New Predictions
 
+Based on benchmark results, rows appended to `pred_patch` must have monotonically increasing ids which directly correspond to the ids in the `patch` table. This allows us to avoid
+1. Monotonically increasing primary key w/ a second foreign key column on the `pred_patch` table.
+2. Non-monotonically increasing primary key
+
+This can be done by coordinating prediction workers... though a problem is that it's unclear whether a ray train actor with multiple workers can coordinate each worker in each sequential batch to map a specific range of patch ids.
+
+Alternatively, we can accept the cost of a non-monotonically increasing primary key (where workers insert monotonically-increasing ranges), but the insert time will need to be tested.
+
 Each time a DL worker produces new predictions:
 
 - Append new prediction data to the prediction table with the latest `pred_version`.
@@ -145,7 +154,7 @@ When the prediction table becomes "full," i.e., the total count of rows equals t
 1. Increment a global value for `pred_version`.
 2. Drop partitions of the prediction table where `pred_version` is less than the latest version.
 
-## 4. Prototypes
+## 4. Benchmarks
 ```{csv-table}
 :header-rows: 1
 :file: db_prototypes.csv
