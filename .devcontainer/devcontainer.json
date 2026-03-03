@@ -5,10 +5,10 @@
 	"dockerComposeFile": [
 		"../prototyping/docker-compose.yaml"
 	],
-	"service": "ps-prototype",
+	"service": "ps",
 	"workspaceFolder": "/opt/PatchSorter",
 	
-	"forwardPorts": [5000, 5173, 8265, 6006],
+	"forwardPorts": [],
 	"updateRemoteUserUID": false,
 
 	// Add VS Code extensions
