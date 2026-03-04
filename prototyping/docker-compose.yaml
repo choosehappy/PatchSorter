@@ -11,6 +11,18 @@ services:
     networks:
       - default
 
+  tsdb:
+    image: timescale/timescaledb:latest-pg15
+    environment:
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_USER: testuser
+      POSTGRES_DB: testdb
+    ports:
+      - "${TSDB_HOST_PORT}:5432"
+    restart: unless-stopped
+    networks:
+      - default
+
   ps:
     user: root
     build:
@@ -19,6 +31,7 @@ services:
     image: ps-prototype:latest
     depends_on:
       - pg
+      - tsdb
     command:
       /bin/bash
     stdin_open: true

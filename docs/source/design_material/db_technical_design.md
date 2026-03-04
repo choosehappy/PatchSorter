@@ -11,7 +11,7 @@ We separate ground truth and prediction data into distinct tables because:
 #### 1.1.1. Schema:
 | Column Name     | Data Type | Key Type | Description                         |
 | --------------- | --------- | -------- | ----------------------------------- |
-| **id**          | SERIAL       | Primary  | Identifier for the project, unique. |
+| **id**          | SERIAL    | Primary  | Identifier for the project, unique. |
 | **name**        | TEXT      | Column   | Name of the project.                |
 | **description** | TEXT      | Column   | Description of the project.         |
 | **patch_size**  | INT       | Column   | The size of each patch.             |
@@ -47,7 +47,7 @@ Docs indicate that IMVs are less effective when there are many updates to the ba
 | **id**          | BIGSERIAL | Primary  | Identifier for the patch, unique.                          |
 | **patch_uid**   | INT       | Column   | Identifier for the patch, unique.                          |
 | **gt_label**    | INT       | Foreign  | Ground truth label for the patch.                          |
-| **gt_ts**       | TIMESTAMP | Column   | Time when the ground truth label was created/last updated. |
+| **event_ts**    | TIMESTAMP | Column   | Time when the ground truth label was created/last updated. |
 | **image_id**    | INT       | Foreign  | Identifier for the image containing the patch.             |
 | **working_mag** | FLOAT     | Column   | The working magnification level of the patch.              |
 
@@ -57,15 +57,12 @@ Docs indicate that IMVs are less effective when there are many updates to the ba
 
 | Column Name        | Data Type | Key Type | Description                                        |
 | ------------------ | --------- | -------- | -------------------------------------------------- |
-| **uid**             | BIGSERIAL | Primary  | Identifier for the patch, unique.                  |
-| **embed_x**        | FLOAT     | Column   | X coordinate of the patch embedding.               |
-| **embed_y**        | FLOAT     | Column   | Y coordinate of the patch embedding.               |
+| **id**             | BIGSERIAL | Primary  | Identifier for the patch.                          |
+| **patch_uid**      | BIGINT    | Column   | Identifier for the patch, unique.                  |
+| **embed_coords**   | POINT     | Column   | Coordinates of the patch embedding.                |
 | **grid_cell_id**   | INT       | Foreign  | Identifier for the grid cell containing the point. |
 | **event_ts**       | TIMESTAMP | Column   | Time when the point was appended.                  |
-| **pred_label**     | INT       | Column   | Predicted label for the point.                     |
-| **pred_ts**        | TIMESTAMP | Column   | Time when the prediction was made.                 |
-| **pred_version**   | INT       | Column   | Version of the prediction.                         |
-| **label_class_id** | INT       | Foreign  | Identifier for the class of the label.             |
+| **label_class_id** | INT       | Foreign  | Identifier for the class of the predicted label.   |
 | **patch_coords**   | POINT     | Column   | Coordinates of the patch within the image.         |
 
 ### 1.5. `image` Table

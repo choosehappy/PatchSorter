@@ -1,333 +1,428 @@
 # Design Document: Patch Sorter Interface
 
-## 1. Project Management & Overview
+---
 
-### 1.1. Projects Landing Page
+## 1. Landing Page
 
-The main landing page lists existing projects in a tabular format.
-- Each project has the following properties displayed
-  - **Project Name**
-  - **Description**
-  - **Date Created**
-  - **Number of Images**
-  - **Number of Patches**
-  - **Number of Label Classes**
-- Action buttons are available for each project:
-  -  **Edit Project**
-  -  **Delete Project**
--  Clicking on a project row navigates to the Project Page.
+The Landing Page is the entry point of the application. It lists all existing projects and provides controls to create, edit, delete, and configure projects.
 
-### 1.2. Project Creation
+The page header displays **Projects (N)**, where N is the current project count, alongside a **Plus (+)** button to create a new project.
 
-Project configuration is handled under the `New Project` interface. Click the **Plus** button next to the `Projects` header to open this interface.
+The projects table contains the following columns:
 
-*   **Required Inputs:** Users must configure the **Project Name** (Value) and **Project Description** (Value). A **Help** element is also present.
-*   **Actions and Status:** The creation process is initiated by the **Create Project** button. A **Loading** state is shown while the project is being created.
+| Column | Description |
+|---|---|
+| **Project Name** | The name of the project |
+| **Description** | A short description of the project |
+| **DateTime** | Timestamp of when the project was created |
+| **No. of images** | Number of images associated with the project |
+| **Patch Size** | The configured patch size for the project |
+| **No. of label classes** | Number of label classes defined in the project |
+| **Action** | Per-row action buttons: Edit (blue pencil), Delete (red trash), Settings (gray gear) |
 
-### 1.3. Project Deletion
-
-Deletion is confirmed via a dedicated dialog.
-
-*   **Interface:** The `Delete Project` dialog prompts the user with the question: "**Are you sure you want to delete?**".
-*   **Actions and Status:** Actions include **Confirm** and **Cancel**. Status indicators show **Loading** during the deletion process or display an **Error: error status** upon failure.
+Clicking a project row navigates to that project's [Project Page](#project-page).
 
 ---
 
-## 2. Project Dashboard
+### 1.1 Create Project
 
-The Project Dashboard serves as the central hub for managing a single project. It provides an overview of project details, label classes, and images, with direct access to labeling workflows.
+Clicking the **Plus (+)** button in the page header opens the **New Project** dialog.
 
-### 2.1. Project Details Display
+**Inputs:**
 
-At the top of the dashboard:
-*   **Name:** Displays the project name (e.g., `Project Title` or `Project 1`)
-*   **Description:** Shows the project description (e.g., `Project description displayed here.`)
+| Field | Type | Description |
+|---|---|---|
+| **Project Name** | Text input | Required. The name of the new project. |
+| **Project Description** | Textarea | Required. A short description of the project. |
+| **Patch Size** | Dropdown | Required. The patch size to use. Default: `256`. |
 
-### 2.2. Label Class Management
+**Actions:**
 
-The **Label Classes** section manages the types of objects that can be labeled within the project.
+| Action | Description |
+|---|---|
+| **Create Project** | Submits the form and creates the project. |
 
-#### 2.2.1. Label Classes Table
+**States:**
 
-A table displays all defined label classes with the following columns:
-*   **Name:** The label class name (e.g., "Nuclei")
-*   **Comments:** Optional comments or notes (displays "N/A" if empty)
-*   **DateTime:** Timestamp of when the label class was created or last modified (displays "Date/time")
-*   **No. GT labels:** Count of ground truth labels for this class (e.g., "0")
-*   **Action:** Contains action buttons:
-    *   **Edit button** (blue pencil icon) - Opens the label class editing interface
-    *   **Delete button** (red trash icon) - Removes the label class after confirmation
+| State | Description |
+|---|---|
+| *Default* | Empty form fields, **Create Project** button enabled. |
+| *Saving* | A spinner and "Saving" label appear below the button while the request is in progress. |
+| *Success* | Dialog closes and the new project appears in the projects table. |
+| *Error* | An error message is displayed below the button. |
 
-#### 2.2.2. Add Label Class
+---
 
-*   A **Plus (+)** button appears next to the "Label Classes" header
-*   Clicking opens a dialog for creating a new label class
-*   **Label Class Creation:** Allows adding a new class by setting a **Name** (Value) and **Color**. Actions are **Cancel** and **Confirm**. Failure results in the error message: **Error: Failed to add new label class**
-*   **Label Class Editing:** Allows modifying an existing class's **Name** (Value) and **Color**. The system may display a **Loading** state or an error status like **Error: Could not edit label class**
+### 1.2 Edit Project
 
+Clicking the **Edit** button (blue pencil icon) in a project row opens the project editing dialog.
 
-### 2.3. Image and Annotation Uploads
+**Inputs:**
 
-The **Images** section displays all images associated with the project and provides image management capabilities.
+| Field | Type | Description |
+|---|---|---|
+| **Project Name** | Text input | Pre-populated with the current project name. |
+| **Project Description** | Textarea | Pre-populated with the current project description. |
 
-#### 2.3.1. Images Table
+**Actions:**
 
-A comprehensive table lists all project images with the following columns:
-*   **Thumbnail:** Small preview of the image (displays actual image content)
-*   **Name:** File name (e.g., `image_file1.png`, `image_file2.svs`, `image_file3.png`)
-*   **Dimensions:** Image resolution in pixels (e.g., `256×256` for standard images, `100,000×100,000` for whole slide images)
-*   **No. Objects:** Count of annotated objects in the image (e.g., "0" for unlabeled images)
-*   **Actions:** Contains action buttons for each image:
-    *   **View/Edit button** (blue folder icon) - Opens the image for annotation or viewing
-    *   **Delete button** (red trash icon) - Removes the image from the project
+| Action | Description |
+|---|---|
+| **Save** | Submits the updated values. |
+| **Cancel** | Closes the dialog without saving. |
 
-#### 2.3.2. Add Images
+**States:**
 
-*   A **Plus (+)** button (pink/red square icon) appears in the table header
-*   Clicking opens the **Upload Wizard** interface
+| State | Description |
+|---|---|
+| *Loading* | Spinner shown while the update request is in progress. |
+| *Error* | An error message is displayed on failure. |
 
-#### 2.3.3. Upload Wizard
+---
 
-The Upload Wizard provides a structured, multi-step process for uploading images and annotations to a project.
+### 1.3 Delete Project
+
+Clicking the **Delete** button (red trash icon) in a project row opens a confirmation dialog.
+
+**Prompt:** "Are you sure you want to delete?"
+
+**Actions:**
+
+| Action | Description |
+|---|---|
+| **Confirm** | Permanently deletes the project. |
+| **Cancel** | Closes the dialog without deleting. |
+
+**States:**
+
+| State | Description |
+|---|---|
+| *Loading* | Spinner shown while the deletion request is in progress. |
+| *Error* | Displays **Error: error status** on failure. |
+
+---
+
+### 1.4 Project Settings
+
+Clicking the **Settings** button (gray gear icon) in a project row opens the project settings dialog.
+
+**Configurable Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| **Pad patches** | Boolean | Whether to pad patches. Default: `True`. |
+| **Resize patches** | Boolean | Whether to resize patches. Default: `False`. |
+| **Update embedding (s)** | Integer | Embedding update interval in seconds. Default: `5`. |
+
+**Actions:**
+
+| Action | Description |
+|---|---|
+| **Save** | Persists the updated settings. |
+| **Reset** | Restores all settings to their default values. |
+
+**Status Feedback:**
+
+- **Settings saved!** — The project settings have been saved.
+- **Settings reset!** — The project settings have been reset.
+
+---
+
+## 2. Project Page
+
+The Project Page is the central hub for managing a single project. It displays project details, label classes, and images, and provides access to the labeling workflow.
+
+The page header displays the **Project Name** and **Project Description**.
+
+---
+
+### 2.1 Manage Label Classes
+
+The **Label Classes** section lists all defined label classes for the project and allows users to add, edit, and delete them.
+
+**Label Classes Table:**
+
+| Column | Description |
+|---|---|
+| **Name** | The label class name (e.g., "Nuclei") |
+| **Comments** | Optional notes; displays "N/A" if empty |
+| **DateTime** | Timestamp of creation or last modification |
+| **No. GT labels** | Count of ground truth labels for this class |
+| **Action** | Edit (blue pencil) and Delete (red trash) buttons |
+
+**Add Label Class:**
+
+A **Plus (+)** button next to the "Label Classes" header opens the creation dialog.
+
+| Field | Type | Description |
+|---|---|---|
+| **Name** | Text input | Required. The name of the new label class. |
+| **Color** | Color picker | Required. Display color for the class. |
+
+| Action | Description |
+|---|---|
+| **Confirm** | Creates the new label class. |
+| **Cancel** | Closes the dialog without saving. |
+
+On failure: **Error: Failed to add new label class**
+
+**Edit Label Class:**
+
+Clicking the Edit button on a label class row opens the editing dialog with pre-populated fields.
+
+| Field | Type | Description |
+|---|---|---|
+| **Name** | Text input | Current label class name. |
+| **Color** | Color picker | Current label class color. |
+
+On failure: **Error: Could not edit label class**
+
+**Delete Label Class:**
+
+Clicking the Delete button on a label class row opens a confirmation dialog equivalent to [Delete Project](#13-delete-project).
+
+---
+
+### 2.2 Upload Images
+
+The **Images** section lists all images in the project. A **Plus (+)** button (pink/red icon) in the table header opens the **Upload Wizard**.
+
+**Images Table:**
+
+| Column | Description |
+|---|---|
+| **Thumbnail** | Small preview of the image |
+| **Name** | File name (e.g., `image_file1.png`, `image_file2.svs`) |
+| **Dimensions** | Resolution in pixels (e.g., `256×256`, `100,000×100,000`) |
+| **No. Objects** | Count of annotated objects in the image |
+| **Actions** | View/Edit (blue folder icon) and Delete (red trash icon) |
+
+#### Upload Wizard
+
+A 6-step wizard for uploading images and associated annotations.
+
+A **step progress indicator** appears at the top of the wizard after selecting an approach, showing all 6 steps. The active step is highlighted; completed and future steps appear in gray.
+
+---
 
 ##### Step 1: Approach
 
-The first screen of the wizard allows users to select their preferred upload approach:
+Users select an upload method:
 
-**Choose Upload Method:**
-*   **Step by step** (radio button) - Guided workflow that walks through each upload step sequentially (images, masks, labels)
-*   **File list** (radio button) - Upload all files at once using a comprehensive CSV file with the following columns:
-    *   **Image Filename** - Name of the image file
-    *   **Mask Filename** - (Optional) Name of the associated mask file
-    *   **Label CSV Filename** - (Optional) Name of the associated label CSV file
+| Option | Description |
+|---|---|
+| **Step by step** | Guided workflow through each upload type sequentially |
+| **File list** | Upload all files at once via a CSV with columns: Image Filename, Mask Filename (optional), Label CSV Filename (optional) |
 
-**Step Progress Indicator:**
-*   Once an upload method is selected (e.g., "Step by step"), a progress indicator appears at the top showing the 6 sequential wizard steps:
-    1. **Approach** - Select the upload strategy
-    2. **Upload Images** - Add image files to the project
-    3. **Upload Masks** - (Optional) Add mask files
-    4. **Upload Labels** - (Optional) Add annotation/label files
-    5. **Review** - Verify all uploaded content before submission
-    6. **Done** - Confirmation and completion
-*   The current step is highlighted in bold, while future steps appear in gray
+| Navigation | Description |
+|---|---|
+| **Next** | Proceed to Step 2 based on the selected approach |
+| **Cancel** | Exit the wizard without saving |
 
-**Navigation:**
-*   **Back** button - Return to the project dashboard (disabled on first step)
-*   **Next** button - Proceed to the next step based on the selected approach
-*   **Cancel** button - Exit the wizard without saving changes
+---
 
 ##### Step 2: Upload Images
 
-Users upload image files to the project. The step indicator shows "**2. Upload Images**" highlighted/underlined, with Step 1 completed (gray) and Steps 3-6 pending (gray).
+Users upload image files.
 
-**Choose Data Source:**
+| Option | Description |
+|---|---|
+| **Upload Files** | Select individual image files |
+| **Upload Folder** | Select an entire directory of images |
 
-Users first select their preferred data source method:
-*   **Upload Files** (radio button) - Select individual image files
-*   **Upload Folder** (radio button) - Select an entire folder containing images
+**Upload Box:**
+- Header: "Upload Image Files (.svs, .png, etc.)"
+- Drop zone: "Drop files or click to upload"
+- Uploaded files are listed with a filename and a **Remove (×)** button
 
-**File Upload Box:**
+| Navigation | Description |
+|---|---|
+| **Back** | Return to Step 1 |
+| **Next** | Proceed to Step 3 |
+| **Cancel** | Exit the wizard |
 
-Once a data source option is selected, a bordered upload box appears containing:
-*   **Header:** "Upload Image Files (.svs, .png, etc.)"
-*   **Drop zone:** Interactive area with text "Drop files or click to upload"
-*   **Supported formats:** `.svs` (whole slide images), `.png`, and other image formats
-*   **File list area:** Where uploaded files are displayed
-
-**Uploaded Files Display:**
-
-As files are added, they appear in the upload box as a list showing:
-*   File icon (document icon)
-*   Filename (e.g., `image_file1.png`, `image_file2.png`, `image_file3.png`, `image_file4.png`)
-*   **Remove button** (circled X icon) to delete a file from the upload queue
-
-**Navigation:**
-*   **Back** button - Return to the previous step (Approach)
-*   **Next** button - Proceed to the next step (Upload Masks)
-*   **Cancel** button - Exit the wizard without saving changes
+---
 
 ##### Step 3: Upload Masks
 
-This optional step allows users to upload mask files associated with their images. The step indicator shows "**3. Upload Masks**" highlighted/underlined.
+Optional step for uploading mask files.
 
-**Upload Masks Decision:**
+Users first choose whether to upload masks:
 
-First, users decide whether to upload masks:
-*   **Yes** (radio button) - Proceed with mask upload options
-*   **No** (radio button) - Skip mask upload and proceed to next step
+| Option | Description |
+|---|---|
+| **Yes** | Expand mask upload options |
+| **No** | Skip to Step 4 |
 
-**Choose Data Source:**
+If **Yes**, additional options appear:
 
-If "Yes" is selected, users choose their data source method:
-*   **Upload Files** (radio button) - Select individual mask files
-*   **Upload Folder** (radio button) - Select an entire folder containing masks
+| Field | Options |
+|---|---|
+| **Data source** | Upload Files, Upload Folder |
+| **Mask type** | Geojson, Binary Mask, Multi-class Mask |
 
-**Mask Type:**
+**Upload Box:**
+- Header: "Upload Mask Files (.geojson, .json, .png)"
+- Drop zone: "Drop files or click to upload"
+- Uploaded files are listed with a filename and a **Remove (×)** button
 
-Users select the type of mask being uploaded:
-*   **Geojson** (radio button) - GeoJSON format annotation files
-*   **Binary Mask** (radio button) - Binary segmentation masks
-*   **Multi-class Mask** (radio button) - Multi-class segmentation masks
+| Navigation | Description |
+|---|---|
+| **Back** | Return to Step 2 |
+| **Next** | Proceed to Step 4 |
+| **Cancel** | Exit the wizard |
 
-**Mask Upload Box:**
-
-Once all selections are made, a bordered upload box appears containing:
-*   **Header:** "Upload Mask Files (.geojson, .json, .png)"
-*   **Drop zone:** Interactive area with text "Drop files or click to upload"
-*   **Supported formats:** `.geojson`, `.json`, `.png` depending on mask type selected
-*   **File list area:** Where uploaded mask files are displayed
-
-**Uploaded Masks Display:**
-
-As files are added, they appear in the upload box as a list showing:
-*   File icon (document icon)
-*   Filename (e.g., `image_file1.geojson`, `image_file2.geojson`, `image_file3.geojson`, `image_file4.geojson`)
-*   **Remove button** (circled X icon) to delete a file from the upload queue
-
-**Navigation:**
-*   **Back** button - Return to the previous step (Upload Images)
-*   **Next** button - Proceed to the next step (Upload Labels)
-*   **Cancel** button - Exit the wizard without saving changes
+---
 
 ##### Step 4: Upload Labels
 
-This optional step allows users to upload label or annotation files associated with their images. The step indicator shows "**4. Upload Labels**" highlighted/underlined.
+Optional step for uploading label CSV files.
 
-**Upload Label CSVs Decision:**
+Users first choose whether to upload label files:
 
-First, users decide whether to upload label files:
-*   **Yes** (radio button) - Proceed with label upload options
-*   **No** (radio button) - Skip label upload and proceed to next step
+| Option | Description |
+|---|---|
+| **Yes** | Expand label upload options |
+| **No** | Skip to Step 5 |
 
-**Choose Data Source:**
+If **Yes**, additional options appear:
 
-If "Yes" is selected, users choose their data source method:
-*   **Upload Files** (radio button) - Select individual label files
-*   **Upload Folder** (radio button) - Select an entire folder containing labels
+| Field | Options |
+|---|---|
+| **Data source** | Upload Files, Upload Folder |
 
-**Label Upload Box:**
+**Upload Box:**
+- Header: "Upload .csv Files"
+- Drop zone: "Drop files or click to upload"
+- Uploaded files are listed with a filename and a **Remove (×)** button
 
-Once all selections are made, a bordered upload box appears containing:
-*   **Header:** "Upload .csv Files"
-*   **Drop zone:** Interactive area with text "Drop files or click to upload"
-*   **Supported formats:** `.csv` files containing patch-level labels and annotations
-*   **File list area:** Where uploaded label files are displayed
+> Uploaded label CSVs update the **No. Objects** count for the corresponding image.
 
-**Uploaded Labels Display:**
+| Navigation | Description |
+|---|---|
+| **Back** | Return to Step 3 |
+| **Next** | Proceed to Step 5 |
+| **Cancel** | Exit the wizard |
 
-As files are added, they appear in the upload box as a list showing:
-*   File icon (document icon)
-*   Filename (e.g., `image_file1.csv`, `image_file2.csv`, `image_file3.csv`, `image_file4.csv`)
-*   **Remove button** (circled X icon) to delete a file from the upload queue
-
-**Navigation:**
-*   **Back** button - Return to the previous step (Upload Masks)
-*   **Next** button - Proceed to the next step (Review)
-*   **Cancel** button - Exit the wizard without saving changes
-
-**Note:** Label files update the **No. Objects** count for corresponding images in the project dashboard.
+---
 
 ##### Step 5: Review
 
-The Review step provides a comprehensive summary of all uploaded content before processing. The step indicator shows "**5. Review**" highlighted/underlined.
+A summary table of all files queued for import is displayed before processing begins.
 
-**Review Table:**
+| Column | Description |
+|---|---|
+| **Image** | Image filename |
+| **Mask** | Associated mask filename, or blank |
+| **CSV** | Associated label CSV filename, or blank |
+| **Error** | Validation error message, or "N/A" |
+| **Status** | Current processing state (see below) |
 
-A table displays all files queued for import with the following columns:
-*   **Image:** The image filename (e.g., `image_file_1.png`, `image_file_2.png`, `image_file_3.png`)
-*   **Mask:** The associated mask filename if uploaded (e.g., `image_file_1.geojson`, `image_file_2.geojson`, `image_file_3.geojson`)
-*   **CSV:** The associated label CSV filename if uploaded (e.g., `image_file_1.csv`, `image_file_2.csv`, `image_file_3.csv`)
-*   **Error:** Displays validation error messages or "N/A" if no errors detected
-*   **Status:** Shows the current processing state:
-    *   **READY TO IMPORT** - File has passed validation and is ready to be processed
-    *   **Spinner icon** - File is currently being processed (shown after clicking Process)
-    *   **Check icon (✓)** - File has been successfully imported
-    *   **Failure icon (✗)** - File import failed, check Error column for details
+**Status values:**
 
-**Validation:**
+| Status | Description |
+|---|---|
+| **READY TO IMPORT** | File passed validation; ready to process |
+| *(spinner)* | File is currently being processed |
+| ✓ | File was successfully imported |
+| ✗ | File import failed; see Error column |
 
-The system performs validation checks to ensure:
-*   File naming conventions match between images, masks, and CSVs
-*   File formats are valid and supported
-*   Required data fields are present
-*   No conflicts with existing project data
+**Validation checks include:**
+- File naming consistency across images, masks, and CSVs
+- Valid and supported file formats
+- No conflicts with existing project data
 
-**Navigation:**
-*   **Back** button - Return to the previous step (Upload Labels)
-*   **Process** button - Initiate the import process for all files
-*   **Cancel** button - Exit the wizard without importing any files
+| Navigation | Description |
+|---|---|
+| **Back** | Return to Step 4 |
+| **Process** | Begin importing all queued files sequentially |
+| **Cancel** | Exit the wizard without importing |
 
-**Processing Behavior:**
-
-Once the **Process** button is clicked:
-*   The Status column updates dynamically for each file as it's processed
-*   Processing typically occurs sequentially through the file list
-*   Users can monitor progress via the status icons
-*   Any errors during processing are displayed in the Error column
-*   After all files are processed successfully, the wizard advances to the Done step
+---
 
 ##### Step 6: Done
 
-*   Confirms successful upload completion
-*   Updates the project dashboard with new images
-*   Status shows **"Done"** upon successful processing
-
-### 2.4. Open Labeling Page
-
-A prominent button **"Open Labeling Page"** appears at the bottom right of the dashboard with an arrow icon.
-
-*   **Requirements:** The button indicates **"Requires at least 2 label classes"** to proceed
-*   **Action:** Clicking navigates to the interactive labeling interface where users can annotate patches within images
-*   **State:** The button may be disabled if requirements are not met (less than 2 label classes defined)
-
-### 2.5. Annotation Export
-
-*   **Interface:** The `Export Labels` configuration dialog allows selection of formats.
-*   **Export Formats:** Users can choose to export labels **Within ge json files** or **Within image-level csvs**.
-*   **Status:** Once exported, the job status shows **Job running** and **File processing in progress**.
+Confirms successful completion of the upload. The project dashboard updates to reflect newly added images.
 
 ---
 
-## 3. Labeling and Annotation Workflow
+### 2.3 Export Annotations
 
-The labeling environment is accessed by the **Open Labeling Page** action.
+The **Export Labels** dialog allows users to export annotations from the project.
 
-### 3.1. Annotation Controls and Tools
+**Export Formats:**
 
-*   **Tool Selection:** Available tools are **Move (1)** and **Lasso (2)**.
-*   **Label Assignment Status:** The interface displays the current label assigned by keypress, for example, "Image Size ‘ENTER’ assigns label: **Lymphocyte**".
-*   **Bulk Selection:** The option **Select all patches** is available.
-*   **Use Case: Assign Labels:** The `Apply Label` menu allows assignment to predefined classes, such as **(1)Epithelial cell**, **(2) Lymphocyte**, and **(3) Other**.
+| Format | Description |
+|---|---|
+| **GeoJSON files** | One `.geojson` file per image |
+| **Image-level CSVs** | One `.csv` file per image |
 
-### 3.2. Visualization and Filtering
+**States:**
 
-The user can control the display of patches and labels using various options:
-
-*   **Color By Ground Truth**
-*   **Filter By Labeled**
-*   **Include Label Classes** (e.g., Lymphocyte)
-*   **Toggle Show Patches**
-
-### 3.3. Navigation
-
-The workflow includes navigation to an **Embedding** view.
+| State | Description |
+|---|---|
+| *Job running* | Export job has been submitted and is in progress |
+| *File processing in progress* | Individual files are being written |
 
 ---
 
-## 4. Application and Project Configuration (Settings)
+### 2.4 Open Labeling Page
 
-### 4.1. Configuration Sections
+A prominent **"Open Labeling Page"** button with an arrow icon appears at the bottom right of the Project Page.
 
-Settings are divided into two main categories: **Application Settings** and **Project Settings**.
+- **Requirement:** At least 2 label classes must be defined. The button displays "Requires at least 2 label classes" and is disabled until this condition is met.
+- **Action:** Navigates to the [Labeling Page](#3-labeling-page).
 
-### 4.2. Configurable Parameters
+---
 
-Key settings displayed in both Application and Project contexts include:
-*   **Pad patches** (Value: True)
-*   **Resize patches** (Value: False)
-*   **Update embedding (s)** (Value: 5)
+## 3. Labeling Page
 
-### 4.3. Actions and Feedback
+The Labeling Page is the primary interface for annotating patches within a standard image. It is accessed via the **Open Labeling Page** button on the Project Page.
 
-*   **Actions:** The settings interface provides a **Reset** action.
-*   **Status Feedback:** Confirmation messages appear upon completion, such as **Settings reset! The application settings have been reset.** or **Settings saved! The application settings have been saved.**.
+---
+
+### 3.1 Select and Move Patches
+
+Users can navigate and select patches using the available tools.
+
+| Tool | Shortcut | Description |
+|---|---|---|
+| **Move** | `1` | Pan and navigate the image canvas |
+| **Lasso** | `2` | Draw a freeform selection region to select multiple patches |
+
+**Bulk selection:** The **Select all patches** option selects all visible patches at once.
+
+---
+
+### 3.2 Assign Labels
+
+Once patches are selected, labels are assigned via the **Apply Label** menu.
+
+- Available label classes are listed with numeric shortcuts, e.g., **(1) Epithelial cell**, **(2) Lymphocyte**, **(3) Other**.
+- The current default label assignment is shown in the interface, e.g., "'ENTER' assigns label: **Lymphocyte**".
+- Pressing `ENTER` assigns the currently configured default label to the selected patches.
+
+---
+
+### 3.3 Visualization and Filtering
+
+Users can control the display of patches and labels using the following options:
+
+| Option | Description |
+|---|---|
+| **Color By Ground Truth** | Colors patches by their assigned ground truth label |
+| **Filter By Labeled** | Shows only patches that have been labeled |
+| **Include Label Classes** | Filters the view to include specific label classes (e.g., Lymphocyte) |
+| **Toggle Show Patches** | Toggles visibility of patch overlays on the image |
+
+---
+
+### 3.4 Navigate to Embedding View
+
+A navigation control allows users to switch to the **Embedding** view, which provides a dimensionality-reduced visualization of patch features to assist with batch labeling decisions.
+
+---
+
+## 4. WSI Labeling Page
+
+The WSI (Whole Slide Image) Labeling Page provides an annotation interface optimized for very large images (e.g., `.svs` files with resolutions up to `100,000×100,000` pixels). It is accessed by clicking the **View/Edit** button on a whole slide image in the Project Page images table.
