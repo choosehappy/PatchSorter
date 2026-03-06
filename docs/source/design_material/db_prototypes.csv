@@ -1,8 +1,8 @@
 Link,Title,Description,Result
 [](#lasso-query),Lasso patches,Time to return 1 million patches from a lasso operation,
-[](#hover-over-scatter-plot),Get patch by bucket,Time to return a single patch by cell id,
-[](#toggle-show-patches),Show patches,Time to return the first patch for 1000 cells,
-[](#assign-reassign-ground-truth-labels),Assign labels,Time to update ground truth labels for selected patches,
+[](#hover-over-scatter-plot),Get patch by bucket,"Time to return a single patch by cell id, from 1 billion patch table",
+[](#toggle-show-patches),Show patches,"Time to return the first patch for 1000 cells, from 1 billion patch table",
+[](#assign-reassign-ground-truth-labels),Assign labels,Time to update ground truth labels for 1000 patches within 1b row table,
 [](#insert-new-predictions),Insert 1B rows monotonic ids,"Time to insert 1B monotonically increasing ids in a table, with optimizations.","0.49h, ~600k r/s"
 [](#insert-new-predictions),Insert 1B rows non-monotonic ids,"Time to insert 1B non-monotonically increasing ids in a table, with optimizations.",
 [](#insert-new-predictions),Insert 1000 random rows w/ fk,Time to insert 1000 random rows in table w foreign key relation to 1b row table,"4,944 r/s"
