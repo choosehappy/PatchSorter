@@ -2,6 +2,7 @@ import psycopg2
 import math  
 from typing import Tuple, List, Union  
 from abc import ABC, abstractmethod
+from shapely.geometry import Polygon, Point, MultiPolygon, box
 
 DB_PARAMS = {
     'host': 'localhost',
@@ -92,6 +93,21 @@ class HierarchicalGridIndex(ABC):
     @abstractmethod
     def is_valid_cell(self, cell: int) -> bool:
         """Check if a cell index is valid."""
+        pass
+
+    @abstractmethod
+    def polygon_to_cells(self, polygon: Polygon, level: int) -> List[int]:
+        """
+        Return all cells at *level* whose centre lies inside *polygon*.
+        Equivalent to H3's polygonToCells function.
+
+        Args:
+            polygon: A Shapely Polygon defining the boundary.
+            level:   Resolution level.
+
+        Returns:
+            List of cell indices whose centres are inside the polygon.
+        """
         pass
 
 class HierarchicalGridIndexZOrder(HierarchicalGridIndex):
@@ -322,15 +338,98 @@ class HierarchicalGridIndexZOrder(HierarchicalGridIndex):
         level = self._get_level(cell)
         return 0 <= level <= 15  # support up to level 15, like H3
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
+    def polygon_to_cells(self, polygon: Polygon, level: int) -> List[int]:
+        """
+        Return all cells at *level* whose centre lies inside *polygon*.
+        Equivalent to H3's polygonToCells function.
 
-    def _get_level(self, cell: int) -> int:
-        """Extract resolution level from encoded cell index."""
-        return cell >> 58
+        Uses recursive Morton-range decomposition: the bounding box is
+        subdivided into Z-order quadrants and entire quadrants that do not
+        intersect the polygon are pruned, giving sub-linear behaviour for
+        geographically compact polygons at high resolutions.
 
+        Args:
+            polygon: A Shapely Polygon defining the boundary.
+            level:   Resolution level.
 
+        Returns:
+            List of cell indices whose centres are inside the polygon,
+            sorted in Z-order (Morton) order.
+        """
+        if level < 0:
+            raise ValueError("Level must be non-negative")
+
+        cells: List[int] = []
+
+        def recurse(i_lo: int, j_lo: int, quad_level: int) -> None:
+            """
+            Test the quad-tree node at (i_lo, j_lo) at quad_level.
+            If it intersects the polygon, either collect all its leaf
+            cells (if fully contained) or recurse deeper.
+            """
+            scale = 2 ** quad_level
+            scaled_size = self.cell_size / scale
+            side = scaled_size  # one cell wide at quad_level
+
+            # Number of target-level cells along one side of this quad
+            cells_per_side = 2 ** (level - quad_level)
+
+            # Bounding box of this quad in world coordinates
+            x0 = i_lo * scaled_size
+            y0 = j_lo * scaled_size
+            x1 = x0 + cells_per_side * (self.cell_size / 2 ** level)
+            y1 = y0 + cells_per_side * (self.cell_size / 2 ** level)
+            quad_box = box(x0, y0, x1, y1)
+
+            if not polygon.intersects(quad_box):
+                return  # prune: no overlap at all
+
+            if quad_level == level:
+                # Leaf: test cell centre
+                cx = (i_lo + 0.5) * scaled_size
+                cy = (j_lo + 0.5) * scaled_size
+                if polygon.contains(Point(cx, cy)):
+                    morton = self._encode_morton(i_lo, j_lo)
+                    cells.append((level << 58) | morton)
+                return
+
+            if polygon.contains(quad_box):
+                # Entire quad is inside — collect all leaf cells without
+                # further point-in-polygon tests.
+                next_scale = 2 ** level
+                next_size = self.cell_size / next_scale
+                factor = 2 ** (level - quad_level)
+                i_base = i_lo * factor
+                j_base = j_lo * factor
+                for di in range(factor):
+                    for dj in range(factor):
+                        morton = self._encode_morton(i_base + di, j_base + dj)
+                        cells.append((level << 58) | morton)
+                return
+
+            # Partial overlap — recurse into four children
+            mid_level = quad_level + 1
+            factor = 2 ** (level - mid_level)
+            i_mid = i_lo * 2
+            j_mid = j_lo * 2
+            recurse(i_mid,     j_mid,     mid_level)
+            recurse(i_mid + 1, j_mid,     mid_level)
+            recurse(i_mid,     j_mid + 1, mid_level)
+            recurse(i_mid + 1, j_mid + 1, mid_level)
+
+        # Seed the recursion from level-0 cells that overlap the polygon bbox
+        min_x, min_y, max_x, max_y = polygon.bounds
+        i_start = math.floor(min_x / self.cell_size)
+        i_end   = math.floor(max_x / self.cell_size)
+        j_start = math.floor(min_y / self.cell_size)
+        j_end   = math.floor(max_y / self.cell_size)
+
+        for i0 in range(i_start, i_end + 1):
+            for j0 in range(j_start, j_end + 1):
+                recurse(i0, j0, 0)
+
+        cells.sort()
+        return cells
 
 
 class HierarchicalGridIndexIJ(HierarchicalGridIndex):  
@@ -399,7 +498,7 @@ class HierarchicalGridIndexIJ(HierarchicalGridIndex):
           
         return (x, y)  
       
-    def cell_to_boundary(self, cell: int) -> List[Tuple[float, float]]:  
+    def cell_to_boundary(self, cell: int) -> List[Tuple[float, float]]:
         """  
         Get the boundary vertices of a cell.  
         Equivalent to H3's cellToBoundary function.  
@@ -527,5 +626,40 @@ class HierarchicalGridIndexIJ(HierarchicalGridIndex):
       
     def _get_j(self, cell: int) -> int:  
         """Extract j coordinate from encoded cell index."""  
-        return cell & 0x1FFFFFFF
+        return cell & 0x1FFFFFFF  
+
+    def polygon_to_cells(self, polygon: Polygon, level: int) -> List[int]:
+        """
+        Return all cells at *level* whose centre lies inside *polygon*.
+        Equivalent to H3's polygonToCells function.
+
+        Args:
+            polygon: A Shapely Polygon defining the boundary.
+            level:   Resolution level.
+
+        Returns:
+            List of cell indices.
+        """
+        if level < 0:
+            raise ValueError("Level must be non-negative")
+
+        min_x, min_y, max_x, max_y = polygon.bounds
+
+        scale = 2 ** level
+        scaled_size = self.cell_size / scale
+
+        i_start = math.floor(min_x / scaled_size)
+        i_end   = math.floor(max_x / scaled_size)
+        j_start = math.floor(min_y / scaled_size)
+        j_end   = math.floor(max_y / scaled_size)
+
+        cells = []
+        for i in range(i_start, i_end + 1):
+            for j in range(j_start, j_end + 1):
+                cx = (i + 0.5) * scaled_size
+                cy = (j + 0.5) * scaled_size
+                if polygon.contains(Point(cx, cy)):
+                    cells.append((level << 58) | ((i & 0x1FFFFFFF) << 29) | (j & 0x1FFFFFFF))
+
+        return cells
 
