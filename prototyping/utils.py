@@ -1,6 +1,6 @@
 import psycopg2
 import math  
-from typing import Tuple, List, Union  
+from typing import Optional, Tuple, List, Union  
 from abc import ABC, abstractmethod
 from shapely.geometry import Polygon, Point, MultiPolygon, box
 
@@ -431,6 +431,145 @@ class HierarchicalGridIndexZOrder(HierarchicalGridIndex):
         cells.sort()
         return cells
 
+    def polygon_to_morton_ranges(self, polygon: Polygon, level: int, max_recursion_depth: Optional[int] = None) -> List[Tuple[int, int]]:
+        """
+        Return a minimal list of Morton-code ranges that cover all cells at
+        *level* whose centre lies inside *polygon*.
+
+        Each ``(lo, hi)`` pair is suitable for a SQL
+        ``column BETWEEN lo AND hi`` predicate on the 64-bit cell-ID column.
+
+        **Why contiguous ranges work for Z-order**
+
+        Because every aligned $2^k \\times 2^k$ block of cells maps to a
+        *contiguous* run of Morton codes::
+
+            encode_morton(i_base + di, j_base + dj)
+                = encode_morton(i_base, j_base) + encode_morton(di, dj)
+
+        when ``i_base`` and ``j_base`` are multiples of ``2^k`` and
+        ``0 ≤ di, dj < 2^k``.  Since ``encode_morton`` is a bijection on
+        ``[0, 2^k) × [0, 2^k) → [0, 4^k)``, the complete block spans the
+        range ``[morton_base, morton_base + 4^k - 1]`` with no gaps.
+
+        The same quad-tree recursion as :meth:`polygon_to_cells` is used:
+
+        * **No intersection** – prune the subtree entirely.
+        * **Fully contained** – emit a single ``(lo, hi)`` range for the
+          entire aligned block (``span = 4^k - 1 = factor² - 1``).
+        * **Partial overlap** – recurse into the four Z-order children.
+        * **Leaf** – point-in-polygon test; emit ``(cell, cell)`` if inside.
+
+        Adjacent or overlapping raw ranges are merged before returning, so
+        the output list is the minimum number of disjoint ``BETWEEN`` spans.
+
+        Args:
+            polygon:             A Shapely ``Polygon`` defining the query boundary.
+            level:               Resolution level (must be ≥ 0).
+            max_recursion_depth: Optional cap on quad-tree recursion depth
+                                 (measured from level 0).  When the recursion
+                                 reaches this depth before hitting the target
+                                 *level*, the entire remaining sub-quad is
+                                 emitted as a single Morton range, trading
+                                 precision (some non-contained cells may be
+                                 included) for speed.  ``None`` (default)
+                                 means unlimited recursion down to *level*.
+
+        Returns:
+            Sorted, merged list of ``(range_min, range_max)`` inclusive
+            64-bit cell-ID ranges.  Empty list if the polygon covers no cells.
+
+        Example::
+
+            ranges = idx.polygon_to_morton_ranges(qbox, level=10)
+            placeholders = " OR ".join(
+                f"grid_id_z BETWEEN {lo} AND {hi}" for lo, hi in ranges
+            )
+        """
+        if level < 0:
+            raise ValueError("Level must be non-negative")
+        if max_recursion_depth is not None and max_recursion_depth < 0:
+            raise ValueError("max_recursion_depth must be non-negative")
+
+        raw_ranges: List[Tuple[int, int]] = []
+        level_prefix = level << 58
+        leaf_size = self.cell_size / (2 ** level)
+
+        def recurse(i_lo: int, j_lo: int, quad_level: int, depth: int) -> None:
+            factor = 2 ** (level - quad_level)
+            scaled_size = self.cell_size / (2 ** quad_level)
+
+            x0 = i_lo * scaled_size
+            y0 = j_lo * scaled_size
+            x1 = x0 + factor * leaf_size
+            y1 = y0 + factor * leaf_size
+            quad_box = box(x0, y0, x1, y1)
+
+            if not polygon.intersects(quad_box):
+                return  # prune: no overlap
+
+            i_base = i_lo * factor
+            j_base = j_lo * factor
+            morton_base = self._encode_morton(i_base, j_base)
+
+            if quad_level == level:
+                # Leaf cell: test whether its centre is inside the polygon.
+                cx = (i_base + 0.5) * leaf_size
+                cy = (j_base + 0.5) * leaf_size
+                if polygon.contains(Point(cx, cy)):
+                    cell_id = level_prefix | morton_base
+                    raw_ranges.append((cell_id, cell_id))
+                return
+
+            if polygon.contains(quad_box) or (
+                max_recursion_depth is not None and depth >= max_recursion_depth
+            ):
+                # Either entirely inside, or depth cap reached — emit one range.
+                span = factor * factor - 1
+                raw_ranges.append(
+                    (level_prefix | morton_base,
+                     level_prefix | (morton_base + span))
+                )
+                return
+
+            # Partial overlap: recurse into four Z-order children.
+            mid = quad_level + 1
+            i2, j2 = i_lo * 2, j_lo * 2
+            recurse(i2,     j2,     mid, depth + 1)
+            recurse(i2 + 1, j2,     mid, depth + 1)
+            recurse(i2,     j2 + 1, mid, depth + 1)
+            recurse(i2 + 1, j2 + 1, mid, depth + 1)
+
+        # Seed from every level-0 cell that overlaps the polygon bounding box.
+        min_x, min_y, max_x, max_y = polygon.bounds
+        i_start = math.floor(min_x / self.cell_size)
+        i_end   = math.floor(max_x / self.cell_size)
+        j_start = math.floor(min_y / self.cell_size)
+        j_end   = math.floor(max_y / self.cell_size)
+
+        for i0 in range(i_start, i_end + 1):
+            for j0 in range(j_start, j_end + 1):
+                recurse(i0, j0, 0, 0)
+
+        # Merge adjacent / overlapping ranges to minimise BETWEEN clauses.
+        if not raw_ranges:
+            return []
+
+        raw_ranges.sort()
+        merged: List[Tuple[int, int]] = [raw_ranges[0]]
+        for lo, hi in raw_ranges[1:]:
+            prev_lo, prev_hi = merged[-1]
+            if lo <= prev_hi + 1:          # adjacent or overlapping
+                merged[-1] = (prev_lo, max(prev_hi, hi))
+            else:
+                merged.append((lo, hi))
+
+        return merged
+
+    def _get_level(self, cell: int) -> int:
+        """Extract level from encoded cell index."""
+        return cell >> 58
+
 
 class HierarchicalGridIndexIJ(HierarchicalGridIndex):  
     """  
@@ -663,3 +802,232 @@ class HierarchicalGridIndexIJ(HierarchicalGridIndex):
 
         return cells
 
+
+# ---------------------------------------------------------------------------
+# SQL function registries
+# ---------------------------------------------------------------------------
+
+class HierarchicalGridSQLRegistry(ABC):
+    """Abstract base class for registering HierarchicalGridIndex SQL helper
+    functions into a PostgreSQL database.
+
+    Each concrete subclass corresponds to one cell-encoding variant
+    (Morton/Z-order or IJ) and provides the correct DDL for the
+    ``cell_to_parent`` SQL function used by pg_ivm / materialized-view
+    aggregation pipelines.
+
+    Usage::
+
+        registry = HierarchicalGridSQLRegistryZOrder()
+        registry.register(conn)          # CREATE OR REPLACE FUNCTION …
+        registry.is_registered(conn)     # True
+        registry.drop(conn)              # DROP FUNCTION …
+    """
+
+    #: Default PostgreSQL function name used when none is supplied to __init__.
+    DEFAULT_FUNCTION_NAME: str = "cell_to_parent"
+
+    def __init__(self, function_name: Optional[str] = None) -> None:
+        """
+        Args:
+            function_name: Override the PostgreSQL function name.  Useful when
+                both encodings must coexist in the same schema (e.g.
+                ``cell_to_parent_zorder`` and ``cell_to_parent_ij``).
+                Defaults to ``"cell_to_parent"``.
+        """
+        self.function_name: str = function_name or self.DEFAULT_FUNCTION_NAME
+
+    # ------------------------------------------------------------------
+    # Abstract interface
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    def get_cell_to_parent_sql(self) -> str:
+        """Return the ``CREATE OR REPLACE FUNCTION`` DDL string for
+        ``cell_to_parent(cell BIGINT, parent_level INT) RETURNS BIGINT``.
+
+        The returned string must be executable as a single statement via
+        ``cursor.execute()``.
+        """
+        pass
+
+    # ------------------------------------------------------------------
+    # Concrete helpers
+    # ------------------------------------------------------------------
+
+    def register(self, conn) -> None:
+        """Create (or replace) the SQL function in the connected database.
+
+        Safe to call multiple times — uses ``CREATE OR REPLACE FUNCTION``.
+        Commits the transaction when ``conn.autocommit`` is ``False``.
+
+        Args:
+            conn: An open ``psycopg2`` connection.
+        """
+        with conn.cursor() as cur:
+            cur.execute(self.get_cell_to_parent_sql())
+        if not conn.autocommit:
+            conn.commit()
+
+    def drop(self, conn, if_exists: bool = True) -> None:
+        """Drop the SQL function from the database.
+
+        Args:
+            conn:       An open ``psycopg2`` connection.
+            if_exists:  When ``True`` (default), suppress the error if the
+                        function does not exist (``DROP FUNCTION IF EXISTS``).
+        """
+        qualifier = "IF EXISTS" if if_exists else ""
+        with conn.cursor() as cur:
+            cur.execute(
+                f"DROP FUNCTION {qualifier} {self.function_name}(BIGINT, INT) CASCADE;"
+            )
+        if not conn.autocommit:
+            conn.commit()
+
+    def is_registered(self, conn) -> bool:
+        """Return ``True`` if the function currently exists in the database.
+
+        Checks ``pg_proc`` for a function with the expected name and the
+        exact argument signature ``(cell bigint, parent_level integer)``.
+
+        Args:
+            conn: An open ``psycopg2`` connection.
+        """
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT 1
+                FROM   pg_proc p
+                JOIN   pg_namespace n ON n.oid = p.pronamespace
+                WHERE  p.proname = %s
+                  AND  pg_catalog.pg_get_function_arguments(p.oid)
+                         = 'cell bigint, parent_level integer'
+                """,
+                (self.function_name,),
+            )
+            return cur.fetchone() is not None
+
+
+class HierarchicalGridSQLRegistryZOrder(HierarchicalGridSQLRegistry):
+    """SQL function registry for the Morton/Z-order cell encoding.
+
+    Registers a ``cell_to_parent(BIGINT, INT) RETURNS BIGINT`` function
+    that coarsens a Morton-encoded 64-bit cell identifier.
+
+    Bit layout of a cell ID:
+
+    +-----------+---------+------------------------------------------+
+    | Bits      | Field   | Notes                                    |
+    +===========+=========+==========================================+
+    | 63 – 58   | level   | 6 bits                                   |
+    +-----------+---------+------------------------------------------+
+    | 57 –  0   | Morton  | 58-bit interleaved i/j                   |
+    |           | code    | (i at even positions, j at odd)          |
+    +-----------+---------+------------------------------------------+
+
+    Coarsening shifts the 58-bit Morton code right by
+    ``2 * (child_level - parent_level)`` bits, which simultaneously
+    floors both ``i`` and ``j`` by the level difference — equivalent to
+    ``floor(i / 2^Δ)`` and ``floor(j / 2^Δ)`` — in a single operation.
+
+    Matches the Python implementation in :class:`HierarchicalGridIndexZOrder`.
+    """
+
+    def get_cell_to_parent_sql(self) -> str:
+        return f"""\
+CREATE OR REPLACE FUNCTION {self.function_name}(cell BIGINT, parent_level INT)
+RETURNS BIGINT LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+SET search_path = public AS $$
+    -- Morton (Z-order) encoding: bits 63-58 = level, bits 57-0 = interleaved i/j.
+    -- i occupies even bit positions (0, 2, 4, …), j occupies odd positions (1, 3, 5, …).
+    -- Coarsen by right-shifting the Morton code by 2*(child_level - parent_level):
+    --   this simultaneously floors both i and j by the level difference in one step,
+    --   equivalent to floor(i / 2^Δ) and floor(j / 2^Δ) for each coordinate.
+    -- 288230376151711743 = 0x3FFFFFFFFFFFFFF = 2^58 - 1  (strip the 6-bit level tag)
+    SELECT (parent_level::BIGINT << 58)
+         | ((cell & 288230376151711743::BIGINT) >> (2 * ((cell >> 58)::INT - parent_level)))
+$$;"""
+
+
+class HierarchicalGridSQLRegistryIJ(HierarchicalGridSQLRegistry):
+    """SQL function registry for the IJ cell encoding.
+
+    Registers a ``cell_to_parent(BIGINT, INT) RETURNS BIGINT`` function
+    that coarsens an IJ-encoded 64-bit cell identifier.
+
+    Bit layout of a cell ID:
+
+    +-----------+---------+------------------------------------------+
+    | Bits      | Field   | Notes                                    |
+    +===========+=========+==========================================+
+    | 63 – 58   | level   | 6 bits                                   |
+    +-----------+---------+------------------------------------------+
+    | 57 – 29   | i       | 29 bits (column)                         |
+    +-----------+---------+------------------------------------------+
+    | 28 –  0   | j       | 29 bits (row)                            |
+    +-----------+---------+------------------------------------------+
+
+    ``536870911 = 0x1FFFFFFF = 2^29 - 1`` masks a single 29-bit field.
+
+    Coarsening right-shifts ``i`` and ``j`` independently by
+    ``(child_level - parent_level)`` bits, then re-packs them with the new
+    level tag — no interleaving overhead.
+
+    Matches the Python implementation in :class:`HierarchicalGridIndexIJ`.
+    """
+
+    def get_cell_to_parent_sql(self) -> str:
+        return f"""\
+CREATE OR REPLACE FUNCTION {self.function_name}(cell BIGINT, parent_level INT)
+RETURNS BIGINT LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+SET search_path = public AS $$
+    -- IJ encoding: bits 63-58 = level, bits 57-29 = i (29 bits), bits 28-0 = j (29 bits).
+    -- Coarsen by right-shifting i and j each by (child_level - parent_level), then re-pack.
+    -- 536870911 = 0x1FFFFFFF = 2^29 - 1  (mask for a single 29-bit coordinate field)
+    SELECT (parent_level::BIGINT << 58)
+         | ((((cell >> 29) & 536870911::BIGINT) >> ((cell >> 58)::INT - parent_level)) << 29)
+         | ((cell & 536870911::BIGINT) >> ((cell >> 58)::INT - parent_level))
+$$;"""
+
+
+def create_patch_tables(conn, if_not_exists: bool = False) -> None:
+    """Create the ``patch`` and ``pred_patch`` tables in the connected database.
+
+    Both tables are plain PostgreSQL tables (no TimescaleDB hypertable).
+    ``grid_cell_id`` in ``pred_patch`` is a ``BIGINT`` wide enough to hold
+    either the 64-bit Z-order (Morton) or IJ encoded cell index produced by
+    :class:`HierarchicalGridIndexZOrder` / :class:`HierarchicalGridIndexIJ`.
+
+    Args:
+        conn:          An open ``psycopg2`` connection.
+        if_not_exists: When ``True``, use ``CREATE TABLE IF NOT EXISTS`` so the
+                       call is a no-op when the tables already exist.
+                       When ``False`` (default), raise an error if either table
+                       is already present.
+    """
+    qualifier = "IF NOT EXISTS" if if_not_exists else ""
+    with conn.cursor() as cur:
+        cur.execute(f"""
+            CREATE TABLE {qualifier} patch (
+                id          BIGSERIAL   PRIMARY KEY,
+                patch_uid   INT         NOT NULL UNIQUE,
+                gt_label    INT,
+                event_ts    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                image_id    INT,
+                working_mag FLOAT
+            );
+        """)
+        cur.execute(f"""
+            CREATE TABLE {qualifier} pred_patch (
+                id           BIGSERIAL   PRIMARY KEY,
+                patch_uid    BIGINT      NOT NULL,
+                embed_coords POINT,
+                grid_cell_id BIGINT,
+                event_ts     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                pred_label   INT,
+                patch_coords POINT
+            );
+        """)
+    if not conn.autocommit:
+        conn.commit()
