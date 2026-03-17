@@ -82,7 +82,7 @@ class Dataset(object):
         return self.nitems
 
 
-dataset=Dataset("mitosis_ps_labels.pytable", nviews=4, transforms=get_transforms(PATCH_SIZE))
+dataset=Dataset("mitosis_ps_labels.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE))
 dataloader=DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0,pin_memory=True)
 
 
@@ -131,14 +131,17 @@ visualize_batch(batch_imgs, original_imgs)
 #-----------------------
 
 
-backbone=timm.create_model('mobilenetv3_small_050', pretrained=True, features_only=False, num_classes=EMBED_DIM )
+backbone=timm.create_model('mobilenetv3_small_050', pretrained=True, features_only=False, num_classes=0 )
 
 # # Freeze the backbone (all layers)
 # for param in backbone.parameters():
 #     param.requires_grad = False
 
-joint_head = JointHead(EMBED_DIM, EMBED_DIM, PROJ_DIM, num_classes=N_CLASS, grid_size=GRID_SIZE).to(DEVICE)
-mem_bank = MemoryBank(MEMORY_BANK_SIZE, EMBED_DIM)
+feature_dim = backbone(torch.zeros(1, 3, PATCH_SIZE, PATCH_SIZE)).shape[-1]
+
+
+joint_head = JointHead(feature_dim, HIDDEN_DIM, EMBED_DIM, PROJ_DIM, num_classes=N_CLASS, grid_size=GRID_SIZE).to(DEVICE)
+mem_bank = MemoryBank(MEMORY_BANK_SIZE, feature_dim)
 
 
 lr_head = 1e-3
@@ -178,53 +181,41 @@ mem_bank.add_candidates(z_init, proj_coords_init )
 
 for _ in range(100):
     for batch_idx, batch_data in tqdm(enumerate(dataloader)):
-        # (imgs, _,  labels, orig)= batch_data 
-        # imgs=imgs.float().to(DEVICE) / 255.0
-        # labels = labels.long().to(DEVICE)
-        
-
-
-
-        # z_batch = backbone(imgs)    
-        # proj_emb, proj_coords, pred_logits = joint_head(z_batch)
-
         # forward all views → [nviews, B, D]
         *views, labels, orig = batch_data
         labels = labels.long().to(DEVICE)
         labeled_rate = label_tracker.update(labels)
 
-        _z, _emb, _coords, _logits = [], [], [], []
-        for view in views:
-            imgs = view.float().to(DEVICE) / 255.0
-            z = backbone(imgs)
-            emb, coords, logits = joint_head(z)
-            _z.append(z);  _emb.append(emb)
-            _coords.append(coords);  _logits.append(logits)
+        imgs = torch.cat(views, dim=0).float().to(DEVICE) / 255.0  # [B*V, C, H, W]
+        z = backbone(imgs)                                          # [B*V, D]
+        emb, coords, logits = joint_head(z)                        # [B*V, ...]
 
-        # multi-view tensors [nviews, B, D] — used for view-level losses
-        z_batch_    = torch.stack(_z,      dim=0)
-        proj_emb_   = torch.stack(_emb,    dim=0)
-        proj_coords_= torch.stack(_coords, dim=0)
-        pred_logits_= torch.stack(_logits, dim=0)
+        B = views[0].shape[0]
+        V = len(views)
 
-        del _z, _emb, _coords, _logits  # free up memory from intermediate lists
+        # directly get [V, B, D] shape
+        z_batch     = z.view(V, B, -1)
+        proj_emb    = emb.view(V, B, -1)
+        proj_coords = coords.view(V, B, -1)
+        pred_logits = logits.view(V, B, -1)
+
+        
         # coordinate consistency
-        mean_coords = proj_coords_.mean(dim=0, keepdim=True)
-        coord_consistency_loss = ((proj_coords_ - mean_coords) ** 2).sum(dim=-1).mean() ## TODO: add this loss
+        mean_coords = proj_coords.mean(dim=0, keepdim=True)
+        coord_consistency_loss = ((proj_coords - mean_coords) ** 2).sum(dim=-1).mean() ## TODO: add this loss
 
         # coord_contrastive: different samples → push apart (use mean coords per sample)
-        mean_per_sample = proj_coords_.mean(dim=0)             # [B, 2] — one point per sample
-        dists = torch.cdist(mean_per_sample, mean_per_sample)  # [B, B]
+        dists = torch.cdist(mean_coords, mean_coords).squeeze()  # [B, B]
 
         # only push apart different samples (mask diagonal)
         mask = ~torch.eye(dists.shape[0], dtype=torch.bool, device=DEVICE)
         coord_contrastive_loss = (1.0 / (dists[mask] + 1e-6)).mean()
 
         # flat [nviews*B, D] — drop-in for all existing functions
-        z_batch     = z_batch_.view(-1, z_batch_.shape[-1])
-        proj_emb    = proj_emb_.view(-1, proj_emb_.shape[-1])
-        proj_coords = proj_coords_.view(-1, 2)
-        pred_logits = pred_logits_.view(-1, pred_logits_.shape[-1])
+        z_batch     = z_batch.view(-1, z_batch.shape[-1])
+        proj_emb    = proj_emb.view(-1, proj_emb.shape[-1])
+        proj_coords = proj_coords.view(-1, 2)
+        pred_logits = pred_logits.view(-1, pred_logits.shape[-1])
         labels      = labels.repeat(len(views))
 
 
@@ -234,7 +225,7 @@ for _ in range(100):
         
         #---compute other losses
         occ_loss, intra_loss  = bin_losses_vectorized(proj_coords,target_count)
-        neigh_loss = neighborhood_loss(z_batch, proj_coords) 
+        neigh_loss = neighborhood_loss(proj_emb, proj_coords) 
 
         semantic_attr_loss, semantic_repel_loss  = semantic_head_loss(proj_coords, labels)
         semantic_loss = semantic_attr_loss + semantic_repel_loss  #report seperately
@@ -276,7 +267,7 @@ for _ in range(100):
         mem_bank.age_all()
 
 
-        log_embeddings(writer, z_batch, proj_coords, pred_logits, labels, mem_bank, niter_total)
+        log_embeddings(writer, z_batch, proj_coords, pred_logits, labels, mem_bank, niter_total, write_embeddings = False)
 
         # tensorboard
         writer.add_scalar('loss/total',               total_loss.item(),        niter_total)

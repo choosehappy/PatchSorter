@@ -68,37 +68,38 @@ def get_transforms(patch_size: int) -> A.Compose:
     return A.Compose(geom_transforms), A.Compose(photo_transforms)
 
 class JointHead(nn.Module):
-    def __init__(self, embed_dim, hidden_dim, proj_dim, num_classes, grid_size):
+    def __init__(self, in_dim, hidden_dim, embed_dim,proj_dim, num_classes, grid_size):
         super().__init__()
         self.grid_size = grid_size
         self.shared_fc = nn.Sequential(
-            nn.Linear(embed_dim, hidden_dim),
+            nn.Linear(in_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
+            nn.Linear(hidden_dim, embed_dim),
+            nn.BatchNorm1d(embed_dim),
             nn.ReLU()
         )
         self.proj_fc = nn.Sequential(
-            nn.Linear(hidden_dim, proj_dim),
-         #   nn.Tanh()
-        )
-        self.pred_fc = nn.Linear(hidden_dim, num_classes)
+            nn.Linear(embed_dim, proj_dim),
+            nn.Hardtanh(min_val=0.0, max_val=grid_size)  # equivalent to clamp(0, 100)
+            )
+         
+        self.pred_fc = nn.Linear(embed_dim, num_classes)
 
         self._init_weights()
 
     def _init_weights(self):
         nn.init.uniform_(self.proj_fc[0].weight, -1.0, 1.0)  # wider than xavier
-        nn.init.uniform_(self.proj_fc[0].bias, 0.0, 100.0)
+        nn.init.uniform_(self.proj_fc[0].bias, 0.0, self.grid_size)
 
     def forward(self, z):
         shared   = self.shared_fc(z)
         #proj     = (self.proj_fc(shared) + 1) / 2 * self.grid_size  # [0, grid_size]
         #proj = self.proj_fc(shared) *self.grid_size
-        proj = self.proj_fc(shared).clamp(0, 100)
+        proj = self.proj_fc(shared)
         logits   = self.pred_fc(shared)
         return shared, proj, logits
 
@@ -405,53 +406,53 @@ def neighborhood_loss(z_batch, proj_coords, k=K_NEIGHBORS):
 #-----
 
 def log_embeddings(writer, z_batch, proj_coords, pred_logits, labels, 
-                   mem_bank, niter_total, log_every=10):
+                   mem_bank, niter_total, log_every=10, write_embeddings = False):
     if niter_total % log_every != 0:
         return
-
-    # ---- 1. current batch embeddings (PCA/UMAP done by tensorboard)
-    batch_size = z_batch.shape[0]
-    batch_labels_str = [f"batch_labeled_{l.item()}"   if l >= 0 
-                        else "batch_unlabeled" 
-                        for l in labels]
-    writer.add_embedding(
-        z_batch.detach(),
-        metadata=batch_labels_str,
-        global_step=niter_total,
-        tag='embeddings/batch'
-    )
-
-    # ---- 2. memory bank embeddings
-    if mem_bank.z.shape[0] > 0:
-        mem_labels_str = [f"mem_labeled_{l.item()}" if l >= 0 
-                          else "mem_unlabeled" 
-                          for l in mem_bank.labels]
+    if write_embeddings:
+        # ---- 1. current batch embeddings (PCA/UMAP done by tensorboard)
+        batch_size = z_batch.shape[0]
+        batch_labels_str = [f"batch_labeled_{l.item()}"   if l >= 0 
+                            else "batch_unlabeled" 
+                            for l in labels]
         writer.add_embedding(
-            mem_bank.z.detach(),
-            metadata=mem_labels_str,
+            z_batch.detach(),
+            metadata=batch_labels_str,
             global_step=niter_total,
-            tag='embeddings/memory'
+            tag='embeddings/batch'
         )
 
-    # ---- 3. combined batch + memory with color tags
-    if mem_bank.z.shape[0] > 0:
-        # sample memory to avoid overwhelming the viz
-        sample_size = min(batch_size, mem_bank.z.shape[0])
-        idx = torch.randperm(mem_bank.z.shape[0])[:sample_size]
-        mem_z_sample      = mem_bank.z[idx].detach()
-        mem_labels_sample = mem_bank.labels[idx]
+        # ---- 2. memory bank embeddings
+        if mem_bank.z.shape[0] > 0:
+            mem_labels_str = [f"mem_labeled_{l.item()}" if l >= 0 
+                            else "mem_unlabeled" 
+                            for l in mem_bank.labels]
+            writer.add_embedding(
+                mem_bank.z.detach(),
+                metadata=mem_labels_str,
+                global_step=niter_total,
+                tag='embeddings/memory'
+            )
 
-        combined_z = torch.cat([z_batch.detach(), mem_z_sample], dim=0)
-        combined_meta = (
-            [f"batch_labeled_{l.item()}"   if l >= 0 else "batch_unlabeled" for l in labels] +
-            [f"mem_labeled_{l.item()}"     if l >= 0 else "mem_unlabeled"   for l in mem_labels_sample]
-        )
-        writer.add_embedding(
-            combined_z,
-            metadata=combined_meta,
-            global_step=niter_total,
-            tag='embeddings/combined'
-        )
+        # ---- 3. combined batch + memory with color tags
+        if mem_bank.z.shape[0] > 0:
+            # sample memory to avoid overwhelming the viz
+            sample_size = min(batch_size, mem_bank.z.shape[0])
+            idx = torch.randperm(mem_bank.z.shape[0])[:sample_size]
+            mem_z_sample      = mem_bank.z[idx].detach()
+            mem_labels_sample = mem_bank.labels[idx]
+
+            combined_z = torch.cat([z_batch.detach(), mem_z_sample], dim=0)
+            combined_meta = (
+                [f"batch_labeled_{l.item()}"   if l >= 0 else "batch_unlabeled" for l in labels] +
+                [f"mem_labeled_{l.item()}"     if l >= 0 else "mem_unlabeled"   for l in mem_labels_sample]
+            )
+            writer.add_embedding(
+                combined_z,
+                metadata=combined_meta,
+                global_step=niter_total,
+                tag='embeddings/combined'
+            )
 
     # ---- 4. projected 2D coordinates as a scatter image
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -499,13 +500,18 @@ def initialize_projection_from_batch(backbone, joint_head, imgs, writer, grid_si
     device = imgs.device
     
     with torch.no_grad():
-        z = backbone(imgs)  # [B, D]
-        
+        z_raw = backbone(imgs)  # [B, D]
+        z, _, _ = joint_head(z_raw)
         # 1. PCA to 2D on GPU
-        z_centered = z - z.mean(dim=0)
-        U, S, V = torch.pca_lowrank(z_centered, q=2)
-        coords_2d = z_centered @ V  # [B, 2]
+        # z_centered = z - z.mean(dim=0)
+        # U, S, V = torch.pca_lowrank(z_centered, q=2)
+        # coords_2d = z_centered @ V  # [B, 2]
         
+
+        _, _, V = torch.pca_lowrank(z, q=2)
+        coords_2d = z @ V  # [B, 2]
+
+
         # 2. normalize to [0, grid_size] using quantiles
         low  = torch.quantile(coords_2d, 0.025, dim=0)   # [2]
         high = torch.quantile(coords_2d, 0.975, dim=0)   # [2]
@@ -544,7 +550,7 @@ def initialize_projection_from_batch(backbone, joint_head, imgs, writer, grid_si
     writer.add_figure("viz/proj_init", fig, 0)
     plt.close(fig)
 
-    return z, projected_embeddings.detach()
+    return z_raw, projected_embeddings.detach()
 
 
 
