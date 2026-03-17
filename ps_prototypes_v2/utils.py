@@ -554,16 +554,72 @@ def initialize_projection_from_batch(backbone, joint_head, imgs, writer, grid_si
 
 
 
-def spread_loss(coords, grid_size=GRID_SIZE, quantile=0.95):
-    low  = torch.quantile(coords.detach(), 1 - quantile, dim=0)
-    high = torch.quantile(coords.detach(),     quantile, dim=0)
+# def spread_loss(coords, grid_size=GRID_SIZE, quantile=0.95):
+#     coords=coords.float()
+#     low  = torch.quantile(coords.detach(), 1 - quantile, dim=0)
+#     high = torch.quantile(coords.detach(),     quantile, dim=0)
     
-    # fixed target: uniform spread across full grid
-    target = (coords.detach() - low) / (high - low + 1e-6) * grid_size
-    target = target.clamp(0, grid_size)
+#     # fixed target: uniform spread across full grid
+#     target = (coords.detach() - low) / (high - low + 1e-6) * grid_size
+#     target = target.clamp(0, grid_size)
+#     print(low,high)
     
-    # use EMA of quantiles instead of per-batch (add to __init__)
-    # self.low_ema  = 0.99 * self.low_ema  + 0.01 * low
-    # self.high_ema = 0.99 * self.high_ema + 0.01 * high
+#     # use EMA of quantiles instead of per-batch (add to __init__)
+#     # self.low_ema  = 0.99 * self.low_ema  + 0.01 * low
+#     # self.high_ema = 0.99 * self.high_ema + 0.01 * high
 
-    return F.mse_loss(coords, target)
+#     return F.mse_loss(coords, target)
+
+
+
+class SpreadLoss(nn.Module):
+    def __init__(self, grid_size=GRID_SIZE, quantile=0.95, ema_decay=0.99):
+        super().__init__()
+        self.grid_size = grid_size
+        self.quantile = quantile
+        self.decay = ema_decay
+        self.register_buffer('ema_low',  None)
+        self.register_buffer('ema_high', None)
+
+    def forward(self, coords):
+        coords = coords.float()
+        
+        low  = torch.quantile(coords.detach(), 1 - self.quantile, dim=0)
+        high = torch.quantile(coords.detach(),     self.quantile, dim=0)
+
+        # Initialize EMA on first call
+        if self.ema_low is None:
+            self.ema_low  = low
+            self.ema_high = high
+        else:
+            self.ema_low  = self.decay * self.ema_low  + (1 - self.decay) * low
+            self.ema_high = self.decay * self.ema_high + (1 - self.decay) * high
+
+        # Normalize using stable EMA reference
+        target = (coords.detach() - self.ema_low) / (self.ema_high - self.ema_low + 1e-6) * self.grid_size
+        target = target.clamp(0, self.grid_size)
+
+        return F.mse_loss(coords, target)
+
+
+# def mean_loss(coords):
+#     mean = coords.mean(dim=0)
+#     return torch.norm(mean - GRID_SIZE/2)
+
+
+def max_mean_discrepancy(coords, grid_size=GRID_SIZE, n_samples=500):
+    coords = coords.float() / grid_size  # normalize to [0,1]
+    
+    # Sample from true uniform distribution
+    uniform = torch.rand_like(coords.repeat(n_samples // coords.shape[0] + 1, 1))[:n_samples]
+    
+    # MMD with RBF kernel
+    def rbf(a, b, sigma=0.1):
+        diff = a.unsqueeze(0) - b.unsqueeze(1)  # [N, M, 2]
+        return torch.exp(-diff.pow(2).sum(-1) / (2 * sigma**2))
+    
+    xx = rbf(coords, coords).mean()
+    yy = rbf(uniform, uniform).mean()
+    xy = rbf(coords, uniform).mean()
+    
+    return xx - 2*xy + yy
