@@ -124,7 +124,8 @@ def visualize_batch(batch_imgs, original_imgs, nrow=10,ntot=50):
     axes[1].axis("off")
 
     plt.tight_layout()
-    plt.show()
+    plt.savefig("batch_visualization.png", dpi=150, bbox_inches='tight')
+    plt.close()
 
 visualize_batch(batch_imgs, original_imgs) 
 
@@ -217,6 +218,10 @@ for _ in range(100):
             mask = ~torch.eye(dists.shape[0], dtype=torch.bool, device=DEVICE)
             coord_contrastive_loss = (1.0 / (dists[mask] + 1e-6)).mean()
 
+
+            simclr_emb_loss = simclr_loss(proj_emb, temperature=0.5)
+
+
             # flat [nviews*B, D] — drop-in for all existing functions
             z_batch     = z_batch.view(-1, z_batch.shape[-1])
             proj_emb    = proj_emb.view(-1, proj_emb.shape[-1])
@@ -255,6 +260,7 @@ for _ in range(100):
             total_loss = (
                         COORD_CONSITENCY_LOSS * coord_consistency_loss 
                         + COORD_CONTRASTIVE_LOSS *  coord_contrastive_loss
+                        + SIMCLR_EMB_LOSS * simclr_emb_loss
 #                        + SPREAD_LOSS * spread_loss_val
                         + MAX_MEAN_LOSS * max_mean_discrepancy_loss
                 #BATCH_BIN_LAMBDA  * occ_loss
@@ -286,6 +292,7 @@ for _ in range(100):
             writer.add_scalar('loss/total',               total_loss.item(),        niter_total)
             writer.add_scalar('loss/coord_consistency', coord_consistency_loss.item(), niter_total)
             writer.add_scalar('loss/coord_contrastive', coord_contrastive_loss.item(), niter_total)
+            writer.add_scalar('loss/simclr_emb',          simclr_emb_loss.item(), niter_total)
             writer.add_scalar('loss/spread',             spread_loss_val.item(),   niter_total)
             writer.add_scalar('loss/max_mean_discrepancy',               max_mean_discrepancy_loss.item(),     niter_total)
             writer.add_scalar('loss/repulsion', repulsion_loss_val.item(), niter_total)

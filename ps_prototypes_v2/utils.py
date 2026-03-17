@@ -671,3 +671,23 @@ def log_nearest_neighbors(writer, orig, proj_emb, proj_coords, niter_total, n_qu
 
     writer.add_image("nearest_neighbors/proj_emb",    emb_grid,    niter_total)
     writer.add_image("nearest_neighbors/proj_coords", coords_grid, niter_total)
+
+
+def simclr_loss(proj_emb, temperature=0.5):
+    V, B, D = proj_emb.shape
+    emb = F.normalize(proj_emb, dim=-1)
+    emb_flat = emb.view(V * B, D)
+
+    sim = torch.mm(emb_flat, emb_flat.T) / temperature
+
+    mask_self = torch.eye(V * B, dtype=torch.bool, device=proj_emb.device)
+    labels = torch.arange(B, device=proj_emb.device).repeat(V)
+    mask_pos = (labels.unsqueeze(0) == labels.unsqueeze(1)) & ~mask_self
+
+    sim.masked_fill_(mask_self, -9e3)
+
+    exp_sim = torch.exp(sim)
+    log_prob = sim - torch.log(exp_sim.sum(dim=-1, keepdim=True))
+
+    loss = -(log_prob[mask_pos]).mean()
+    return loss
