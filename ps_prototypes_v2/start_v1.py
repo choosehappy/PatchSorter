@@ -208,7 +208,7 @@ for _ in range(100):
             
             # coordinate consistency
             mean_coords = proj_coords.mean(dim=0, keepdim=True)
-            coord_consistency_loss = ((proj_coords - mean_coords) ** 2).sum(dim=-1).mean() ## TODO: add this loss
+            coord_consistency_loss = ((proj_coords - mean_coords) ** 2).sum(dim=-1).mean() 
 
             # coord_contrastive: different samples → push apart (use mean coords per sample)
             dists = torch.cdist(mean_coords, mean_coords).squeeze()  # [B, B]
@@ -261,18 +261,12 @@ for _ in range(100):
                         #+ REPULSION_LAMBDA   * repulsion_loss_val
 
                         # + INTRA_BIN_LAMBDA  * intra_loss
-                        # + NEIGHBOR_LAMBDA   * neigh_loss
+                         + NEIGHBOR_LAMBDA   * neigh_loss
     #                   + TEMPORAL_LAMBDA   * loss_temp
     #                  + labeled_rate      * SEMANTIC_LAMBDA * semantic_loss
     #                    + PRED_LAMBDA       * pred_loss
             )
 
-
-
-            
-            
-            
-            
 
             optimizer.zero_grad()
             scaler.scale(total_loss).backward()
@@ -285,6 +279,8 @@ for _ in range(100):
 
 
             log_embeddings(writer, z_batch, proj_coords, pred_logits, labels, mem_bank, niter_total, write_embeddings = False)
+            log_nearest_neighbors(writer, orig, proj_emb, proj_coords, niter_total, n_queries=5, n_neighbors=5, log_every=10)
+
 
             # tensorboard
             writer.add_scalar('loss/total',               total_loss.item(),        niter_total)

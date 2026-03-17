@@ -623,3 +623,51 @@ def max_mean_discrepancy(coords, grid_size=GRID_SIZE, n_samples=500):
     xy = rbf(coords, uniform).mean()
     
     return xx - 2*xy + yy
+
+
+
+
+import torchvision.utils as vutils
+import torch.nn.functional as F
+
+def log_nearest_neighbors(writer, orig, proj_emb, proj_coords, niter_total, n_queries=5, n_neighbors=5, log_every=10):
+    """
+    orig       : [B, C, H, W] - original (non-augmented) patches
+    proj_emb   : [V, B, D]
+    proj_coords: [V, B, 2]
+    """
+    if niter_total % log_every != 0:
+        return
+
+    B          = orig.shape[0]
+    n_queries  = min(int(n_queries),  B)
+    n_neighbors = int(n_neighbors)
+
+    # Use first view only
+    emb    = proj_emb[:B].detach().cpu().float()    # [B, D]
+    coords = proj_coords[:B].detach().cpu().float() # [B, 2]
+
+    # Normalize imgs for display
+    imgs = orig.float() / 255.0 if orig.max() > 1.0 else orig.float()
+    imgs = imgs.cpu()
+
+    # Shared random query indices
+    query_idx = torch.randperm(B)[:n_queries].tolist()
+
+    def make_nn_grid(features):
+        dists = torch.cdist(features, features)  # [B, B]
+        rows  = []
+        for qi in query_idx:
+            nn_idx = dists[qi].argsort().tolist()
+            nn_idx = [i for i in nn_idx if i != qi][:n_neighbors]
+            row = torch.stack([imgs[qi]] + [imgs[i] for i in nn_idx])
+            rows.append(row)
+        grid_imgs = torch.cat(rows, dim=0)
+        grid_imgs = grid_imgs.permute(0, 3, 1, 2)
+        return vutils.make_grid(grid_imgs, nrow=n_neighbors + 1, padding=2, normalize=False)
+
+    emb_grid    = make_nn_grid(emb)
+    coords_grid = make_nn_grid(coords)
+
+    writer.add_image("nearest_neighbors/proj_emb",    emb_grid,    niter_total)
+    writer.add_image("nearest_neighbors/proj_coords", coords_grid, niter_total)
