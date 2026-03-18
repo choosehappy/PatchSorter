@@ -5,6 +5,9 @@ import random, math
 import matplotlib.pyplot as plt
 from configs import *
 
+import torchvision.utils as vutils
+import torch.nn.functional as F
+
 
 import numpy as np
 # +
@@ -406,9 +409,8 @@ def neighborhood_loss(z_batch, proj_coords, k=K_NEIGHBORS):
 #-----
 
 def log_embeddings(writer, z_batch, proj_coords, pred_logits, labels, 
-                   mem_bank, niter_total, log_every=10, write_embeddings = False):
-    if niter_total % log_every != 0:
-        return
+                   mem_bank, niter_total, write_embeddings = False):
+
     if write_embeddings:
         # ---- 1. current batch embeddings (PCA/UMAP done by tensorboard)
         batch_size = z_batch.shape[0]
@@ -554,24 +556,6 @@ def initialize_projection_from_batch(backbone, joint_head, imgs, writer, grid_si
 
 
 
-# def spread_loss(coords, grid_size=GRID_SIZE, quantile=0.95):
-#     coords=coords.float()
-#     low  = torch.quantile(coords.detach(), 1 - quantile, dim=0)
-#     high = torch.quantile(coords.detach(),     quantile, dim=0)
-    
-#     # fixed target: uniform spread across full grid
-#     target = (coords.detach() - low) / (high - low + 1e-6) * grid_size
-#     target = target.clamp(0, grid_size)
-#     print(low,high)
-    
-#     # use EMA of quantiles instead of per-batch (add to __init__)
-#     # self.low_ema  = 0.99 * self.low_ema  + 0.01 * low
-#     # self.high_ema = 0.99 * self.high_ema + 0.01 * high
-
-#     return F.mse_loss(coords, target)
-
-
-
 class SpreadLoss(nn.Module):
     def __init__(self, grid_size=GRID_SIZE, quantile=0.95, ema_decay=0.99):
         super().__init__()
@@ -627,50 +611,6 @@ def max_mean_discrepancy(coords, grid_size=GRID_SIZE, n_samples=500):
 
 
 
-import torchvision.utils as vutils
-import torch.nn.functional as F
-
-# def log_nearest_neighbors(writer, img_aug,orig, proj_emb, proj_coords, niter_total, n_queries=5, n_neighbors=5, log_every=10):
-#     """
-#     orig       : [B, C, H, W] - original (non-augmented) patches
-#     proj_emb   : [V, B, D]
-#     proj_coords: [V, B, 2]
-#     """
-#     if niter_total % log_every != 0:
-#         return
-
-#     B          = orig.shape[0]
-#     n_queries  = min(int(n_queries),  B)
-#     n_neighbors = int(n_neighbors)
-
-#     # Use first view only
-#     emb    = proj_emb[:B].detach().cpu().float()    # [B, D]
-#     coords = proj_coords[:B].detach().cpu().float() # [B, 2]
-
-#     # Normalize imgs for display
-#     imgs = orig.float() / 255.0 if orig.max() > 1.0 else orig.float()
-#     imgs = imgs.cpu()
-
-#     # Shared random query indices
-#     query_idx = torch.randperm(B)[:n_queries].tolist()
-
-#     def make_nn_grid(features):
-#         dists = torch.cdist(features, features)  # [B, B]
-#         rows  = []
-#         for qi in query_idx:
-#             nn_idx = dists[qi].argsort().tolist()
-#             nn_idx = [i for i in nn_idx if i != qi][:n_neighbors]
-#             row = torch.stack([imgs[qi]] + [imgs[i] for i in nn_idx])
-#             rows.append(row)
-#         grid_imgs = torch.cat(rows, dim=0)
-#         grid_imgs = grid_imgs.permute(0, 3, 1, 2)
-#         return vutils.make_grid(grid_imgs, nrow=n_neighbors + 1, padding=2, normalize=False)
-
-#     emb_grid    = make_nn_grid(emb)
-#     coords_grid = make_nn_grid(coords)
-
-#     writer.add_image("nearest_neighbors/proj_emb",    emb_grid,    niter_total)
-#     writer.add_image("nearest_neighbors/proj_coords", coords_grid, niter_total)
 
 
 def simclr_loss(proj_emb, temperature=0.5):
@@ -724,13 +664,8 @@ def vicreg_loss(proj_emb, sim_coeff=25.0, var_coeff=25.0, cov_coeff=1.0, epsilon
     return sim_coeff * inv_loss + var_coeff * var_loss + cov_coeff * cov_loss
 
 
-
-
-
 def log_nearest_neighbors(writer, img_aug, orig, proj_emb, proj_coords, niter_total,
-                           n_queries=5, n_neighbors=5, log_every=10):
-    if niter_total % log_every != 0:
-        return
+                           n_queries=5, n_neighbors=5):
 
     V_B, D = proj_emb.shape
     B = orig.shape[0]
@@ -790,6 +725,27 @@ def log_nearest_neighbors(writer, img_aug, orig, proj_emb, proj_coords, niter_to
     writer.add_histogram("nn/positive_rank_dist", torch.tensor(ranks), niter_total)
 
 
+def log_nearest_neighbors_orig(writer, orig, sim_emb, sim_coords, niter_total, n_queries=5, n_neighbors=5):
+    B = orig.shape[0]
+    n_queries = min(n_queries, B)
+
+    imgs = orig.float() / 255.0 if orig.max() > 1.0 else orig.float()
+    imgs = imgs.cpu().permute(0, 3, 1, 2)  # [B, 3, H, W]
+
+    query_idx = torch.randperm(B)[:n_queries].tolist()
+
+    def make_grid(sim):
+        rows = []
+        for qi in query_idx:
+            nn_idx = sim[qi].argsort(descending=True).tolist()
+            nn_idx = [i for i in nn_idx if i != qi][:n_neighbors]
+            row = torch.cat([imgs[qi].unsqueeze(0), imgs[nn_idx]], dim=0)
+            rows.append(row)
+        return vutils.make_grid(torch.cat(rows, dim=0), nrow=n_neighbors + 1, padding=2, normalize=False)
+
+    writer.add_image("nn_orig/emb",    make_grid(sim_emb),    niter_total)
+    writer.add_image("nn_orig/coords", make_grid(sim_coords), niter_total)
+
 
 
 def gaussian_mask(H, W, sigma=0.3):
@@ -799,4 +755,6 @@ def gaussian_mask(H, W, sigma=0.3):
     yy, xx = torch.meshgrid(y, x, indexing='ij')
     mask = torch.exp(-(xx**2 + yy**2) / (2 * (sigma * H)**2))
     return mask / mask.max()  # [H, W]
+
+
 

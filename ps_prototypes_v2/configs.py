@@ -42,8 +42,8 @@ PSEUDO_THRESH=.9
 USE_MASK = True
 
 
-
-
+LOG_ORIGS = True
+LOG_EVERY = 10 
 
 K_NEIGHBORS = 5
 EPS = 1e-6

@@ -8,6 +8,7 @@ import torchvision.utils as vutils
 from torch.utils.tensorboard import SummaryWriter
 import logging
 
+from torchvision.transforms.functional import center_crop
 from tqdm import tqdm
 # +
 
@@ -297,8 +298,32 @@ for _ in range(10_000):
             mem_bank.age_all()
 
 
-            log_embeddings(writer, z_batch, proj_coords, pred_logits, labels, mem_bank, niter_total, write_embeddings = False)
-            log_nearest_neighbors(writer, imgs, orig, proj_emb, proj_coords, niter_total, n_queries=5, n_neighbors=5, log_every=10)
+            if niter_total % LOG_EVERY == 0:
+
+                log_embeddings(writer, z_batch, proj_coords, pred_logits, labels, mem_bank, niter_total, write_embeddings = False)
+                log_nearest_neighbors(writer, imgs, orig, proj_emb, proj_coords, niter_total, n_queries=5, n_neighbors=5)
+
+                if LOG_ORIGS:
+                    imgs_orig = orig.permute(0, 3, 1, 2).to(DEVICE) / 255.0
+                    imgs_orig = center_crop(imgs_orig, PATCH_SIZE)
+
+                    if USE_MASK:
+                        imgs_orig = imgs_orig * patch_mask.unsqueeze(0).unsqueeze(0)
+
+                    z_orig = backbone(imgs_orig)                          # [B, D]
+                    emb_orig, coords_orig, _ = joint_head(z_orig)        # [B, D], [B, 2]
+
+                    # normalize and compute self-similarity (no cross-view, just orig vs orig)
+                    emb_orig_norm = F.normalize(emb_orig.detach().cpu().float(), dim=-1)  # [B, D]
+                    sim_emb    = torch.mm(emb_orig_norm, emb_orig_norm.T)                 # [B, B]
+                    sim_coords = -torch.cdist(coords_orig.detach().cpu().float(),
+                                              coords_orig.detach().cpu().float())         # [B, B]
+
+                    log_nearest_neighbors_orig(writer, orig, sim_emb, sim_coords, 
+                                               niter_total, n_queries=5, n_neighbors=5)
+
+                    del imgs_orig, z_orig, emb_orig, coords_orig
+                    del emb_orig_norm, sim_emb, sim_coords
 
 
             # tensorboard
