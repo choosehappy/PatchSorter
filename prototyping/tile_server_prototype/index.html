@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PatchSorter Tile Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; background: #1a1a1a; }
+    #map { width: 100%; height: 100%; }
+    #controls {
+      position: absolute; top: 10px; left: 10px; z-index: 100;
+      background: rgba(0,0,0,0.7); color: #fff; padding: 10px 14px;
+      border-radius: 6px; font-family: sans-serif; font-size: 13px;
+    }
+    #controls label { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    #opacity-val { width: 28px; text-align: right; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="controls">
+    <strong>PatchSorter</strong>
+    <label>
+      <input type="checkbox" id="osm-toggle" checked /> OSM base layer
+    </label>
+    <label>
+      <input type="checkbox" id="overlay-toggle" checked /> Patch overlay
+    </label>
+    <label>
+      Overlay opacity
+      <input type="range" id="opacity-slider" min="0" max="1" step="0.05" value="0.8" />
+      <span id="opacity-val">0.8</span>
+    </label>
+    <div id="zoom-info" style="margin-top:8px; font-size:11px; color:#aaa;"></div>
+  </div>
+
+  <!-- GeoJS -->
+  <script src="https://unpkg.com/geojs/geo.min.js"></script>
+  <script>
+    const TILE_SERVER = "";  // relative URL - same origin as the page
+    const OSM_ZOOM_OFFSET = 8;
+    const MAX_LEVEL = 12;
+    const MAX_OSM_ZOOM = MAX_LEVEL - OSM_ZOOM_OFFSET;  // 4
+
+    const params = geo.util.pixelCoordinateParams("#map", 4096, 4096, 256, 256);
+    params.map.zoom    = 0;
+    params.map.minZoom = 0;
+    params.map.maxZoom = MAX_OSM_ZOOM;
+    params.map.center  = { x: 2048, y: 2048 };
+
+    const map = geo.map(params.map);
+
+    // ---- Patch overlay layer (sole layer) ----
+    params.layer.url = (x, y, z) => `${TILE_SERVER}/tiles/${z}/${x}/${y}.png`;
+    const overlayLayer = map.createLayer("osm", params.layer);
+    overlayLayer.opacity(1.0);
+
+    // ---- Controls ----
+    document.getElementById("osm-toggle").style.display = "none";
+    document.getElementById("osm-toggle").closest("label").style.display = "none";
+
+    document.getElementById("overlay-toggle").addEventListener("change", e => {
+      overlayLayer.visible(e.target.checked);
+      map.draw();
+    });
+
+    const opacitySlider = document.getElementById("opacity-slider");
+    const opacityVal    = document.getElementById("opacity-val");
+    opacitySlider.value = "1.0";
+    opacityVal.textContent = "1.0";
+    opacitySlider.addEventListener("input", e => {
+      const v = parseFloat(e.target.value);
+      opacityVal.textContent = v.toFixed(2);
+      overlayLayer.opacity(v);
+      map.draw();
+    });
+
+    // ---- Zoom info ----
+    const zoomInfo = document.getElementById("zoom-info");
+    map.geoOn(geo.event.zoom, () => {
+      const z = Math.round(map.zoom());
+      const level = z + OSM_ZOOM_OFFSET;
+      zoomInfo.textContent = `OSM zoom: ${z}  →  agg level: ${level}`;
+    });
+    map.geoTrigger(geo.event.zoom);
+  </script>
+</body>
+</html>
