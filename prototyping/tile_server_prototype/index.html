@@ -42,19 +42,20 @@
     const MAX_LEVEL = 12;
     const MAX_OSM_ZOOM = MAX_LEVEL - OSM_ZOOM_OFFSET;  // 4
 
-    const params = geo.util.pixelCoordinateParams("#map", 4096, 4096, 256, 256);
+    const params = geo.util.pixelCoordinateParams("#map", 4096, 4096, 1024, 1024);
     params.map.zoom    = 0;
     params.map.minZoom = 0;
-    params.map.maxZoom = MAX_OSM_ZOOM;
+    params.map.max = MAX_OSM_ZOOM;
     params.map.center  = { x: 2048, y: 2048 };
 
     const map = geo.map(params.map);
 
     // ---- Patch overlay layer (sole layer) ----
     params.layer.url = (x, y, z) => `${TILE_SERVER}/tiles/${z}/${x}/${y}.png`;
+    params.layer.nearestPixel = true;
+    params.layer.maxLevel = MAX_OSM_ZOOM;
     const overlayLayer = map.createLayer("osm", params.layer);
     overlayLayer.opacity(1.0);
-
     // ---- Controls ----
     document.getElementById("osm-toggle").style.display = "none";
     document.getElementById("osm-toggle").closest("label").style.display = "none";
