@@ -19,7 +19,7 @@ import cv2
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-
+from collections import Counter
 
 
 class LabeledRateTracker:
@@ -330,7 +330,7 @@ def prediction_loss(logits, labels, pseudo_thresh=0.95):
 
     # pseudo
     pseudo_loss = torch.tensor(0.0, device=device)
-    num_pseudo =  torch.tensor(0.0, device=device)
+    num_pseudo =  None
     if unlabeled_mask.any():
         unlabeled_logits = logits[unlabeled_mask]
         with torch.no_grad(): # no gradient through pseudo-labels generation process
@@ -339,7 +339,7 @@ def prediction_loss(logits, labels, pseudo_thresh=0.95):
 
         if high_conf.any():
             pseudo_loss = F.cross_entropy(unlabeled_logits[high_conf], pseudo_labels[high_conf])
-            num_pseudo = high_conf.sum().item()
+            num_pseudo= Counter(pseudo_labels[high_conf].cpu().numpy())  # for logging class distribution of pseudo-labels
 
     return sup_loss, pseudo_loss, num_pseudo
 

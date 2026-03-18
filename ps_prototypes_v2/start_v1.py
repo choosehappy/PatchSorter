@@ -363,10 +363,17 @@ for _ in range(10_000):
             writer.add_scalar('loss/pred',                pred_loss.item(),         niter_total)
             writer.add_scalar('loss/pred_supervised',     sup_pred_loss.item(),     niter_total)
             writer.add_scalar('loss/pred_pseudo',         pseudo_pred_loss.item(),  niter_total)
-            writer.add_scalar('loss/num_pseudo',         num_pseudo,              niter_total)
             writer.add_scalar('train/labeled_rate',       labeled_rate,             niter_total)
             writer.add_scalar('train/temporal_margin',    margin if mem_z.shape[0] > 0 else 5.0, niter_total)
             writer.add_scalar('train/memory_size',        mem_bank.z.shape[0],      niter_total)
+
+            total_pseudo = 0
+            if num_pseudo:
+                for key, value in num_pseudo.items():
+                    writer.add_scalar(f'loss/num_pseudo/{key}',         value,              niter_total)
+                    total_pseudo += value
+
+            writer.add_scalar('loss/num_pseudo/total', total_pseudo, niter_total)
 
             niter_total += 1
 #           running_loss.append(total_loss.item())
