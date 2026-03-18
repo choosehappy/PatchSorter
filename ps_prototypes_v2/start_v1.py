@@ -54,7 +54,7 @@ class Dataset(object):
 
         with tables.open_file(self.fname,'r') as db:
             self.imgs=db.root.patch
-            self.labels=db.root.ps_label
+            self.labels=db.root.tmp_label #ps_label has all the data - here we're using just a random set created  in a noteobok
 
             #get the requested image and mask from the pytable
             img = self.imgs[index,:,:,:]
@@ -153,10 +153,13 @@ lr_head = 1e-2
 lr_backbone = 1e-2
 weight_decay = 1e-5
 
+#spatial_mask = ContentAwareMask(H=PATCH_SIZE, W=PATCH_SIZE).to(DEVICE)
+
 
 optimizer = torch.optim.AdamW([
     {'params': backbone.parameters(), 'lr': lr_backbone},  # plus petit lr pour backbone
-    {'params': joint_head.parameters(), 'lr': lr_head}     # lr plus grand pour la tête
+    {'params': joint_head.parameters(), 'lr': lr_head}, # lr plus grand pour la tête
+#    {'params': spatial_mask.parameters(), 'lr': 1e-3}  # slower
 ], weight_decay=weight_decay)
 
 backbone=backbone.to(DEVICE)
@@ -168,8 +171,8 @@ logger = logging.getLogger(__name__)
 writer = SummaryWriter(log_dir='runs/projection')
 
 niter_total = 0
-last_save = 0
-running_loss = []
+# last_save = 0
+# running_loss = []
 
 
 # ideal spacing given batch size and grid size
@@ -189,7 +192,6 @@ os.makedirs('./models', exist_ok=True)
 spread_loss = SpreadLoss(grid_size=GRID_SIZE, quantile=0.95)
 
 
-
 patch_mask = gaussian_mask(PATCH_SIZE, PATCH_SIZE).to(DEVICE)
 
 
@@ -205,6 +207,7 @@ for _ in range(10_000):
             imgs = torch.cat(views, dim=0).half().to(DEVICE) / 255.0  # [B*V, C, H, W]
 
             if USE_MASK:
+                #imgs = spatial_mask(imgs)
                 imgs = imgs * patch_mask.unsqueeze(0).unsqueeze(0)  # broadcast over [B, C, H, W]
 
 
@@ -253,10 +256,15 @@ for _ in range(10_000):
             occ_loss, intra_loss  = bin_losses_vectorized(proj_coords,target_count)
             neigh_loss = neighborhood_loss(proj_emb, proj_coords) 
 
-            semantic_attr_loss, semantic_repel_loss  = semantic_head_loss(proj_coords, labels)
-            semantic_loss = semantic_attr_loss + semantic_repel_loss  #report seperately
-            
-            sup_pred_loss,pseudo_pred_loss  = prediction_loss(pred_logits, labels, pseudo_thresh=PSEUDO_THRESH)
+            semantic_coord_attr_loss, semantic_coord_repel_loss  = semantic_head_loss(proj_coords, labels)
+            semantic_coord_loss = semantic_coord_attr_loss + semantic_coord_repel_loss  #report seperately
+
+
+            proj_emb_norm = F.normalize(proj_emb, dim=1)  # projects onto unit hypersphere
+            semantic_emb_attr_loss, semantic_emb_repel_loss = semantic_head_loss(proj_emb_norm, labels, margin=0.5)
+            semantic_emb_loss = semantic_emb_attr_loss + semantic_emb_repel_loss  #report seperately
+
+            sup_pred_loss,pseudo_pred_loss, num_pseudo  = prediction_loss(pred_logits, labels, pseudo_thresh=PSEUDO_THRESH)
             pred_loss = sup_pred_loss + PSEUDO_PRED_LAMBDA*pseudo_pred_loss #report seperately
 
             #---compute tempoerate loss - make sure our coorindates don't go wild 
@@ -283,8 +291,9 @@ for _ in range(10_000):
                         # + INTRA_BIN_LAMBDA  * intra_loss
                          + NEIGHBOR_LAMBDA   * neigh_loss
     #                   + TEMPORAL_LAMBDA   * loss_temp
-    #                  + labeled_rate      * SEMANTIC_LAMBDA * semantic_loss
-    #                    + PRED_LAMBDA       * pred_loss
+                      +   SEMANTIC_LAMBDA * semantic_coord_loss   # * labeled_rate  # not sure if this addidtional makes sense?
+                        +   SEMANTIC_LAMBDA * semantic_emb_loss     # * labeled_rate  # not sure if this addidtional makes sense?
+                        + PRED_LAMBDA       * pred_loss
             )
 
 
@@ -308,6 +317,7 @@ for _ in range(10_000):
                     imgs_orig = center_crop(imgs_orig, PATCH_SIZE)
 
                     if USE_MASK:
+                        #imgs_orig = spatial_mask(imgs_orig)
                         imgs_orig = imgs_orig * patch_mask.unsqueeze(0).unsqueeze(0)
 
                     z_orig = backbone(imgs_orig)                          # [B, D]
@@ -338,51 +348,60 @@ for _ in range(10_000):
             writer.add_scalar('loss/intra_bin',           intra_loss.item(),        niter_total)
             writer.add_scalar('loss/neighborhood',        neigh_loss.item(),        niter_total)
             writer.add_scalar('loss/temporal',            loss_temp.item(),         niter_total)
-            writer.add_scalar('loss/semantic',            semantic_loss.item(),                niter_total)
-            writer.add_scalar('loss/semantic_weighted',   semantic_loss.item() * labeled_rate, niter_total)
-            writer.add_scalar('train/semantic_lambda',    labeled_rate * SEMANTIC_LAMBDA,      niter_total)        
-            writer.add_scalar('loss/semantic_attract',    semantic_attr_loss.item(),niter_total)
-            writer.add_scalar('loss/semantic_repel',      semantic_repel_loss.item(),niter_total)
+            writer.add_scalar('loss/semantic_coord',            semantic_coord_loss.item(),                niter_total)
+            #writer.add_scalar('loss/semantic_coord_weighted',   semantic_coord_loss.item() * labeled_rate, niter_total)
+            #writer.add_scalar('train/semantic_coord_lambda',    labeled_rate * SEMANTIC_LAMBDA,      niter_total)        
+            writer.add_scalar('loss/semantic_coord_attract',    semantic_coord_attr_loss.item(),niter_total)
+            writer.add_scalar('loss/semantic_coord_repel',      semantic_coord_repel_loss.item(),niter_total)
+
+            writer.add_scalar('loss/semantic_emb',            semantic_emb_loss.item(),                niter_total)
+            #writer.add_scalar('loss/semantic_emb_weighted',   semantic_emb_loss.item() * labeled_rate, niter_total)
+            writer.add_scalar('loss/semantic_emb_attract',    semantic_emb_attr_loss.item(),niter_total)
+            writer.add_scalar('loss/semantic_emb_repel',      semantic_emb_repel_loss.item(),niter_total)
+            
+
             writer.add_scalar('loss/pred',                pred_loss.item(),         niter_total)
             writer.add_scalar('loss/pred_supervised',     sup_pred_loss.item(),     niter_total)
             writer.add_scalar('loss/pred_pseudo',         pseudo_pred_loss.item(),  niter_total)
+            writer.add_scalar('loss/num_pseudo',         num_pseudo,              niter_total)
             writer.add_scalar('train/labeled_rate',       labeled_rate,             niter_total)
             writer.add_scalar('train/temporal_margin',    margin if mem_z.shape[0] > 0 else 5.0, niter_total)
             writer.add_scalar('train/memory_size',        mem_bank.z.shape[0],      niter_total)
 
-            running_loss.append(total_loss.item())
             niter_total += 1
-            last_save   += 1
+#           running_loss.append(total_loss.item())
+            
+#            last_save   += 1
 
-            if niter_total % 25 == 0   :
-                avg_loss = sum(running_loss) / len(running_loss)
-                logger.info(f"niter_total [{niter_total}], Avg Loss: {avg_loss:.4f}")
-                logger.info(f"  - Occupancy:          {occ_loss.item():.4f}")
-                logger.info(f"  - Intra Bin:          {intra_loss.item():.4f}")
-                logger.info(f"  - Neighborhood:       {neigh_loss.item():.4f}")
-                logger.info(f"  - Temporal:           {loss_temp.item():.4f} (margin={margin if mem_z.shape[0] > 0 else 5.0:.3f})")
-                logger.info(f"  - Semantic:           {semantic_loss.item():.4f}")
-                logger.info(f"    - Attract:          {semantic_attr_loss.item():.4f}")
-                logger.info(f"    - Repel:            {semantic_repel_loss.item():.4f}")
-                logger.info(f"  - Prediction:         {pred_loss.item():.4f}")
-                logger.info(f"    - Supervised:       {sup_pred_loss.item():.4f}")
-                logger.info(f"    - Pseudo:           {pseudo_pred_loss.item():.4f}")
-                logger.info(f"  - Labeled Rate:       {labeled_rate:.3f}")
-                logger.info(f"  - Memory Size:        {mem_bank.z.shape[0]}")
+            # if niter_total % 25 == 0   :
+            #     avg_loss = sum(running_loss) / len(running_loss)
+            #     logger.info(f"niter_total [{niter_total}], Avg Loss: {avg_loss:.4f}")
+            #     logger.info(f"  - Occupancy:          {occ_loss.item():.4f}")
+            #     logger.info(f"  - Intra Bin:          {intra_loss.item():.4f}")
+            #     logger.info(f"  - Neighborhood:       {neigh_loss.item():.4f}")
+            #     logger.info(f"  - Temporal:           {loss_temp.item():.4f} (margin={margin if mem_z.shape[0] > 0 else 5.0:.3f})")
+            #     logger.info(f"  - Semantic:           {semantic_loss.item():.4f}")
+            #     logger.info(f"    - Attract:          {semantic_attr_loss.item():.4f}")
+            #     logger.info(f"    - Repel:            {semantic_repel_loss.item():.4f}")
+            #     logger.info(f"  - Prediction:         {pred_loss.item():.4f}")
+            #     logger.info(f"    - Supervised:       {sup_pred_loss.item():.4f}")
+            #     logger.info(f"    - Pseudo:           {pseudo_pred_loss.item():.4f}")
+            #     logger.info(f"  - Labeled Rate:       {labeled_rate:.3f}")
+            #     logger.info(f"  - Memory Size:        {mem_bank.z.shape[0]}")
 
-                logger.info("Saving model checkpoint")
-                checkpoint_path = f'./models/model_{niter_total}.pth'
-                torch.save({
-                    'backbone':   backbone.state_dict(),
-                    'joint_head': joint_head.state_dict(),
-                    'optimizer':  optimizer.state_dict(),
-                    'niter_total': niter_total,
-                    'num_labeled': label_tracker.rate,
-                }, checkpoint_path)
-                logger.info(f"Checkpoint saved to {checkpoint_path}")
+            #     logger.info("Saving model checkpoint")
+            #     checkpoint_path = f'./models/model_{niter_total}.pth'
+            #     torch.save({
+            #         'backbone':   backbone.state_dict(),
+            #         'joint_head': joint_head.state_dict(),
+            #         'optimizer':  optimizer.state_dict(),
+            #         'niter_total': niter_total,
+            #         'num_labeled': label_tracker.rate,
+            #     }, checkpoint_path)
+            #     logger.info(f"Checkpoint saved to {checkpoint_path}")
 
-                running_loss = []
-                last_save    = 0
+            #     running_loss = []
+            #     last_save    = 0
 
 logger.info("Exiting training!")
 writer.close()

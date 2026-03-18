@@ -60,11 +60,11 @@ def get_transforms(patch_size: int) -> A.Compose:
 
     photo_transforms = [
         A.Blur(p=0.3),  # Blur effect
-        A.GaussNoise(p=0.3, var_limit=(10.0, 50.0)),  # Gaussian noise
-        A.ISONoise(p=0.3, intensity=(0.1, 0.5), color_shift=(0.01, 0.05)),  # ISO noise
-        A.RandomBrightnessContrast(p=0.5, brightness_limit=(-0.2, 0.2), contrast_limit=(-0.2, 0.2), brightness_by_max=True),  # Brightness and contrast
-        A.RandomGamma(p=0.5, gamma_limit=(80, 120), eps=1e-7),  # Gamma correction
-        A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.5),  # Hue, saturation, and value adjustment
+#        A.GaussNoise(p=0.3, var_limit=(10.0, 50.0)),  # Gaussian noise
+#        A.ISONoise(p=0.3, intensity=(0.1, 0.5), color_shift=(0.01, 0.05)),  # ISO noise
+#        A.RandomBrightnessContrast(p=0.5, brightness_limit=(-0.2, 0.2), contrast_limit=(-0.2, 0.2), brightness_by_max=True),  # Brightness and contrast
+#        A.RandomGamma(p=0.5, gamma_limit=(80, 120), eps=1e-7),  # Gamma correction
+#        A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.5),  # Hue, saturation, and value adjustment
         ToTensorV2(),  # Convert to tensor
     ]
 
@@ -83,7 +83,7 @@ class JointHead(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, embed_dim),
             nn.BatchNorm1d(embed_dim),
-            nn.ReLU()
+            #nn.ReLU()
         )
         self.proj_fc = nn.Sequential(
             nn.Linear(embed_dim, proj_dim),
@@ -330,14 +330,18 @@ def prediction_loss(logits, labels, pseudo_thresh=0.95):
 
     # pseudo
     pseudo_loss = torch.tensor(0.0, device=device)
+    num_pseudo =  torch.tensor(0.0, device=device)
     if unlabeled_mask.any():
         unlabeled_logits = logits[unlabeled_mask]
-        max_conf, pseudo_labels = torch.max(F.softmax(unlabeled_logits, dim=1), dim=1)
-        high_conf = max_conf >= pseudo_thresh
+        with torch.no_grad(): # no gradient through pseudo-labels generation process
+            max_conf, pseudo_labels = torch.max(F.softmax(unlabeled_logits, dim=1), dim=1)
+            high_conf = max_conf >= pseudo_thresh
+
         if high_conf.any():
             pseudo_loss = F.cross_entropy(unlabeled_logits[high_conf], pseudo_labels[high_conf])
+            num_pseudo = high_conf.sum().item()
 
-    return sup_loss, pseudo_loss
+    return sup_loss, pseudo_loss, num_pseudo
 
 
 
@@ -757,4 +761,43 @@ def gaussian_mask(H, W, sigma=0.3):
     return mask / mask.max()  # [H, W]
 
 
+# class ContentAwareMask(nn.Module):
+#     def __init__(self, in_channels=3, sigma=0.3, H=64, W=64):
+#         super().__init__()
+        
+#         # small encoder to predict mask from image
+#         self.encoder = nn.Sequential(
+#             nn.Conv2d(in_channels, 16, kernel_size=3, padding=1),
+#             nn.ReLU(),
+#             nn.Conv2d(16, 32, kernel_size=3, padding=1),
+#             nn.ReLU(),
+#             nn.Conv2d(32, 1, kernel_size=3, padding=1),
+#             nn.Sigmoid()  # [B, 1, H, W]
+#         )
+        
+#         self._init_to_gaussian(in_channels, H, W, sigma)
 
+#     def _init_to_gaussian(self, in_channels, H, W, sigma):
+#         # target gaussian
+#         cy, cx = H / 2, W / 2
+#         y = torch.arange(H).float() - cy
+#         x = torch.arange(W).float() - cx
+#         yy, xx = torch.meshgrid(y, x, indexing='ij')
+#         target = torch.exp(-(xx**2 + yy**2) / (2 * (sigma * H)**2))
+#         target = (target / target.max()).unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
+        
+#         # fit encoder to output gaussian for random inputs
+#         opt = torch.optim.Adam(self.encoder.parameters(), lr=1e-3)
+#         for _ in range(500):
+#             dummy = torch.randn(8, in_channels, H, W)
+#             pred  = self.encoder(dummy)
+#             loss  = F.mse_loss(pred, target.expand(8, -1, -1, -1))
+#             opt.zero_grad()
+#             loss.backward()
+#             opt.step()
+        
+#         print(f"mask init loss: {loss.item():.4f}")
+
+#     def forward(self, imgs):
+#         mask = self.encoder(imgs)  # [B, 1, H, W]
+#         return imgs * mask
