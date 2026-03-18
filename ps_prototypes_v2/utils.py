@@ -630,47 +630,47 @@ def max_mean_discrepancy(coords, grid_size=GRID_SIZE, n_samples=500):
 import torchvision.utils as vutils
 import torch.nn.functional as F
 
-def log_nearest_neighbors(writer, orig, proj_emb, proj_coords, niter_total, n_queries=5, n_neighbors=5, log_every=10):
-    """
-    orig       : [B, C, H, W] - original (non-augmented) patches
-    proj_emb   : [V, B, D]
-    proj_coords: [V, B, 2]
-    """
-    if niter_total % log_every != 0:
-        return
+# def log_nearest_neighbors(writer, img_aug,orig, proj_emb, proj_coords, niter_total, n_queries=5, n_neighbors=5, log_every=10):
+#     """
+#     orig       : [B, C, H, W] - original (non-augmented) patches
+#     proj_emb   : [V, B, D]
+#     proj_coords: [V, B, 2]
+#     """
+#     if niter_total % log_every != 0:
+#         return
 
-    B          = orig.shape[0]
-    n_queries  = min(int(n_queries),  B)
-    n_neighbors = int(n_neighbors)
+#     B          = orig.shape[0]
+#     n_queries  = min(int(n_queries),  B)
+#     n_neighbors = int(n_neighbors)
 
-    # Use first view only
-    emb    = proj_emb[:B].detach().cpu().float()    # [B, D]
-    coords = proj_coords[:B].detach().cpu().float() # [B, 2]
+#     # Use first view only
+#     emb    = proj_emb[:B].detach().cpu().float()    # [B, D]
+#     coords = proj_coords[:B].detach().cpu().float() # [B, 2]
 
-    # Normalize imgs for display
-    imgs = orig.float() / 255.0 if orig.max() > 1.0 else orig.float()
-    imgs = imgs.cpu()
+#     # Normalize imgs for display
+#     imgs = orig.float() / 255.0 if orig.max() > 1.0 else orig.float()
+#     imgs = imgs.cpu()
 
-    # Shared random query indices
-    query_idx = torch.randperm(B)[:n_queries].tolist()
+#     # Shared random query indices
+#     query_idx = torch.randperm(B)[:n_queries].tolist()
 
-    def make_nn_grid(features):
-        dists = torch.cdist(features, features)  # [B, B]
-        rows  = []
-        for qi in query_idx:
-            nn_idx = dists[qi].argsort().tolist()
-            nn_idx = [i for i in nn_idx if i != qi][:n_neighbors]
-            row = torch.stack([imgs[qi]] + [imgs[i] for i in nn_idx])
-            rows.append(row)
-        grid_imgs = torch.cat(rows, dim=0)
-        grid_imgs = grid_imgs.permute(0, 3, 1, 2)
-        return vutils.make_grid(grid_imgs, nrow=n_neighbors + 1, padding=2, normalize=False)
+#     def make_nn_grid(features):
+#         dists = torch.cdist(features, features)  # [B, B]
+#         rows  = []
+#         for qi in query_idx:
+#             nn_idx = dists[qi].argsort().tolist()
+#             nn_idx = [i for i in nn_idx if i != qi][:n_neighbors]
+#             row = torch.stack([imgs[qi]] + [imgs[i] for i in nn_idx])
+#             rows.append(row)
+#         grid_imgs = torch.cat(rows, dim=0)
+#         grid_imgs = grid_imgs.permute(0, 3, 1, 2)
+#         return vutils.make_grid(grid_imgs, nrow=n_neighbors + 1, padding=2, normalize=False)
 
-    emb_grid    = make_nn_grid(emb)
-    coords_grid = make_nn_grid(coords)
+#     emb_grid    = make_nn_grid(emb)
+#     coords_grid = make_nn_grid(coords)
 
-    writer.add_image("nearest_neighbors/proj_emb",    emb_grid,    niter_total)
-    writer.add_image("nearest_neighbors/proj_coords", coords_grid, niter_total)
+#     writer.add_image("nearest_neighbors/proj_emb",    emb_grid,    niter_total)
+#     writer.add_image("nearest_neighbors/proj_coords", coords_grid, niter_total)
 
 
 def simclr_loss(proj_emb, temperature=0.5):
@@ -691,3 +691,112 @@ def simclr_loss(proj_emb, temperature=0.5):
 
     loss = -(log_prob[mask_pos]).mean()
     return loss
+
+
+
+def vicreg_loss(proj_emb, sim_coeff=25.0, var_coeff=25.0, cov_coeff=1.0, epsilon=1e-4):
+    """
+    proj_emb: [V, B, D]
+    VICReg: Variance-Invariance-Covariance Regularization
+    """
+    V, B, D = proj_emb.shape
+    emb_flat = proj_emb.view(V * B, D).float()
+
+    # split back into views for pairwise invariance
+    views = proj_emb.unbind(dim=0)  # V x [B, D]
+
+    # --- Invariance: pull same sample together across views ---
+    inv_loss = sum(
+        F.mse_loss(views[i].float(), views[j].float())
+        for i in range(V) for j in range(i+1, V)
+    ) / (V * (V - 1) / 2)
+
+    # --- Variance: push std of each dim above epsilon ---
+    std = emb_flat.std(dim=0)  # [D]
+    var_loss = F.relu(1.0 - std).mean()
+
+    # --- Covariance: decorrelate dimensions ---
+    emb_centered = emb_flat - emb_flat.mean(dim=0)
+    cov = (emb_centered.T @ emb_centered) / (B * V - 1)  # [D, D]
+    off_diag = cov.pow(2).sum() - cov.diagonal().pow(2).sum()
+    cov_loss = off_diag / D
+
+    return sim_coeff * inv_loss + var_coeff * var_loss + cov_coeff * cov_loss
+
+
+
+
+
+def log_nearest_neighbors(writer, img_aug, orig, proj_emb, proj_coords, niter_total,
+                           n_queries=5, n_neighbors=5, log_every=10):
+    if niter_total % log_every != 0:
+        return
+
+    V_B, D = proj_emb.shape
+    B = orig.shape[0]
+    V = V_B // B
+
+    # --- orig imgs: [B, 64, 64, 3] -> [B, 3, 64, 64] ---
+    imgs_orig = orig.float() / 255.0 if orig.max() > 1.0 else orig.float()
+    imgs_orig = imgs_orig.cpu().permute(0, 3, 1, 2)  # [B, 3, H, W]
+
+    # --- aug imgs: [V*B, 3, h, w] -> [V, B, 3, h, w] ---
+    imgs_aug = img_aug.float() / 255.0 if img_aug.max() > 1.0 else img_aug.float()
+    imgs_aug = imgs_aug.cpu().view(V, B, *img_aug.shape[1:])
+
+    # Normalize embeddings and reshape
+    emb = F.normalize(proj_emb.detach().cpu().float(), dim=-1).view(V, B, D)
+    emb_v0, emb_v1 = emb[0], emb[1]  # [B, D] each
+
+    coords = proj_coords.detach().cpu().float().view(V, B, -1)
+    coords_v0, coords_v1 = coords[0], coords[1]  # [B, 2] each
+
+    query_idx = torch.randperm(B)[:n_queries].tolist()
+
+    H, W = imgs_orig.shape[2], imgs_orig.shape[3]
+
+    def pad_to(t, th, tw):
+        _, _, h, w = t.shape
+        ph, pw = (th - h) // 2, (tw - w) // 2
+        return F.pad(t, (pw, tw - w - pw, ph, th - h - ph))
+
+    def make_grid(sim, use_aug_query, use_aug_neighbors):
+        q_imgs  = imgs_aug[0] if use_aug_query     else imgs_orig
+        nn_imgs = imgs_aug[1] if use_aug_neighbors else imgs_orig
+        if use_aug_query:     q_imgs  = pad_to(q_imgs,  H, W)
+        if use_aug_neighbors: nn_imgs = pad_to(nn_imgs, H, W)
+
+        rows = []
+        for qi in query_idx:
+            nn_idx = sim[qi].argsort(descending=True).tolist()
+            nn_idx = [i for i in nn_idx if i != qi][:n_neighbors]
+            row = torch.cat([q_imgs[qi].unsqueeze(0), nn_imgs[nn_idx]], dim=0)
+            rows.append(row)
+        return vutils.make_grid(torch.cat(rows, dim=0), nrow=n_neighbors + 1, padding=2, normalize=False)
+
+    sim_emb   = torch.mm(emb_v0,    emb_v1.T)                        # [B, B]
+    sim_coords = -torch.cdist(coords_v0, coords_v1)                  # [B, B] higher = closer
+
+    for space, sim in [("emb", sim_emb), ("coords", sim_coords)]:
+        writer.add_image(f"nn/{space}/orig_orig", make_grid(sim, False, False), niter_total)
+        writer.add_image(f"nn/{space}/orig_aug",  make_grid(sim, False, True),  niter_total)
+        writer.add_image(f"nn/{space}/aug_orig",  make_grid(sim, True,  False), niter_total)
+        writer.add_image(f"nn/{space}/aug_aug",   make_grid(sim, True,  True),  niter_total)
+
+    # Positive rank
+    ranks = [(sim_emb[b].argsort(descending=True) == b).nonzero(as_tuple=True)[0].item()
+             for b in range(B)]
+    writer.add_scalar("nn/mean_positive_rank", sum(ranks) / len(ranks), niter_total)
+    writer.add_histogram("nn/positive_rank_dist", torch.tensor(ranks), niter_total)
+
+
+
+
+def gaussian_mask(H, W, sigma=0.3):
+    cy, cx = H / 2, W / 2
+    y = torch.arange(H).float() - cy
+    x = torch.arange(W).float() - cx
+    yy, xx = torch.meshgrid(y, x, indexing='ij')
+    mask = torch.exp(-(xx**2 + yy**2) / (2 * (sigma * H)**2))
+    return mask / mask.max()  # [H, W]
+

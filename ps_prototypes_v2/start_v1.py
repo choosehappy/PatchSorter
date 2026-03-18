@@ -146,8 +146,10 @@ joint_head = JointHead(feature_dim, HIDDEN_DIM, EMBED_DIM, PROJ_DIM, num_classes
 mem_bank = MemoryBank(MEMORY_BANK_SIZE, feature_dim)
 
 
-lr_head = 1e-3
-lr_backbone = 1e-4
+# lr_head = 1e-3
+# lr_backbone = 1e-4
+lr_head = 1e-2
+lr_backbone = 1e-2
 weight_decay = 1e-5
 
 
@@ -180,11 +182,17 @@ z_init, proj_coords_init = initialize_projection_from_batch(backbone, joint_head
 mem_bank.add_candidates(z_init, proj_coords_init )
 
 scaler = torch.amp.GradScaler("cuda")
-
+import os
+os.makedirs('./models', exist_ok=True)
 
 spread_loss = SpreadLoss(grid_size=GRID_SIZE, quantile=0.95)
 
-for _ in range(100):
+
+
+patch_mask = gaussian_mask(PATCH_SIZE, PATCH_SIZE).to(DEVICE)
+
+
+for _ in range(10_000):
     for batch_idx, batch_data in tqdm(enumerate(dataloader)):
         # forward all views → [nviews, B, D]
         with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=True):
@@ -194,6 +202,11 @@ for _ in range(100):
             labeled_rate = label_tracker.update(labels)
 
             imgs = torch.cat(views, dim=0).half().to(DEVICE) / 255.0  # [B*V, C, H, W]
+
+            if USE_MASK:
+                imgs = imgs * patch_mask.unsqueeze(0).unsqueeze(0)  # broadcast over [B, C, H, W]
+
+
             z = backbone(imgs)                                          # [B*V, D]
             emb, coords, logits = joint_head(z)                        # [B*V, ...]
 
@@ -219,7 +232,7 @@ for _ in range(100):
             coord_contrastive_loss = (1.0 / (dists[mask] + 1e-6)).mean()
 
 
-            simclr_emb_loss = simclr_loss(proj_emb, temperature=0.5)
+            simclr_emb_loss = simclr_loss(proj_emb, temperature=0.07)
 
 
             # flat [nviews*B, D] — drop-in for all existing functions
@@ -285,7 +298,7 @@ for _ in range(100):
 
 
             log_embeddings(writer, z_batch, proj_coords, pred_logits, labels, mem_bank, niter_total, write_embeddings = False)
-            log_nearest_neighbors(writer, orig, proj_emb, proj_coords, niter_total, n_queries=5, n_neighbors=5, log_every=10)
+            log_nearest_neighbors(writer, imgs, orig, proj_emb, proj_coords, niter_total, n_queries=5, n_neighbors=5, log_every=10)
 
 
             # tensorboard
