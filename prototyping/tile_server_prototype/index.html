@@ -550,7 +550,7 @@
     }
 
     // ---- Map Setup ----
-    const params = geo.util.pixelCoordinateParams("#map", 4096, 4096, 1024, 1024);
+    const params = geo.util.pixelCoordinateParams("#map", 4096, 4096, 2048, 2048);
     params.map.zoom    = 0;
     params.map.minZoom = 0;
     params.map.max = MAX_OSM_ZOOM;
@@ -587,6 +587,8 @@
     params.layer.url = (x, y, z) => buildTileUrl(x, y, z);
     params.layer.nearestPixel = true;
     params.layer.maxLevel = MAX_OSM_ZOOM;
+    // params.layer.tileWidth = 512;
+    // params.layer.tileHeight = 512;
     let overlayLayer = map.createLayer("osm", params.layer);
     overlayLayer.opacity(1.0);
 

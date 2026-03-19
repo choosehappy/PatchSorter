@@ -186,18 +186,14 @@ def make_dist_image(region, colors, class_indices, global_max, min_brightness=0.
     n_classes, n_i, n_j = region.shape
     out = np.ones((n_i * sub, n_j * sub, 3), dtype=np.float32)
 
-    # Build a color lookup for the classes present in this region
-    # class_indices contains the actual class labels (e.g., [2, 3])
-    # We need to map local index (0, 1, ...) to the correct color
     local_colors = colors[class_indices]  # (n_classes, 3)
 
     ranked = np.argsort(-region, axis=0)             # (n_classes, n_i, n_j)
 
     log_h = np.log1p(region.astype(np.float32))
 
-    gmax = np.log1p(global_max.astype(np.float32))  # (n_classes,)
-    denom = np.where(gmax > 0, gmax, 1.0)[:, None, None]  # (n_classes, 1, 1)
-    print(denom)
+    gmax = np.log1p(global_max.astype(np.float32))
+    denom = np.where(gmax > 0, gmax, 1.0)[:, None, None]
     log_h_norm = log_h / denom
 
     n_present   = (region > 0).sum(axis=0)
@@ -207,13 +203,21 @@ def make_dist_image(region, colors, class_indices, global_max, min_brightness=0.
     dominant_idx        = ranked[0]
     dominant_brightness = np.take_along_axis(log_h_norm, ranked[0:1], axis=0)[0]
 
+    # Subpixel layout for contested cells:
+    #   (0,0) = dominant (rank 0)
+    #   (0,1) = dominant (rank 0)
+    #   (1,0) = rank 1
+    #   (1,1) = rank 2
+    # This gives the dominant class 2 of 4 subpixels.
+    sub_rank_map = [0, 0, 1, 2]
     sub_positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
 
-    for rank, (dr, dc) in enumerate(sub_positions):
-        safe_rank  = min(rank, n_classes - 1)
-        class_idx  = ranked[safe_rank]
-        brightness = np.take_along_axis(log_h_norm, ranked[safe_rank:safe_rank+1], axis=0)[0]
-        has_count  = np.take_along_axis(region > 0,  ranked[safe_rank:safe_rank+1], axis=0)[0]
+    for idx, (dr, dc) in enumerate(sub_positions):
+        target_rank = sub_rank_map[idx]
+        safe_rank   = min(target_rank, n_classes - 1)
+        class_idx   = ranked[safe_rank]
+        brightness  = np.take_along_axis(log_h_norm, ranked[safe_rank:safe_rank+1], axis=0)[0]
+        has_count   = np.take_along_axis(region > 0,  ranked[safe_rank:safe_rank+1], axis=0)[0]
 
         use_dominant = uncontested | ~has_count
         fill_idx     = np.where(use_dominant, dominant_idx,        class_idx)
@@ -449,8 +453,6 @@ def serve_tile(args, z, x, y):
             for g in class_indices
         ], dtype=np.float32)
 
-    print(f"class_indices={class_indices}, global_max={global_max}")
-
     rgb = make_dist_image(result, colors=colors, class_indices=class_indices, global_max=global_max)
 
     # result has shape (n_classes, n_i, n_j) where i=x-axis, j=y-axis.
@@ -459,7 +461,6 @@ def serve_tile(args, z, x, y):
     rgb = np.transpose(rgb, (1, 0, 2))
 
     img = Image.fromarray((rgb * 255).astype(np.uint8), mode="RGB")
-    img = img.resize((256, 256), Image.NEAREST)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
