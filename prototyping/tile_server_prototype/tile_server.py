@@ -197,6 +197,7 @@ def make_dist_image(region, colors, class_indices, global_max, min_brightness=0.
 
     gmax = np.log1p(global_max.astype(np.float32))  # (n_classes,)
     denom = np.where(gmax > 0, gmax, 1.0)[:, None, None]  # (n_classes, 1, 1)
+    print(denom)
     log_h_norm = log_h / denom
 
     n_present   = (region > 0).sum(axis=0)
@@ -421,13 +422,12 @@ def serve_tile(args, z, x, y):
         store = AggregationStore(level=level, database_url=DATABASE_URL, table_prefix=TABLE_PREFIX)
         result, class_indices = store.read_region(bbox=bbox, label_pairs=label_pairs, sum_over_gt=sum_over_gt)
 
-        coarse_store = AggregationStore(level=8, database_url=DATABASE_URL, table_prefix=TABLE_PREFIX)
+        # Compute max counts at current tile level within viewport
         if has_viewport:
-            max_bbox = _world_to_grid_bbox(vp_x_min, vp_y_min, vp_x_max, vp_y_max, level=8)
+            max_bbox = _world_to_grid_bbox(vp_x_min, vp_y_min, vp_x_max, vp_y_max, level=level)
         else:
-            max_bbox = _world_to_grid_bbox(WORLD_X_MIN, WORLD_Y_MIN, WORLD_X_MAX, WORLD_Y_MAX, level=8)
-        max_counts = coarse_store.get_max_counts(max_bbox, label_pairs, NUM_CLASSES)
-        coarse_store.close()
+            max_bbox = _world_to_grid_bbox(WORLD_X_MIN, WORLD_Y_MIN, WORLD_X_MAX, WORLD_Y_MAX, level=level)
+        max_counts = store.get_max_counts(max_bbox, label_pairs, NUM_CLASSES)
         store.close()
     except Exception as e:
         print(f"DB error for tile z={z} x={x} y={y}: {e}")
