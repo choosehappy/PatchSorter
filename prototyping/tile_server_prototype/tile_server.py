@@ -156,7 +156,7 @@ def make_dist_image(region, cols, class_norm=False, min_brightness=0.15):
 
 DATABASE_URL = "dbname=testdb user=testuser password=mypassword host=prototyping-pg-1"
 TABLE_PREFIX = "v1"
-NUM_CLASSES = 5
+NUM_CLASSES = 10
 MAX_LEVEL = 12
 WORLD_X_MIN = -2048
 WORLD_Y_MIN = -2048
@@ -167,7 +167,18 @@ WORLD_SIZE = WORLD_X_MAX - WORLD_X_MIN  # 4096
 # OSM zoom 0 -> our level 8, so OSM zoom z -> our level (z + 8)
 OSM_ZOOM_OFFSET = 8
 
-color_names = ['blue', 'green', 'yellow', 'red', 'purple']
+color_names = [
+    '#222222',  # Unlabeled - black
+    '#e6194b',  # Class 1 - red
+    '#f58231',  # Class 2 - orange
+    '#ffe119',  # Class 3 - yellow
+    '#bfef45',  # Class 4 - lime
+    '#3cb44b',  # Class 5 - green
+    '#42d4f4',  # Class 6 - cyan
+    '#4363d8',  # Class 7 - blue
+    '#911eb4',  # Class 8 - purple
+    '#f032e6',  # Class 9 - magenta
+]
 cols = np.array([mcolors.to_rgb(c) for c in color_names], dtype=np.float32)
 all_pairs = [(gt, pred) for gt in range(NUM_CLASSES) for pred in range(NUM_CLASSES)]
 

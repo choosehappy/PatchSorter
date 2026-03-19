@@ -7,31 +7,165 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; background: #1a1a1a; }
     #map { width: 100%; height: 100%; }
+
     #controls {
       position: absolute; top: 10px; left: 10px; z-index: 100;
-      background: rgba(0,0,0,0.7); color: #fff; padding: 10px 14px;
-      border-radius: 6px; font-family: sans-serif; font-size: 13px;
+      background: rgba(255,255,255,0.97); color: #222; padding: 14px 18px;
+      border-radius: 10px; font-family: sans-serif; font-size: 13px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+      max-width: 420px;
     }
-    #controls label { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-    #opacity-val { width: 28px; text-align: right; }
+    #controls .header {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+    }
+    #controls .header button {
+      padding: 6px 14px; border: 1px solid #ccc; border-radius: 4px;
+      background: #f5f5f5; cursor: pointer; font-size: 12px;
+    }
+    #controls .header button:hover { background: #e0e0e0; }
+
+    #controls .control-row {
+      display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;
+    }
+    #controls .control-group {
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    #controls .control-group label {
+      font-size: 11px; color: #666; font-weight: 500;
+    }
+    #controls .control-group select {
+      padding: 5px 8px; border: 1px solid #ccc; border-radius: 4px;
+      font-size: 12px; min-width: 120px;
+    }
+
+    /* Confusion Matrix Styles */
+    .matrix-container {
+      margin-top: 8px;
+    }
+    .matrix-title {
+      text-align: center; font-size: 13px; font-weight: 600;
+      margin-bottom: 6px; color: #333;
+    }
+    .matrix-table {
+      border-collapse: collapse; font-size: 11px;
+    }
+    .matrix-table th, .matrix-table td {
+      width: 32px; height: 26px; text-align: center;
+      cursor: pointer; user-select: none;
+      border: 2px solid transparent;
+      transition: border-color 0.15s, background-color 0.15s;
+    }
+    .matrix-table .corner-cell {
+      cursor: default;
+    }
+    .matrix-table .gt-header {
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      transform: rotate(180deg);
+      font-weight: 600;
+      color: #fff;
+      padding: 4px 2px;
+      font-size: 10px;
+      white-space: nowrap;
+      height: 70px;
+    }
+    .matrix-table .pred-header {
+      font-weight: 600;
+      color: #fff;
+      padding: 4px 6px;
+      font-size: 10px;
+      white-space: nowrap;
+      text-align: left;
+    }
+    .matrix-table .totals-header {
+      font-weight: 600;
+      font-size: 10px;
+      color: #666;
+      background: #f0f0f0;
+    }
+    .matrix-table .cell {
+      background: #fff;
+      color: #888;
+      font-size: 10px;
+      position: relative;
+    }
+    .matrix-table .cell.selected {
+      border-width: 3px;
+    }
+    .matrix-table .cell:hover {
+      background: #f0f0f0;
+    }
+    .matrix-table .totals-cell {
+      background: #f8f8f8;
+      color: #666;
+      font-size: 10px;
+    }
+    .axis-label {
+      font-size: 12px; font-weight: 600; color: #333;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      transform: rotate(180deg);
+      padding-right: 8px;
+    }
+    .gt-axis-label {
+      text-align: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: #333;
+      padding-bottom: 4px;
+    }
+
+    /* Opacity slider row */
+    .slider-row {
+      display: flex; align-items: center; gap: 8px; margin-top: 12px;
+      padding-top: 10px; border-top: 1px solid #e0e0e0;
+    }
+    .slider-row input[type="range"] { flex: 1; }
+    .slider-row span { width: 32px; text-align: right; font-size: 11px; }
+
+    #zoom-info { margin-top: 8px; font-size: 10px; color: #999; }
   </style>
 </head>
 <body>
   <div id="map"></div>
   <div id="controls">
-    <strong>PatchSorter</strong>
-    <label>
-      <input type="checkbox" id="osm-toggle" checked /> OSM base layer
-    </label>
-    <label>
-      <input type="checkbox" id="overlay-toggle" checked /> Patch overlay
-    </label>
-    <label>
-      Overlay opacity
-      <input type="range" id="opacity-slider" min="0" max="1" step="0.05" value="0.8" />
-      <span id="opacity-val">0.8</span>
-    </label>
-    <div id="zoom-info" style="margin-top:8px; font-size:11px; color:#aaa;"></div>
+    <div class="header">
+      <button id="reset-btn">Reset</button>
+    </div>
+
+    <div class="control-row">
+      <div class="control-group">
+        <label>Color scatter plot by</label>
+        <select id="color-by">
+          <option value="gt" selected>Ground Truth</option>
+          <option value="pred">Prediction</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label>Filter by</label>
+        <select id="filter-by">
+          <option value="all" selected>All</option>
+          <option value="discordant">Discordant</option>
+          <option value="concordant">Concordant</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="matrix-container">
+      <div class="gt-axis-label">Ground Truth Labels</div>
+      <div style="display: flex;">
+        <div class="axis-label">Prediction Labels</div>
+        <table class="matrix-table" id="confusion-matrix"></table>
+      </div>
+    </div>
+
+    <div class="slider-row">
+      <span style="width:auto;">Opacity</span>
+      <input type="range" id="opacity-slider" min="0" max="1" step="0.05" value="1.0" />
+      <span id="opacity-val">1.0</span>
+    </div>
+    <div id="zoom-info"></div>
   </div>
 
   <!-- GeoJS -->
@@ -42,6 +176,219 @@
     const MAX_LEVEL = 12;
     const MAX_OSM_ZOOM = MAX_LEVEL - OSM_ZOOM_OFFSET;  // 4
 
+    // Class configuration
+    const CLASS_LABELS = [
+      "Unlabeled", "Label Class 1", "Label Class 2", "Label Class 3", "Label Class 4",
+      "Label Class 5", "Label Class 6", "Label Class 7", "Label Class 8", "Label Class 9"
+    ];
+    const CLASS_COLORS = [
+      "#222222",  // Unlabeled - black
+      "#e6194b",  // Class 1 - red
+      "#f58231",  // Class 2 - orange
+      "#ffe119",  // Class 3 - yellow
+      "#bfef45",  // Class 4 - lime
+      "#3cb44b",  // Class 5 - green
+      "#42d4f4",  // Class 6 - cyan
+      "#4363d8",  // Class 7 - blue
+      "#911eb4",  // Class 8 - purple
+      "#f032e6",  // Class 9 - magenta
+    ];
+    const NUM_CLASSES = CLASS_LABELS.length;
+
+    // State
+    let selectedCells = new Set(); // Set of "gt,pred" strings
+    let colorBy = "gt";  // "gt" or "pred"
+    let filterBy = "all"; // "all", "discordant", "concordant", "custom"
+
+    // ---- Build Confusion Matrix ----
+    function buildMatrix() {
+      const table = document.getElementById("confusion-matrix");
+      table.innerHTML = "";
+
+      // Header row with GT labels
+      const headerRow = document.createElement("tr");
+      // Corner cell
+      const corner = document.createElement("th");
+      corner.className = "corner-cell";
+      headerRow.appendChild(corner);
+
+      for (let gt = 0; gt < NUM_CLASSES; gt++) {
+        const th = document.createElement("th");
+        th.className = "gt-header";
+        th.style.backgroundColor = CLASS_COLORS[gt];
+        th.textContent = CLASS_LABELS[gt];
+        th.dataset.gt = gt;
+        th.addEventListener("click", (e) => handleHeaderClick("gt", gt, e));
+        headerRow.appendChild(th);
+      }
+      // Totals header
+      const totalsHeader = document.createElement("th");
+      totalsHeader.className = "totals-header gt-header";
+      totalsHeader.textContent = "Totals";
+      totalsHeader.style.background = "#e0e0e0";
+      totalsHeader.style.color = "#333";
+      headerRow.appendChild(totalsHeader);
+      table.appendChild(headerRow);
+
+      // Data rows
+      for (let pred = 0; pred < NUM_CLASSES; pred++) {
+        const row = document.createElement("tr");
+
+        // Pred label header
+        const predHeader = document.createElement("th");
+        predHeader.className = "pred-header";
+        predHeader.style.backgroundColor = CLASS_COLORS[pred];
+        predHeader.textContent = CLASS_LABELS[pred];
+        predHeader.dataset.pred = pred;
+        predHeader.addEventListener("click", (e) => handleHeaderClick("pred", pred, e));
+        row.appendChild(predHeader);
+
+        // Cells
+        for (let gt = 0; gt < NUM_CLASSES; gt++) {
+          const cell = document.createElement("td");
+          cell.className = "cell";
+          cell.dataset.gt = gt;
+          cell.dataset.pred = pred;
+          cell.textContent = "0%";
+          cell.addEventListener("click", (e) => handleCellClick(gt, pred, e));
+          row.appendChild(cell);
+        }
+
+        // Totals cell for this row
+        const totalsCell = document.createElement("td");
+        totalsCell.className = "totals-cell";
+        totalsCell.textContent = "10%";
+        row.appendChild(totalsCell);
+
+        table.appendChild(row);
+      }
+
+      // Totals row
+      const totalsRow = document.createElement("tr");
+      const totalsLabel = document.createElement("th");
+      totalsLabel.className = "totals-header";
+      totalsLabel.textContent = "Totals";
+      totalsRow.appendChild(totalsLabel);
+      for (let gt = 0; gt < NUM_CLASSES; gt++) {
+        const cell = document.createElement("td");
+        cell.className = "totals-cell";
+        cell.textContent = "10%";
+        totalsRow.appendChild(cell);
+      }
+      const grandTotal = document.createElement("td");
+      grandTotal.className = "totals-cell";
+      grandTotal.style.fontWeight = "bold";
+      totalsRow.appendChild(grandTotal);
+      table.appendChild(totalsRow);
+
+      updateCellStyles();
+    }
+
+    function handleCellClick(gt, pred, event) {
+      const key = `${gt},${pred}`;
+      if (event.ctrlKey || event.metaKey) {
+        // Toggle this cell
+        if (selectedCells.has(key)) {
+          selectedCells.delete(key);
+        } else {
+          selectedCells.add(key);
+        }
+      } else {
+        // Single select - clear and select just this one
+        selectedCells.clear();
+        selectedCells.add(key);
+      }
+      setFilterToCustom();
+      updateCellStyles();
+      updateTiles();
+    }
+
+    function handleHeaderClick(axis, index, event) {
+      const keysToToggle = [];
+      for (let i = 0; i < NUM_CLASSES; i++) {
+        if (axis === "gt") {
+          keysToToggle.push(`${index},${i}`);
+        } else {
+          keysToToggle.push(`${i},${index}`);
+        }
+      }
+
+      if (event.ctrlKey || event.metaKey) {
+        // Check if all are selected
+        const allSelected = keysToToggle.every(k => selectedCells.has(k));
+        if (allSelected) {
+          keysToToggle.forEach(k => selectedCells.delete(k));
+        } else {
+          keysToToggle.forEach(k => selectedCells.add(k));
+        }
+      } else {
+        // Clear and select this row/column
+        selectedCells.clear();
+        keysToToggle.forEach(k => selectedCells.add(k));
+      }
+      setFilterToCustom();
+      updateCellStyles();
+      updateTiles();
+    }
+
+    function setFilterToCustom() {
+      filterBy = "custom";
+      document.getElementById("filter-by").value = "custom";
+    }
+
+    function updateCellStyles() {
+      const cells = document.querySelectorAll(".matrix-table .cell");
+      cells.forEach(cell => {
+        const gt = parseInt(cell.dataset.gt);
+        const pred = parseInt(cell.dataset.pred);
+        const key = `${gt},${pred}`;
+        const isSelected = selectedCells.has(key);
+
+        cell.classList.toggle("selected", isSelected);
+        if (isSelected) {
+          const borderColor = colorBy === "gt" ? CLASS_COLORS[gt] : CLASS_COLORS[pred];
+          cell.style.borderColor = borderColor;
+        } else {
+          cell.style.borderColor = "transparent";
+        }
+      });
+    }
+
+    function applyFilter(filter) {
+      selectedCells.clear();
+      if (filter === "all") {
+        for (let gt = 0; gt < NUM_CLASSES; gt++) {
+          for (let pred = 0; pred < NUM_CLASSES; pred++) {
+            selectedCells.add(`${gt},${pred}`);
+          }
+        }
+      } else if (filter === "concordant") {
+        for (let i = 0; i < NUM_CLASSES; i++) {
+          selectedCells.add(`${i},${i}`);
+        }
+      } else if (filter === "discordant") {
+        for (let gt = 0; gt < NUM_CLASSES; gt++) {
+          for (let pred = 0; pred < NUM_CLASSES; pred++) {
+            if (gt !== pred) {
+              selectedCells.add(`${gt},${pred}`);
+            }
+          }
+        }
+      }
+      // "custom" keeps current selection
+      updateCellStyles();
+      updateTiles();
+    }
+
+    function reset() {
+      colorBy = "gt";
+      filterBy = "all";
+      document.getElementById("color-by").value = "gt";
+      document.getElementById("filter-by").value = "all";
+      applyFilter("all");
+    }
+
+    // ---- Map Setup ----
     const params = geo.util.pixelCoordinateParams("#map", 4096, 4096, 1024, 1024);
     params.map.zoom    = 0;
     params.map.minZoom = 0;
@@ -50,25 +397,57 @@
 
     const map = geo.map(params.map);
 
-    // ---- Patch overlay layer (sole layer) ----
-    params.layer.url = (x, y, z) => `${TILE_SERVER}/tiles/${z}/${x}/${y}.png`;
+    // ---- Tile URL builder ----
+    function buildTileUrl(x, y, z) {
+      const sumOver = colorBy === "gt" ? "gt" : "pred";
+      let url = `${TILE_SERVER}/tiles/${z}/${x}/${y}.png?sum_over=${sumOver}`;
+
+      // Add label pair filters if not "all"
+      if (filterBy !== "all" || selectedCells.size < NUM_CLASSES * NUM_CLASSES) {
+        const pairs = Array.from(selectedCells);
+        if (pairs.length > 0 && pairs.length < NUM_CLASSES * NUM_CLASSES) {
+          pairs.forEach(pair => {
+            url += `&lp=${pair}`;
+          });
+        }
+      }
+      return url;
+    }
+
+    // ---- Patch overlay layer ----
+    params.layer.url = (x, y, z) => buildTileUrl(x, y, z);
     params.layer.nearestPixel = true;
     params.layer.maxLevel = MAX_OSM_ZOOM;
-    const overlayLayer = map.createLayer("osm", params.layer);
+    let overlayLayer = map.createLayer("osm", params.layer);
     overlayLayer.opacity(1.0);
-    // ---- Controls ----
-    document.getElementById("osm-toggle").style.display = "none";
-    document.getElementById("osm-toggle").closest("label").style.display = "none";
 
-    document.getElementById("overlay-toggle").addEventListener("change", e => {
-      overlayLayer.visible(e.target.checked);
+    function updateTiles() {
+      // Remove and recreate layer to force refresh
+      map.deleteLayer(overlayLayer);
+      params.layer.url = (x, y, z) => buildTileUrl(x, y, z);
+      overlayLayer = map.createLayer("osm", params.layer);
+      overlayLayer.opacity(parseFloat(document.getElementById("opacity-slider").value));
       map.draw();
+    }
+
+    // ---- Event Listeners ----
+    document.getElementById("reset-btn").addEventListener("click", reset);
+
+    document.getElementById("color-by").addEventListener("change", (e) => {
+      colorBy = e.target.value;
+      updateCellStyles();
+      updateTiles();
+    });
+
+    document.getElementById("filter-by").addEventListener("change", (e) => {
+      filterBy = e.target.value;
+      if (filterBy !== "custom") {
+        applyFilter(filterBy);
+      }
     });
 
     const opacitySlider = document.getElementById("opacity-slider");
-    const opacityVal    = document.getElementById("opacity-val");
-    opacitySlider.value = "1.0";
-    opacityVal.textContent = "1.0";
+    const opacityVal = document.getElementById("opacity-val");
     opacitySlider.addEventListener("input", e => {
       const v = parseFloat(e.target.value);
       opacityVal.textContent = v.toFixed(2);
@@ -84,6 +463,10 @@
       zoomInfo.textContent = `OSM zoom: ${z}  →  agg level: ${level}`;
     });
     map.geoTrigger(geo.event.zoom);
+
+    // ---- Initialize ----
+    buildMatrix();
+    applyFilter("all");
   </script>
 </body>
 </html>
