@@ -192,11 +192,11 @@
     const MAX_LEVEL = 12;
     const MAX_OSM_ZOOM = MAX_LEVEL - OSM_ZOOM_OFFSET;  // 4
 
-    // World bounds (must match server)
-    const WORLD_X_MIN = -2048;
-    const WORLD_Y_MIN = -2048;
-    const WORLD_X_MAX = 2048;
-    const WORLD_Y_MAX = 2048;
+    // World bounds (must match server embed space)
+    const WORLD_X_MIN = 0;
+    const WORLD_Y_MIN = 0;
+    const WORLD_X_MAX = 4096;
+    const WORLD_Y_MAX = 4096;
 
     // Class configuration
     const CLASS_LABELS = [
@@ -481,17 +481,15 @@
     }
 
     async function fetchConfusionMatrix() {
-      // Get current map bounds in world coordinates
       const bounds = map.bounds();
 
-      // GeoJS bounds: left, bottom, right, top
-      // Convert from pixel coords (0-4096) to world coords (-2048 to 2048)
-      const x_min = bounds.left - 2048;
-      const y_min = (4096 - bounds.top) - 2048;  // Flip Y axis
-      const x_max = bounds.right - 2048;
-      const y_max = (4096 - bounds.bottom) - 2048;  // Flip Y axis
+      // GeoJS bounds are pixel coords in [0, 4096] — these match embed coord space directly.
+      // y_min = top of viewport (smaller pixel y), y_max = bottom (larger pixel y).
+      const x_min = bounds.left;
+      const x_max = bounds.right;
+      const y_min = bounds.top;
+      const y_max = bounds.bottom;
 
-      // Build URL with query params
       let url = `${TILE_SERVER}/confusion_matrix?x_min=${x_min}&y_min=${y_min}&x_max=${x_max}&y_max=${y_max}`;
 
       // Add label pair filters if using custom selection
@@ -564,6 +562,14 @@
     function buildTileUrl(x, y, z) {
       const sumOver = colorBy !== "gt" ? "gt" : "pred";
       let url = `${TILE_SERVER}/tiles/${z}/${x}/${y}.png?sum_over=${sumOver}`;
+
+      // Viewport bounds in pixel/embed space [0, 4096]
+      const bounds = map.bounds();
+      const vp_x_min = bounds.left;
+      const vp_y_min = bounds.top;
+      const vp_x_max = bounds.right;
+      const vp_y_max = bounds.bottom;
+      url += `&vp_x_min=${vp_x_min}&vp_y_min=${vp_y_min}&vp_x_max=${vp_x_max}&vp_y_max=${vp_y_max}`;
 
       // Add label pair filters if not "all"
       if (filterBy !== "all" || selectedCells.size < NUM_CLASSES * NUM_CLASSES) {
@@ -643,5 +649,4 @@
     buildMatrix();
     applyFilter("all");
   </script>
-</body>
-</html>
+</body></html>
