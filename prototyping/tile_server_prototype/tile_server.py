@@ -147,8 +147,41 @@ class AggregationStore:
         confusion = mat.sum(axis=(2, 3))  # (n_gt, n_pred)
         return confusion, gt_labels, pred_labels
 
+    def get_max_counts(self, bbox, label_pairs, num_classes: int) -> np.ndarray:
+        """
+        Query the max patch_count for each (gt_label, pred_label) pair
+        within the given spatial bbox, filtered to the given label pairs.
 
-def make_dist_image(region, colors, class_indices, class_norm=False, min_brightness=0.15):
+        Returns:
+            (num_classes, num_classes) array of max counts, indexed [gt, pred].
+        """
+        i_min, j_min, i_max, j_max = bbox
+        if len(label_pairs) == 0:
+            return np.zeros((num_classes, num_classes), dtype=np.float32)
+
+        flat_pairs = [v for gt, pred in label_pairs for v in (int(gt), int(pred))]
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute(f"""
+            SELECT gt_label, pred_label, MAX(patch_count) AS max_count
+            FROM {self.table_name}
+            WHERE gt_label IS NOT NULL
+            AND grid_cell_i BETWEEN %s AND %s
+            AND grid_cell_j BETWEEN %s AND %s
+            AND (gt_label, pred_label) IN ({", ".join(["(%s, %s)"] * len(label_pairs))})
+            GROUP BY gt_label, pred_label;
+        """, [i_min, i_max, j_min, j_max] + flat_pairs)
+        rows = cur.fetchall()
+        cur.close()
+
+        mat = np.zeros((num_classes, num_classes), dtype=np.float32)
+        for gt, pred, count in rows:
+            if 0 <= gt < num_classes and 0 <= pred < num_classes:
+                mat[gt, pred] = count
+        return mat
+
+
+def make_dist_image(region, colors, class_indices, global_max, min_brightness=0.15):
     sub = 2
     n_classes, n_i, n_j = region.shape
     out = np.ones((n_i * sub, n_j * sub, 3), dtype=np.float32)
@@ -161,10 +194,9 @@ def make_dist_image(region, colors, class_indices, class_norm=False, min_brightn
     ranked = np.argsort(-region, axis=0)             # (n_classes, n_i, n_j)
 
     log_h = np.log1p(region.astype(np.float32))
-    if class_norm:
-        denom = log_h.max(axis=(1, 2), keepdims=True) + 1e-12
-    else:
-        denom = log_h.max() + 1e-12
+
+    gmax = np.log1p(global_max.astype(np.float32))  # (n_classes,)
+    denom = np.where(gmax > 0, gmax, 1.0)[:, None, None]  # (n_classes, 1, 1)
     log_h_norm = log_h / denom
 
     n_present   = (region > 0).sum(axis=0)
@@ -200,10 +232,10 @@ DATABASE_URL = "dbname=testdb user=testuser password=mypassword host=prototyping
 TABLE_PREFIX = "v1"
 NUM_CLASSES = 10
 MAX_LEVEL = 12
-WORLD_X_MIN = -2048
-WORLD_Y_MIN = -2048
-WORLD_X_MAX =  2048
-WORLD_Y_MAX =  2048
+WORLD_X_MIN = 0
+WORLD_Y_MIN = 0
+WORLD_X_MAX =  4096
+WORLD_Y_MAX =  4096
 WORLD_SIZE = WORLD_X_MAX - WORLD_X_MIN  # 4096
 
 # OSM zoom 0 -> our level 8, so OSM zoom z -> our level (z + 8)
@@ -260,6 +292,10 @@ class TileQueryArgs(ma.Schema):
         validate=ma.validate.OneOf(["gt", "pred"]),
         metadata={"description": "Axis to sum over: 'gt' (default) or 'pred'"},
     )
+    vp_x_min = ma.fields.Float(load_default=None, metadata={"description": "Viewport min x in world space"})
+    vp_y_min = ma.fields.Float(load_default=None, metadata={"description": "Viewport min y in world space"})
+    vp_x_max = ma.fields.Float(load_default=None, metadata={"description": "Viewport max x in world space"})
+    vp_y_max = ma.fields.Float(load_default=None, metadata={"description": "Viewport max y in world space"})
 
 
 class ConfusionMatrixQueryArgs(ma.Schema):
@@ -302,35 +338,54 @@ api = Api(app)
 bp = Blueprint("tiles", __name__, url_prefix="")
 
 
+def _world_to_grid_bbox(x_min, y_min, x_max, y_max, level):
+    """Convert embed-space coordinates [0, 4096] to grid bbox at the given level.
+    
+    Convention matches point_to_cell: i = x-axis, j = y-axis.
+    """
+    grid_scale = 2 ** (MAX_LEVEL - level)
+
+    x_min = max(0.0, float(x_min))
+    y_min = max(0.0, float(y_min))
+    x_max = min(float(WORLD_SIZE), float(x_max))
+    y_max = min(float(WORLD_SIZE), float(y_max))
+
+    # i = x-axis, j = y-axis (matching point_to_cell)
+    i_min = int(min(x_min, x_max) / grid_scale)
+    i_max = int(max(x_min, x_max) / grid_scale)
+    j_min = int(min(y_min, y_max) / grid_scale)
+    j_max = int(max(y_min, y_max) / grid_scale)
+
+    return i_min, j_min, i_max, j_max
+
+
 def osm_tile_to_bbox(z, x, y, level):
     """
     Convert OSM tile (z, x, y) to grid bbox (i_min, j_min, i_max, j_max)
     at the given aggregation level.
-
-    OSM y=0 is at the top (north); our grid i grows upward (south→north),
-    so we flip y: grid_y = (num_tiles - 1 - y).
+    
+    Convention matches point_to_cell: i = x-axis, j = y-axis.
+    OSM tile x → grid i (horizontal), OSM tile y → grid j (vertical).
     """
-    num_tiles = 2 ** z          # tiles per axis at this OSM zoom
-    scale = WORLD_SIZE / num_tiles  # world units per tile
+    num_tiles = 2 ** z
+    scale = WORLD_SIZE / num_tiles
 
-    # World coordinates of this tile (x left→right, y bottom→top after flip)
-    flipped_y = (num_tiles - 1 - y)
-    wx0 = WORLD_X_MIN + x          * scale
-    wx1 = WORLD_X_MIN + (x + 1)    * scale
-    wy0 = WORLD_Y_MIN + flipped_y  * scale
-    wy1 = WORLD_Y_MIN + (flipped_y + 1) * scale
+    wx0 = x * scale
+    wx1 = (x + 1) * scale
+    wy0 = y * scale
+    wy1 = (y + 1) * scale
 
-    # Clamp to world bounds
     wx0 = max(WORLD_X_MIN, wx0)
     wx1 = min(WORLD_X_MAX, wx1)
     wy0 = max(WORLD_Y_MIN, wy0)
     wy1 = min(WORLD_Y_MAX, wy1)
 
     grid_scale = 2 ** (MAX_LEVEL - level)
-    j_min = int((wx0 - WORLD_X_MIN) / grid_scale)
-    j_max = int((wx1 - WORLD_X_MIN) / grid_scale)
-    i_min = int((wy0 - WORLD_Y_MIN) / grid_scale)
-    i_max = int((wy1 - WORLD_Y_MIN) / grid_scale)
+    # i = x-axis, j = y-axis
+    i_min = int(wx0 / grid_scale)
+    i_max = int(wx1 / grid_scale)
+    j_min = int(wy0 / grid_scale)
+    j_max = int(wy1 / grid_scale)
 
     return i_min, j_min, i_max, j_max, wx0, wy0, wx1, wy1
 
@@ -354,16 +409,54 @@ def serve_tile(args, z, x, y):
         return _empty_tile()
 
     bbox = (i_min, j_min, i_max, j_max)
+
+    # Determine viewport bbox for max count normalization
+    vp_x_min = args.get("vp_x_min")
+    vp_y_min = args.get("vp_y_min")
+    vp_x_max = args.get("vp_x_max")
+    vp_y_max = args.get("vp_y_max")
+    has_viewport = all(v is not None for v in [vp_x_min, vp_y_min, vp_x_max, vp_y_max])
+
     try:
         store = AggregationStore(level=level, database_url=DATABASE_URL, table_prefix=TABLE_PREFIX)
         result, class_indices = store.read_region(bbox=bbox, label_pairs=label_pairs, sum_over_gt=sum_over_gt)
+
+        coarse_store = AggregationStore(level=8, database_url=DATABASE_URL, table_prefix=TABLE_PREFIX)
+        if has_viewport:
+            max_bbox = _world_to_grid_bbox(vp_x_min, vp_y_min, vp_x_max, vp_y_max, level=8)
+        else:
+            max_bbox = _world_to_grid_bbox(WORLD_X_MIN, WORLD_Y_MIN, WORLD_X_MAX, WORLD_Y_MAX, level=8)
+        max_counts = coarse_store.get_max_counts(max_bbox, label_pairs, NUM_CLASSES)
+        coarse_store.close()
         store.close()
     except Exception as e:
         print(f"DB error for tile z={z} x={x} y={y}: {e}")
         return _empty_tile()
 
-    rgb = make_dist_image(result, colors=colors, class_indices=class_indices)
-    rgb = np.flipud(rgb)
+    # Build per-class global max aligned to class_indices, aggregating over the summed axis
+    if sum_over_gt:
+        # result axis 0 = pred classes (class_indices = pred_labels)
+        # For each pred label p, take the max over all gt labels
+        global_max = np.array([
+            max_counts[:, int(p)].max() if int(p) < NUM_CLASSES else 0.0
+            for p in class_indices
+        ], dtype=np.float32)
+    else:
+        # result axis 0 = gt classes (class_indices = gt_labels)
+        # For each gt label g, take the max over all pred labels
+        global_max = np.array([
+            max_counts[int(g), :].max() if int(g) < NUM_CLASSES else 0.0
+            for g in class_indices
+        ], dtype=np.float32)
+
+    print(f"class_indices={class_indices}, global_max={global_max}")
+
+    rgb = make_dist_image(result, colors=colors, class_indices=class_indices, global_max=global_max)
+
+    # result has shape (n_classes, n_i, n_j) where i=x-axis, j=y-axis.
+    # make_dist_image outputs (n_i*2, n_j*2, 3) — but image rows should be y (j) and cols should be x (i).
+    # Transpose to fix: swap axes so rows=j, cols=i.
+    rgb = np.transpose(rgb, (1, 0, 2))
 
     img = Image.fromarray((rgb * 255).astype(np.uint8), mode="RGB")
     img = img.resize((256, 256), Image.NEAREST)
@@ -398,42 +491,22 @@ def info():
 @bp.route("/confusion_matrix")
 @bp.arguments(ConfusionMatrixQueryArgs, location="query")
 def get_confusion_matrix(args):
-    """
-    Get confusion matrix of patch counts for a bounding box in embedding space.
-    Uses the coarsest aggregation level (level 8) for efficiency.
-    """
     label_pairs = args["lp"] if args.get("lp") is not None else all_pairs
 
-    # Use coarsest level for efficiency
     coarsest_level = 8
 
-    # Convert world coordinates to grid cell indices using the grid index
-    # Offset coordinates so that WORLD_X_MIN, WORLD_Y_MIN maps to origin
-    x_min_offset = args["x_min"] - WORLD_X_MIN
-    y_min_offset = args["y_min"] - WORLD_Y_MIN
-    x_max_offset = args["x_max"] - WORLD_X_MIN
-    y_max_offset = args["y_max"] - WORLD_Y_MIN
+    x_min, y_min = args["x_min"], args["y_min"]
+    x_max, y_max = args["x_max"], args["y_max"]
 
-    cell_min = grid_index.point_to_cell(x_min_offset, y_min_offset, coarsest_level)
-    cell_max = grid_index.point_to_cell(x_max_offset, y_max_offset, coarsest_level)
+    # Use _world_to_grid_bbox which handles the WORLD_X_MIN offset internally
+    i_min, j_min, i_max, j_max = _world_to_grid_bbox(x_min, y_min, x_max, y_max, coarsest_level)
 
-    i_min, j_min = cell_min.i, cell_min.j
-    i_max, j_max = cell_max.i, cell_max.j
-
-    # Ensure correct ordering
-    if i_min > i_max:
-        i_min, i_max = i_max, i_min
-    if j_min > j_max:
-        j_min, j_max = j_max, j_min
-
-    bbox = (i_min, j_min, i_max, j_max)
+    print(f"confusion_matrix bbox: world=({x_min},{y_min},{x_max},{y_max}) → grid=({i_min},{j_min},{i_max},{j_max})")
 
     if i_max < i_min or j_max < j_min:
-        return jsonify({
-            "gt_labels": [],
-            "pred_labels": [],
-            "matrix": [],
-        })
+        return jsonify({"gt_labels": [], "pred_labels": [], "matrix": []})
+
+    bbox = (i_min, j_min, i_max, j_max)
 
     try:
         store = AggregationStore(
