@@ -6,6 +6,8 @@ import psycopg2.extras
 from PIL import Image
 from flask import Flask, jsonify, send_from_directory, Response
 from flask_cors import CORS
+import marshmallow as ma
+from flask_smorest import Api, Blueprint
 import matplotlib.colors as mcolors
 
 
@@ -133,9 +135,10 @@ def make_dist_image(region, cols, class_norm=False, min_brightness=0.15):
     sub_positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
 
     for rank, (dr, dc) in enumerate(sub_positions):
-        class_idx  = ranked[rank]
-        brightness = np.take_along_axis(log_h_norm, ranked[rank:rank+1], axis=0)[0]
-        has_count  = np.take_along_axis(region > 0,  ranked[rank:rank+1], axis=0)[0]
+        safe_rank  = min(rank, n_classes - 1)
+        class_idx  = ranked[safe_rank]
+        brightness = np.take_along_axis(log_h_norm, ranked[safe_rank:safe_rank+1], axis=0)[0]
+        has_count  = np.take_along_axis(region > 0,  ranked[safe_rank:safe_rank+1], axis=0)[0]
 
         use_dominant = uncontested | ~has_count
         fill_idx     = np.where(use_dominant, dominant_idx,        class_idx)
@@ -168,8 +171,54 @@ color_names = ['blue', 'green', 'yellow', 'red', 'purple']
 cols = np.array([mcolors.to_rgb(c) for c in color_names], dtype=np.float32)
 all_pairs = [(gt, pred) for gt in range(NUM_CLASSES) for pred in range(NUM_CLASSES)]
 
+# ------------------------------------------------------------------
+# Query argument schemas
+# ------------------------------------------------------------------
+
+class LabelPairField(ma.fields.Field):
+    """Deserializes a 'gt,pred' string into a (gt, pred) tuple of ints."""
+
+    def _deserialize(self, value, attr, data, **kwargs):
+        try:
+            parts = [int(v) for v in str(value).split(",")]
+        except ValueError:
+            raise ma.ValidationError(
+                "Each lp value must be two integers separated by a comma, e.g. '0,1'"
+            )
+        if len(parts) != 2:
+            raise ma.ValidationError(
+                "Each lp value must be exactly two integers, e.g. '0,1'"
+            )
+        return tuple(parts)
+
+
+class TileQueryArgs(ma.Schema):
+    lp = ma.fields.List(
+        LabelPairField(),
+        load_default=None,
+        metadata={"description": "Label pair filter as 'gt,pred'. Repeatable, e.g. ?lp=0,1&lp=2,3"},
+    )
+    sum_over = ma.fields.String(
+        load_default="gt",
+        validate=ma.validate.OneOf(["gt", "pred"]),
+        metadata={"description": "Axis to sum over: 'gt' (default) or 'pred'"},
+    )
+
+
+# ------------------------------------------------------------------
+# Flask / flask-smorest app
+# ------------------------------------------------------------------
+
 app = Flask(__name__)
+app.config["API_TITLE"] = "PatchSorter Tile Server"
+app.config["API_VERSION"] = "v1"
+app.config["OPENAPI_VERSION"] = "3.0.3"
+app.config["OPENAPI_URL_PREFIX"] = "/api"
+app.config["OPENAPI_SWAGGER_UI_PATH"] = "/swagger-ui"
+app.config["OPENAPI_SWAGGER_UI_URL"] = "https://cdn.jsdelivr.net/npm/swagger-ui-dist/"
 CORS(app)
+api = Api(app)
+bp = Blueprint("tiles", __name__, url_prefix="")
 
 
 def osm_tile_to_bbox(z, x, y, level):
@@ -205,8 +254,12 @@ def osm_tile_to_bbox(z, x, y, level):
     return i_min, j_min, i_max, j_max, wx0, wy0, wx1, wy1
 
 
-@app.route("/tiles/<int:z>/<int:x>/<int:y>.png")
-def serve_tile(z, x, y):
+@bp.route("/tiles/<int:z>/<int:x>/<int:y>.png")
+@bp.arguments(TileQueryArgs, location="query")
+def serve_tile(args, z, x, y):
+    label_pairs = args["lp"] if args.get("lp") is not None else all_pairs
+    sum_over_gt = args["sum_over"] == "gt"
+
     level = z + OSM_ZOOM_OFFSET
     level = max(8, min(MAX_LEVEL, level))
 
@@ -222,7 +275,7 @@ def serve_tile(z, x, y):
     bbox = (i_min, j_min, i_max, j_max)
     try:
         store = AggregationStore(level=level, database_url=DATABASE_URL, table_prefix=TABLE_PREFIX)
-        result = store.read_region(bbox=bbox, label_pairs=all_pairs)
+        result = store.read_region(bbox=bbox, label_pairs=label_pairs, sum_over_gt=sum_over_gt)
         store.close()
     except Exception as e:
         print(f"DB error for tile z={z} x={x} y={y}: {e}")
@@ -246,12 +299,12 @@ def _empty_tile():
     return Response(buf.getvalue(), mimetype="image/png")
 
 
-@app.route("/")
+@bp.route("/")
 def index():
     return send_from_directory(".", "index.html")
 
 
-@app.route("/info")
+@bp.route("/info")
 def info():
     return jsonify({
         "world": {"x_min": WORLD_X_MIN, "y_min": WORLD_Y_MIN,
@@ -260,6 +313,8 @@ def info():
         "max_level": MAX_LEVEL,
     })
 
+
+api.register_blueprint(bp)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
