@@ -21,19 +21,67 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from collections import Counter
 
+from collections import Counter, defaultdict
+
+from patch_logging import _label_to_color
+
+from collections import Counter, defaultdict
 
 class LabeledRateTracker:
     def __init__(self, momentum=0.99):
         self.momentum = momentum
-        self.rate = None  # starts unknown
+        self.rate = None
+        self.class_weights = defaultdict(float)
+        self.pseudo_class_weights = defaultdict(float)
+        
 
-    def update(self, labels):
+    def _update_class_weights(self, labels, store):
+        counter = Counter(labels.cpu().numpy().tolist())
+        total = sum(counter.values())
+        if total == 0:
+            return
+
+        all_classes = set(store.keys()) | set(counter.keys())
+        for cls in all_classes:
+            freq = counter.get(cls, 0) / total
+            store[cls] = self.momentum * store[cls] + (1 - self.momentum) * freq
+            if store[cls] < 1.0/len(labels):
+                del store[cls]
+
+        return store, counter
+    
+    def update(self, labels, pseudo_labels=None):
+        # labeled rate EMA
         batch_rate = (labels >= 0).float().mean().item()
         if self.rate is None:
-            self.rate = batch_rate  # cold start
+            self.rate = batch_rate
         else:
             self.rate = self.momentum * self.rate + (1 - self.momentum) * batch_rate
-        return self.rate
+
+        # true label class weights (only labeled samples)
+        valid_labels = labels[labels >= 0]
+        label_counter = None
+        if len(valid_labels) > 0:
+            _, label_counter = self._update_class_weights(valid_labels, self.class_weights)
+            print("true:",self.class_weights)
+
+        # pseudo label class weights
+        pseudo_counter = None
+        if pseudo_labels is not None and len(pseudo_labels) > 0:
+            _, pseudo_counter = self._update_class_weights(pseudo_labels, self.pseudo_class_weights)
+            print("psuedo:\t",self.pseudo_class_weights)
+
+        return self.rate, label_counter, pseudo_counter
+
+    def get_class_weights(self, pseudo=False, device='cpu'):
+        """Return inverse-frequency weights as a tensor for use in cross_entropy."""
+        store = self.pseudo_class_weights if pseudo else self.class_weights
+        if not store:
+            return None
+        classes = sorted(store.keys())
+        freqs = torch.tensor([store[c] for c in classes], dtype=torch.float32, device=device)
+        weights = 1.0 / (freqs + 1e-8)
+        return weights / weights.sum()
 
 import albumentations as A
 import cv2
@@ -322,26 +370,29 @@ def bin_losses_vectorized(coords, target_count=10, sigma=1.0, radius=3):
 def prediction_loss(logits, labels, pseudo_thresh=0.95):
     device = logits.device
     labeled_mask = labels >= 0
-    unlabeled_mask = ~labeled_mask  # faster than labels < 0
+    unlabeled_mask = ~labeled_mask
 
     # supervised
     sup_loss = F.cross_entropy(logits[labeled_mask], labels[labeled_mask].long()) \
         if labeled_mask.any() else torch.tensor(0.0, device=device)
 
-    # pseudo
-    pseudo_loss = torch.tensor(0.0, device=device)
-    num_pseudo =  None
+    # pred_labels: argmax over all samples regardless of labeled/unlabeled
+    with torch.no_grad():
+        probs = F.softmax(logits, dim=1)
+        conf, pred_labels = torch.max(probs, dim=1)
+
+    # high_conf: only meaningful for unlabeled points; labeled points are False
+    high_conf = torch.zeros(len(labels), dtype=torch.bool, device=device)
     if unlabeled_mask.any():
-        unlabeled_logits = logits[unlabeled_mask]
-        with torch.no_grad(): # no gradient through pseudo-labels generation process
-            max_conf, pseudo_labels = torch.max(F.softmax(unlabeled_logits, dim=1), dim=1)
-            high_conf = max_conf >= pseudo_thresh
+        high_conf[unlabeled_mask] = conf[unlabeled_mask] >= pseudo_thresh
 
-        if high_conf.any():
-            pseudo_loss = F.cross_entropy(unlabeled_logits[high_conf], pseudo_labels[high_conf])
-            num_pseudo= Counter(pseudo_labels[high_conf].cpu().numpy())  # for logging class distribution of pseudo-labels
+    # pseudo loss over high-confidence unlabeled points
+    pseudo_loss = torch.tensor(0.0, device=device)
+    if high_conf.any():
+        pseudo_loss = F.cross_entropy(logits[high_conf], pred_labels[high_conf])
+        num_pseudo = Counter(pred_labels[high_conf].cpu().numpy())
 
-    return sup_loss, pseudo_loss, num_pseudo
+    return sup_loss, pseudo_loss, pred_labels, high_conf
 
 
 
@@ -407,97 +458,6 @@ def neighborhood_loss(z_batch, proj_coords, k=K_NEIGHBORS):
     # weighted penalty: embedding-close neighbors should be proj-close too
     loss = (weights * proj_neighbor_dists**2).sum(dim=1).mean()
     return loss
-
-
-
-#-----
-
-def log_embeddings(writer, z_batch, proj_coords, pred_logits, labels, 
-                   mem_bank, niter_total, write_embeddings = False):
-
-    if write_embeddings:
-        # ---- 1. current batch embeddings (PCA/UMAP done by tensorboard)
-        batch_size = z_batch.shape[0]
-        batch_labels_str = [f"batch_labeled_{l.item()}"   if l >= 0 
-                            else "batch_unlabeled" 
-                            for l in labels]
-        writer.add_embedding(
-            z_batch.detach(),
-            metadata=batch_labels_str,
-            global_step=niter_total,
-            tag='embeddings/batch'
-        )
-
-        # ---- 2. memory bank embeddings
-        if mem_bank.z.shape[0] > 0:
-            mem_labels_str = [f"mem_labeled_{l.item()}" if l >= 0 
-                            else "mem_unlabeled" 
-                            for l in mem_bank.labels]
-            writer.add_embedding(
-                mem_bank.z.detach(),
-                metadata=mem_labels_str,
-                global_step=niter_total,
-                tag='embeddings/memory'
-            )
-
-        # ---- 3. combined batch + memory with color tags
-        if mem_bank.z.shape[0] > 0:
-            # sample memory to avoid overwhelming the viz
-            sample_size = min(batch_size, mem_bank.z.shape[0])
-            idx = torch.randperm(mem_bank.z.shape[0])[:sample_size]
-            mem_z_sample      = mem_bank.z[idx].detach()
-            mem_labels_sample = mem_bank.labels[idx]
-
-            combined_z = torch.cat([z_batch.detach(), mem_z_sample], dim=0)
-            combined_meta = (
-                [f"batch_labeled_{l.item()}"   if l >= 0 else "batch_unlabeled" for l in labels] +
-                [f"mem_labeled_{l.item()}"     if l >= 0 else "mem_unlabeled"   for l in mem_labels_sample]
-            )
-            writer.add_embedding(
-                combined_z,
-                metadata=combined_meta,
-                global_step=niter_total,
-                tag='embeddings/combined'
-            )
-
-    # ---- 4. projected 2D coordinates as a scatter image
-    fig, ax = plt.subplots(figsize=(6, 6))
-    coords_np = proj_coords.detach().cpu().numpy()
-    
-    labeled_mask   = labels >= 0
-    unlabeled_mask = ~labeled_mask
-
-    if unlabeled_mask.any():
-        ax.scatter(coords_np[unlabeled_mask.cpu(), 0],
-                   coords_np[unlabeled_mask.cpu(), 1],
-                   c='steelblue', alpha=0.5, s=10, label='unlabeled')
-    if labeled_mask.any():
-        ax.scatter(coords_np[labeled_mask.cpu(), 0],
-                   coords_np[labeled_mask.cpu(), 1],
-                   c='tomato', alpha=0.8, s=20, label='labeled')
-    
-    # overlay memory coords
-    if mem_bank.coords.shape[0] > 0:
-        mem_coords_np = mem_bank.coords.detach().cpu().numpy()
-        ax.scatter(mem_coords_np[:, 0], mem_coords_np[:, 1],
-                   c='gray', alpha=0.2, s=5, label='memory')
-
-    ax.set_xlim(0, GRID_SIZE)
-    ax.set_ylim(0, GRID_SIZE)
-    ax.legend(loc='upper right')
-    ax.set_title(f'Projected Coordinates (iter {niter_total})')
-    writer.add_figure('viz/proj_coords', fig, niter_total)
-    plt.close(fig)
-
-    # ---- 5. confidence histogram
-    with torch.no_grad():
-        probs      = torch.softmax(pred_logits, dim=1)
-        confidence = probs.max(dim=1).values
-    writer.add_histogram('train/confidence',        confidence,      niter_total)
-    writer.add_histogram('train/memory_age',        mem_bank.age,    niter_total)
-    writer.add_histogram('train/proj_coords_x',     proj_coords[:, 0].detach(), niter_total)
-    writer.add_histogram('train/proj_coords_y',     proj_coords[:, 1].detach(), niter_total)
-    writer.add_scalar(  'train/mean_confidence',    confidence.mean().item(),   niter_total)
 
 
 
@@ -668,87 +628,87 @@ def vicreg_loss(proj_emb, sim_coeff=25.0, var_coeff=25.0, cov_coeff=1.0, epsilon
     return sim_coeff * inv_loss + var_coeff * var_loss + cov_coeff * cov_loss
 
 
-def log_nearest_neighbors(writer, img_aug, orig, proj_emb, proj_coords, niter_total,
-                           n_queries=5, n_neighbors=5):
+# def log_nearest_neighbors(writer, img_aug, orig, proj_emb, proj_coords, niter_total,
+#                            n_queries=5, n_neighbors=5):
 
-    V_B, D = proj_emb.shape
-    B = orig.shape[0]
-    V = V_B // B
+#     V_B, D = proj_emb.shape
+#     B = orig.shape[0]
+#     V = V_B // B
 
-    # --- orig imgs: [B, 64, 64, 3] -> [B, 3, 64, 64] ---
-    imgs_orig = orig.float() / 255.0 if orig.max() > 1.0 else orig.float()
-    imgs_orig = imgs_orig.cpu().permute(0, 3, 1, 2)  # [B, 3, H, W]
+#     # --- orig imgs: [B, 64, 64, 3] -> [B, 3, 64, 64] ---
+#     imgs_orig = orig.float() / 255.0 if orig.max() > 1.0 else orig.float()
+#     imgs_orig = imgs_orig.cpu().permute(0, 3, 1, 2)  # [B, 3, H, W]
 
-    # --- aug imgs: [V*B, 3, h, w] -> [V, B, 3, h, w] ---
-    imgs_aug = img_aug.float() / 255.0 if img_aug.max() > 1.0 else img_aug.float()
-    imgs_aug = imgs_aug.cpu().view(V, B, *img_aug.shape[1:])
+#     # --- aug imgs: [V*B, 3, h, w] -> [V, B, 3, h, w] ---
+#     imgs_aug = img_aug.float() / 255.0 if img_aug.max() > 1.0 else img_aug.float()
+#     imgs_aug = imgs_aug.cpu().view(V, B, *img_aug.shape[1:])
 
-    # Normalize embeddings and reshape
-    emb = F.normalize(proj_emb.detach().cpu().float(), dim=-1).view(V, B, D)
-    emb_v0, emb_v1 = emb[0], emb[1]  # [B, D] each
+#     # Normalize embeddings and reshape
+#     emb = F.normalize(proj_emb.detach().cpu().float(), dim=-1).view(V, B, D)
+#     emb_v0, emb_v1 = emb[0], emb[1]  # [B, D] each
 
-    coords = proj_coords.detach().cpu().float().view(V, B, -1)
-    coords_v0, coords_v1 = coords[0], coords[1]  # [B, 2] each
+#     coords = proj_coords.detach().cpu().float().view(V, B, -1)
+#     coords_v0, coords_v1 = coords[0], coords[1]  # [B, 2] each
 
-    query_idx = torch.randperm(B)[:n_queries].tolist()
+#     query_idx = torch.randperm(B)[:n_queries].tolist()
 
-    H, W = imgs_orig.shape[2], imgs_orig.shape[3]
+#     H, W = imgs_orig.shape[2], imgs_orig.shape[3]
 
-    def pad_to(t, th, tw):
-        _, _, h, w = t.shape
-        ph, pw = (th - h) // 2, (tw - w) // 2
-        return F.pad(t, (pw, tw - w - pw, ph, th - h - ph))
+#     def pad_to(t, th, tw):
+#         _, _, h, w = t.shape
+#         ph, pw = (th - h) // 2, (tw - w) // 2
+#         return F.pad(t, (pw, tw - w - pw, ph, th - h - ph))
 
-    def make_grid(sim, use_aug_query, use_aug_neighbors):
-        q_imgs  = imgs_aug[0] if use_aug_query     else imgs_orig
-        nn_imgs = imgs_aug[1] if use_aug_neighbors else imgs_orig
-        if use_aug_query:     q_imgs  = pad_to(q_imgs,  H, W)
-        if use_aug_neighbors: nn_imgs = pad_to(nn_imgs, H, W)
+#     def make_grid(sim, use_aug_query, use_aug_neighbors):
+#         q_imgs  = imgs_aug[0] if use_aug_query     else imgs_orig
+#         nn_imgs = imgs_aug[1] if use_aug_neighbors else imgs_orig
+#         if use_aug_query:     q_imgs  = pad_to(q_imgs,  H, W)
+#         if use_aug_neighbors: nn_imgs = pad_to(nn_imgs, H, W)
 
-        rows = []
-        for qi in query_idx:
-            nn_idx = sim[qi].argsort(descending=True).tolist()
-            nn_idx = [i for i in nn_idx if i != qi][:n_neighbors]
-            row = torch.cat([q_imgs[qi].unsqueeze(0), nn_imgs[nn_idx]], dim=0)
-            rows.append(row)
-        return vutils.make_grid(torch.cat(rows, dim=0), nrow=n_neighbors + 1, padding=2, normalize=False)
+#         rows = []
+#         for qi in query_idx:
+#             nn_idx = sim[qi].argsort(descending=True).tolist()
+#             nn_idx = [i for i in nn_idx if i != qi][:n_neighbors]
+#             row = torch.cat([q_imgs[qi].unsqueeze(0), nn_imgs[nn_idx]], dim=0)
+#             rows.append(row)
+#         return vutils.make_grid(torch.cat(rows, dim=0), nrow=n_neighbors + 1, padding=2, normalize=False)
 
-    sim_emb   = torch.mm(emb_v0,    emb_v1.T)                        # [B, B]
-    sim_coords = -torch.cdist(coords_v0, coords_v1)                  # [B, B] higher = closer
+#     sim_emb   = torch.mm(emb_v0,    emb_v1.T)                        # [B, B]
+#     sim_coords = -torch.cdist(coords_v0, coords_v1)                  # [B, B] higher = closer
 
-    for space, sim in [("emb", sim_emb), ("coords", sim_coords)]:
-        writer.add_image(f"nn/{space}/orig_orig", make_grid(sim, False, False), niter_total)
-        writer.add_image(f"nn/{space}/orig_aug",  make_grid(sim, False, True),  niter_total)
-        writer.add_image(f"nn/{space}/aug_orig",  make_grid(sim, True,  False), niter_total)
-        writer.add_image(f"nn/{space}/aug_aug",   make_grid(sim, True,  True),  niter_total)
+#     for space, sim in [("emb", sim_emb), ("coords", sim_coords)]:
+#         writer.add_image(f"nn/{space}/orig_orig", make_grid(sim, False, False), niter_total)
+#         writer.add_image(f"nn/{space}/orig_aug",  make_grid(sim, False, True),  niter_total)
+#         writer.add_image(f"nn/{space}/aug_orig",  make_grid(sim, True,  False), niter_total)
+#         writer.add_image(f"nn/{space}/aug_aug",   make_grid(sim, True,  True),  niter_total)
 
-    # Positive rank
-    ranks = [(sim_emb[b].argsort(descending=True) == b).nonzero(as_tuple=True)[0].item()
-             for b in range(B)]
-    writer.add_scalar("nn/mean_positive_rank", sum(ranks) / len(ranks), niter_total)
-    writer.add_histogram("nn/positive_rank_dist", torch.tensor(ranks), niter_total)
+#     # Positive rank
+#     ranks = [(sim_emb[b].argsort(descending=True) == b).nonzero(as_tuple=True)[0].item()
+#              for b in range(B)]
+#     writer.add_scalar("nn/mean_positive_rank", sum(ranks) / len(ranks), niter_total)
+#     writer.add_histogram("nn/positive_rank_dist", torch.tensor(ranks), niter_total)
 
 
-def log_nearest_neighbors_orig(writer, orig, sim_emb, sim_coords, niter_total, n_queries=5, n_neighbors=5):
-    B = orig.shape[0]
-    n_queries = min(n_queries, B)
+# def log_nearest_neighbors_orig(writer, orig, sim_emb, sim_coords, niter_total, n_queries=5, n_neighbors=5):
+#     B = orig.shape[0]
+#     n_queries = min(n_queries, B)
 
-    imgs = orig.float() / 255.0 if orig.max() > 1.0 else orig.float()
-    imgs = imgs.cpu().permute(0, 3, 1, 2)  # [B, 3, H, W]
+#     imgs = orig.float() / 255.0 if orig.max() > 1.0 else orig.float()
+#     imgs = imgs.cpu().permute(0, 3, 1, 2)  # [B, 3, H, W]
 
-    query_idx = torch.randperm(B)[:n_queries].tolist()
+#     query_idx = torch.randperm(B)[:n_queries].tolist()
 
-    def make_grid(sim):
-        rows = []
-        for qi in query_idx:
-            nn_idx = sim[qi].argsort(descending=True).tolist()
-            nn_idx = [i for i in nn_idx if i != qi][:n_neighbors]
-            row = torch.cat([imgs[qi].unsqueeze(0), imgs[nn_idx]], dim=0)
-            rows.append(row)
-        return vutils.make_grid(torch.cat(rows, dim=0), nrow=n_neighbors + 1, padding=2, normalize=False)
+#     def make_grid(sim):
+#         rows = []
+#         for qi in query_idx:
+#             nn_idx = sim[qi].argsort(descending=True).tolist()
+#             nn_idx = [i for i in nn_idx if i != qi][:n_neighbors]
+#             row = torch.cat([imgs[qi].unsqueeze(0), imgs[nn_idx]], dim=0)
+#             rows.append(row)
+#         return vutils.make_grid(torch.cat(rows, dim=0), nrow=n_neighbors + 1, padding=2, normalize=False)
 
-    writer.add_image("nn_orig/emb",    make_grid(sim_emb),    niter_total)
-    writer.add_image("nn_orig/coords", make_grid(sim_coords), niter_total)
+#     writer.add_image("nn_orig/emb",    make_grid(sim_emb),    niter_total)
+#     writer.add_image("nn_orig/coords", make_grid(sim_coords), niter_total)
 
 
 

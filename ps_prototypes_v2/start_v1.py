@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from utils import *
+from patch_logging import *
 
 import timm
 from torch.utils.data import DataLoader
@@ -202,7 +203,7 @@ for _ in range(10_000):
 
             *views, labels, orig = batch_data
             labels = labels.long().to(DEVICE)
-            labeled_rate = label_tracker.update(labels)
+            
 
             imgs = torch.cat(views, dim=0).half().to(DEVICE) / 255.0  # [B*V, C, H, W]
 
@@ -264,8 +265,10 @@ for _ in range(10_000):
             semantic_emb_attr_loss, semantic_emb_repel_loss = semantic_head_loss(proj_emb_norm, labels, margin=0.5)
             semantic_emb_loss = semantic_emb_attr_loss + semantic_emb_repel_loss  #report seperately
 
-            sup_pred_loss,pseudo_pred_loss, num_pseudo  = prediction_loss(pred_logits, labels, pseudo_thresh=PSEUDO_THRESH)
+            sup_pred_loss,pseudo_pred_loss, pred_labels, high_conf   = prediction_loss(pred_logits, labels, pseudo_thresh=PSEUDO_THRESH)
             pred_loss = sup_pred_loss + PSEUDO_PRED_LAMBDA*pseudo_pred_loss #report seperately
+
+            labeled_rate , num_label, num_pseudo = label_tracker.update(labels,pred_labels[high_conf] if high_conf is not None else None)  # update with current batch's true and pseudo labels
 
             #---compute tempoerate loss - make sure our coorindates don't go wild 
             mem_z, mem_coords, mem_ages = mem_bank.sample(MEMORY_SAMPLE_SIZE)
@@ -309,8 +312,8 @@ for _ in range(10_000):
 
             if niter_total % LOG_EVERY == 0:
 
-                log_embeddings(writer, z_batch, proj_coords, pred_logits, labels, mem_bank, niter_total, write_embeddings = False)
-                log_nearest_neighbors(writer, imgs, orig, proj_emb, proj_coords, niter_total, n_queries=5, n_neighbors=5)
+                log_embeddings(writer, z_batch, proj_coords, pred_logits, labels, pred_labels, high_conf, mem_bank, niter_total, write_embeddings = False)
+                log_nearest_neighbors(writer, imgs, orig, proj_emb, proj_coords, niter_total, labels=labels, pred_labels=pred_labels, n_queries=5, n_neighbors=5)
 
                 if LOG_ORIGS:
                     imgs_orig = orig.permute(0, 3, 1, 2).to(DEVICE) / 255.0
@@ -330,7 +333,7 @@ for _ in range(10_000):
                                               coords_orig.detach().cpu().float())         # [B, B]
 
                     log_nearest_neighbors_orig(writer, orig, sim_emb, sim_coords, 
-                                               niter_total, n_queries=5, n_neighbors=5)
+                                               niter_total, labels=labels, pred_labels=pred_labels, n_queries=5, n_neighbors=5)
 
                     del imgs_orig, z_orig, emb_orig, coords_orig
                     del emb_orig_norm, sim_emb, sim_coords
