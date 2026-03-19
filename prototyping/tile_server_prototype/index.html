@@ -13,7 +13,7 @@
       background: rgba(255,255,255,0.97); color: #222; padding: 14px 18px;
       border-radius: 10px; font-family: sans-serif; font-size: 13px;
       box-shadow: 0 4px 20px rgba(0,0,0,0.25);
-      max-width: 420px;
+      width: max-content;
     }
     #controls .header {
       display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
@@ -41,6 +41,7 @@
     /* Confusion Matrix Styles */
     .matrix-container {
       margin-top: 8px;
+      overflow: visible;
     }
     .matrix-title {
       text-align: center; font-size: 13px; font-weight: 600;
@@ -48,12 +49,27 @@
     }
     .matrix-table {
       border-collapse: collapse; font-size: 11px;
+      table-layout: fixed;
     }
     .matrix-table th, .matrix-table td {
-      width: 32px; height: 26px; text-align: center;
+      width: 32px; height: 32px; text-align: center;
       cursor: pointer; user-select: none;
       border: 2px solid transparent;
       transition: border-color 0.15s, background-color 0.15s;
+      white-space: nowrap;
+      min-width: 32px;
+      box-sizing: border-box;
+    }
+    .matrix-table .cell,
+    .matrix-table .totals-cell {
+      overflow: hidden;
+      max-width: 32px;
+    }
+    .matrix-table .gt-header,
+    .matrix-table .pred-header,
+    .matrix-table .totals-header,
+    .matrix-table .corner-cell {
+      overflow: visible;
     }
     .matrix-table .corner-cell {
       cursor: default;
@@ -85,8 +101,8 @@
     }
     .matrix-table .cell {
       background: #fff;
-      color: #888;
-      font-size: 10px;
+      color: #000;
+      font-size: 9px;
       position: relative;
     }
     .matrix-table .cell.selected {
@@ -176,6 +192,12 @@
     const MAX_LEVEL = 12;
     const MAX_OSM_ZOOM = MAX_LEVEL - OSM_ZOOM_OFFSET;  // 4
 
+    // World bounds (must match server)
+    const WORLD_X_MIN = -2048;
+    const WORLD_Y_MIN = -2048;
+    const WORLD_X_MAX = 2048;
+    const WORLD_Y_MAX = 2048;
+
     // Class configuration
     const CLASS_LABELS = [
       "Unlabeled", "Label Class 1", "Label Class 2", "Label Class 3", "Label Class 4",
@@ -199,6 +221,7 @@
     let selectedCells = new Set(); // Set of "gt,pred" strings
     let colorBy = "gt";  // "gt" or "pred"
     let filterBy = "all"; // "all", "discordant", "concordant", "custom"
+    let confusionData = null; // Cached confusion matrix data from server
 
     // ---- Build Confusion Matrix ----
     function buildMatrix() {
@@ -298,6 +321,7 @@
         selectedCells.clear();
         selectedCells.add(key);
       }
+      ensureSelection();
       setFilterToCustom();
       updateCellStyles();
       updateTiles();
@@ -326,6 +350,7 @@
         selectedCells.clear();
         keysToToggle.forEach(k => selectedCells.add(k));
       }
+      ensureSelection();
       setFilterToCustom();
       updateCellStyles();
       updateTiles();
@@ -334,6 +359,18 @@
     function setFilterToCustom() {
       filterBy = "custom";
       document.getElementById("filter-by").value = "custom";
+    }
+
+    function ensureSelection() {
+      if (selectedCells.size === 0) {
+        filterBy = "all";
+        document.getElementById("filter-by").value = "all";
+        for (let gt = 0; gt < NUM_CLASSES; gt++) {
+          for (let pred = 0; pred < NUM_CLASSES; pred++) {
+            selectedCells.add(`${gt},${pred}`);
+          }
+        }
+      }
     }
 
     function updateCellStyles() {
@@ -352,6 +389,132 @@
           cell.style.borderColor = "transparent";
         }
       });
+
+      // Update cell values if we have confusion data
+      if (confusionData) {
+        updateMatrixValues();
+      }
+    }
+
+    function updateMatrixValues() {
+      if (!confusionData) return;
+
+      const { gt_labels, pred_labels, matrix } = confusionData;
+
+      // Build lookup maps for gt and pred indices
+      const gtIndexMap = {};
+      gt_labels.forEach((label, idx) => { gtIndexMap[label] = idx; });
+      const predIndexMap = {};
+      pred_labels.forEach((label, idx) => { predIndexMap[label] = idx; });
+
+      // Calculate total
+      let grandTotal = 0;
+      matrix.forEach(row => {
+        row.forEach(val => { grandTotal += val; });
+      });
+
+      // Calculate row and column totals
+      const rowTotals = new Array(NUM_CLASSES).fill(0);
+      const colTotals = new Array(NUM_CLASSES).fill(0);
+
+      for (let gt = 0; gt < NUM_CLASSES; gt++) {
+        for (let pred = 0; pred < NUM_CLASSES; pred++) {
+          const gtIdx = gtIndexMap[gt];
+          const predIdx = predIndexMap[pred];
+          const val = (gtIdx !== undefined && predIdx !== undefined) ? matrix[gtIdx][predIdx] : 0;
+          rowTotals[pred] += val;
+          colTotals[gt] += val;
+        }
+      }
+
+      // Update cell values
+      const cells = document.querySelectorAll(".matrix-table .cell");
+      cells.forEach(cell => {
+        const gt = parseInt(cell.dataset.gt);
+        const pred = parseInt(cell.dataset.pred);
+        const gtIdx = gtIndexMap[gt];
+        const predIdx = predIndexMap[pred];
+        const val = (gtIdx !== undefined && predIdx !== undefined) ? matrix[gtIdx][predIdx] : 0;
+
+        if (grandTotal > 0) {
+          const pct = (val / grandTotal * 100);
+          cell.textContent = pct >= 0.1 ? pct.toFixed(1) + "%" : (val > 0 ? "<0.1%" : "");
+          // Adjust background intensity based on value
+          const intensity = Math.min(1, Math.log1p(val) / Math.log1p(grandTotal));
+          const bgColor = `rgba(100, 100, 200, ${intensity * 0.3})`;
+          cell.style.backgroundColor = val > 0 ? bgColor : "#fff";
+        } else {
+          cell.textContent = "";
+          cell.style.backgroundColor = "#fff";
+        }
+      });
+
+      // Update row totals (pred totals)
+      const rows = document.querySelectorAll(".matrix-table tr");
+      for (let pred = 0; pred < NUM_CLASSES; pred++) {
+        const row = rows[pred + 1]; // +1 for header row
+        const totalsCell = row.querySelector(".totals-cell");
+        if (totalsCell && grandTotal > 0) {
+          const pct = (rowTotals[pred] / grandTotal * 100);
+          totalsCell.textContent = pct >= 0.1 ? pct.toFixed(1) + "%" : "";
+        } else if (totalsCell) {
+          totalsCell.textContent = "";
+        }
+      }
+
+      // Update column totals (gt totals) and grand total
+      const totalsRow = rows[rows.length - 1];
+      const totalsCells = totalsRow.querySelectorAll(".totals-cell");
+      for (let gt = 0; gt < NUM_CLASSES; gt++) {
+        if (totalsCells[gt] && grandTotal > 0) {
+          const pct = (colTotals[gt] / grandTotal * 100);
+          totalsCells[gt].textContent = pct >= 0.1 ? pct.toFixed(1) + "%" : "";
+        } else if (totalsCells[gt]) {
+          totalsCells[gt].textContent = "";
+        }
+      }
+      // Grand total cell
+      const grandTotalCell = totalsCells[NUM_CLASSES];
+      if (grandTotalCell) {
+        grandTotalCell.textContent = grandTotal.toLocaleString();
+      }
+    }
+
+    async function fetchConfusionMatrix() {
+      // Get current map bounds in world coordinates
+      const bounds = map.bounds();
+
+      // GeoJS bounds: left, bottom, right, top
+      // Convert from pixel coords (0-4096) to world coords (-2048 to 2048)
+      const x_min = bounds.left - 2048;
+      const y_min = (4096 - bounds.top) - 2048;  // Flip Y axis
+      const x_max = bounds.right - 2048;
+      const y_max = (4096 - bounds.bottom) - 2048;  // Flip Y axis
+
+      // Build URL with query params
+      let url = `${TILE_SERVER}/confusion_matrix?x_min=${x_min}&y_min=${y_min}&x_max=${x_max}&y_max=${y_max}`;
+
+      // Add label pair filters if using custom selection
+      if (filterBy !== "all" || selectedCells.size < NUM_CLASSES * NUM_CLASSES) {
+        const pairs = Array.from(selectedCells);
+        if (pairs.length > 0 && pairs.length < NUM_CLASSES * NUM_CLASSES) {
+          pairs.forEach(pair => {
+            url += `&lp=${pair}`;
+          });
+        }
+      }
+
+      try {
+        const response = await fetch(url);
+        if (!response.ok) {
+          console.error("Failed to fetch confusion matrix:", response.status);
+          return;
+        }
+        confusionData = await response.json();
+        updateMatrixValues();
+      } catch (err) {
+        console.error("Error fetching confusion matrix:", err);
+      }
     }
 
     function applyFilter(filter) {
@@ -428,6 +591,7 @@
       overlayLayer = map.createLayer("osm", params.layer);
       overlayLayer.opacity(parseFloat(document.getElementById("opacity-slider").value));
       map.draw();
+      fetchConfusionMatrix();
     }
 
     // ---- Event Listeners ----
@@ -463,6 +627,17 @@
       zoomInfo.textContent = `OSM zoom: ${z}  →  agg level: ${level}`;
     });
     map.geoTrigger(geo.event.zoom);
+
+    // Fetch confusion matrix on pan/zoom end
+    let idleTimeout = null;
+    function onMapIdle() {
+      if (idleTimeout) clearTimeout(idleTimeout);
+      idleTimeout = setTimeout(() => {
+        fetchConfusionMatrix();
+      }, 200);  // Debounce 200ms
+    }
+    map.geoOn(geo.event.pan, onMapIdle);
+    map.geoOn(geo.event.zoom, onMapIdle);
 
     // ---- Initialize ----
     buildMatrix();

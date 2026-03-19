@@ -10,6 +10,8 @@ import marshmallow as ma
 from flask_smorest import Api, Blueprint
 import matplotlib.colors as mcolors
 
+from utils import HierarchicalGridIndexIJPair
+
 
 class AggregationStore:
     """
@@ -113,6 +115,38 @@ class AggregationStore:
         else:
             return mat.sum(axis=1), gt_labels
 
+    def read_confusion_matrix(self, bbox, label_pairs) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Read region and return confusion matrix summed over spatial dimensions.
+        
+        Returns:
+            counts: (n_gt, n_pred) confusion matrix
+            gt_labels: array of gt class labels
+            pred_labels: array of pred class labels
+        """
+        i_min, j_min, i_max, j_max = bbox
+        n_i = i_max - i_min + 1
+        n_j = j_max - j_min + 1
+
+        rows = self.bbox_search(bbox, label_pairs)
+
+        lp = np.array(label_pairs, dtype=np.int32)
+        gt_labels = np.unique(lp[:, 0])
+        pred_labels = np.unique(lp[:, 1])
+
+        gt_lookup = np.full(gt_labels.max() + 1, -1, dtype=np.int32)
+        pred_lookup = np.full(pred_labels.max() + 1, -1, dtype=np.int32)
+        gt_lookup[gt_labels] = np.arange(len(gt_labels))
+        pred_lookup[pred_labels] = np.arange(len(pred_labels))
+
+        mat = np.zeros((len(gt_labels), len(pred_labels), n_i, n_j), dtype=np.int64)
+        if len(rows) > 0:
+            mat[gt_lookup[rows[:, 0]], pred_lookup[rows[:, 1]], rows[:, 2] - i_min, rows[:, 3] - j_min] = rows[:, 4]
+
+        # Sum over spatial dimensions to get confusion matrix
+        confusion = mat.sum(axis=(2, 3))  # (n_gt, n_pred)
+        return confusion, gt_labels, pred_labels
+
 
 def make_dist_image(region, colors, class_indices, class_norm=False, min_brightness=0.15):
     sub = 2
@@ -175,6 +209,10 @@ WORLD_SIZE = WORLD_X_MAX - WORLD_X_MIN  # 4096
 # OSM zoom 0 -> our level 8, so OSM zoom z -> our level (z + 8)
 OSM_ZOOM_OFFSET = 8
 
+# Grid index for coordinate conversion
+# Cell size at level 0 covers the entire world, so cell_size = WORLD_SIZE
+grid_index = HierarchicalGridIndexIJPair(cell_size=WORLD_SIZE)
+
 color_names = [
     '#222222',  # Unlabeled - black
     '#e6194b',  # Class 1 - red
@@ -221,6 +259,30 @@ class TileQueryArgs(ma.Schema):
         load_default="gt",
         validate=ma.validate.OneOf(["gt", "pred"]),
         metadata={"description": "Axis to sum over: 'gt' (default) or 'pred'"},
+    )
+
+
+class ConfusionMatrixQueryArgs(ma.Schema):
+    x_min = ma.fields.Float(
+        required=True,
+        metadata={"description": "Minimum x coordinate in embedding space"},
+    )
+    y_min = ma.fields.Float(
+        required=True,
+        metadata={"description": "Minimum y coordinate in embedding space"},
+    )
+    x_max = ma.fields.Float(
+        required=True,
+        metadata={"description": "Maximum x coordinate in embedding space"},
+    )
+    y_max = ma.fields.Float(
+        required=True,
+        metadata={"description": "Maximum y coordinate in embedding space"},
+    )
+    lp = ma.fields.List(
+        LabelPairField(),
+        load_default=None,
+        metadata={"description": "Label pair filter as 'gt,pred'. Repeatable."},
     )
 
 
@@ -330,6 +392,67 @@ def info():
                   "x_max": WORLD_X_MAX, "y_max": WORLD_Y_MAX},
         "osm_zoom_offset": OSM_ZOOM_OFFSET,
         "max_level": MAX_LEVEL,
+    })
+
+
+@bp.route("/confusion_matrix")
+@bp.arguments(ConfusionMatrixQueryArgs, location="query")
+def get_confusion_matrix(args):
+    """
+    Get confusion matrix of patch counts for a bounding box in embedding space.
+    Uses the coarsest aggregation level (level 8) for efficiency.
+    """
+    label_pairs = args["lp"] if args.get("lp") is not None else all_pairs
+
+    # Use coarsest level for efficiency
+    coarsest_level = 8
+
+    # Convert world coordinates to grid cell indices using the grid index
+    # Offset coordinates so that WORLD_X_MIN, WORLD_Y_MIN maps to origin
+    x_min_offset = args["x_min"] - WORLD_X_MIN
+    y_min_offset = args["y_min"] - WORLD_Y_MIN
+    x_max_offset = args["x_max"] - WORLD_X_MIN
+    y_max_offset = args["y_max"] - WORLD_Y_MIN
+
+    cell_min = grid_index.point_to_cell(x_min_offset, y_min_offset, coarsest_level)
+    cell_max = grid_index.point_to_cell(x_max_offset, y_max_offset, coarsest_level)
+
+    i_min, j_min = cell_min.i, cell_min.j
+    i_max, j_max = cell_max.i, cell_max.j
+
+    # Ensure correct ordering
+    if i_min > i_max:
+        i_min, i_max = i_max, i_min
+    if j_min > j_max:
+        j_min, j_max = j_max, j_min
+
+    bbox = (i_min, j_min, i_max, j_max)
+
+    if i_max < i_min or j_max < j_min:
+        return jsonify({
+            "gt_labels": [],
+            "pred_labels": [],
+            "matrix": [],
+        })
+
+    try:
+        store = AggregationStore(
+            level=coarsest_level,
+            database_url=DATABASE_URL,
+            table_prefix=TABLE_PREFIX
+        )
+        confusion, gt_labels, pred_labels = store.read_confusion_matrix(
+            bbox=bbox, label_pairs=label_pairs
+        )
+        store.close()
+    except Exception as e:
+        print(f"DB error for confusion matrix: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    return jsonify({
+        "gt_labels": gt_labels.tolist(),
+        "pred_labels": pred_labels.tolist(),
+        "matrix": confusion.tolist(),
     })
 
 
