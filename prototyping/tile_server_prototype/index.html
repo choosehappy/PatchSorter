@@ -399,7 +399,7 @@
 
     // ---- Tile URL builder ----
     function buildTileUrl(x, y, z) {
-      const sumOver = colorBy === "gt" ? "gt" : "pred";
+      const sumOver = colorBy !== "gt" ? "gt" : "pred";
       let url = `${TILE_SERVER}/tiles/${z}/${x}/${y}.png?sum_over=${sumOver}`;
 
       // Add label pair filters if not "all"

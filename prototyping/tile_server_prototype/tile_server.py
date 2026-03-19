@@ -86,7 +86,7 @@ class AggregationStore:
         return rows
 
 
-    def read_region(self, bbox, label_pairs, sum_over_gt: bool=True) -> np.ndarray:
+    def read_region(self, bbox, label_pairs, sum_over_gt: bool=True) -> Tuple[np.ndarray, np.ndarray]:
         i_min, j_min, i_max, j_max = bbox
         n_i = i_max - i_min + 1
         n_j = j_max - j_min + 1
@@ -106,15 +106,23 @@ class AggregationStore:
         if len(rows) > 0:
             mat[gt_lookup[rows[:, 0]], pred_lookup[rows[:, 1]], rows[:, 2] - i_min, rows[:, 3] - j_min] = rows[:, 4]
 
-        # sum_over_gt=True: collapse gt axis → (n_pred, n_i, n_j)
-        # sum_over_gt=False: collapse pred axis → (n_gt, n_i, n_j)
-        return mat.sum(axis=0) if sum_over_gt else mat.sum(axis=1)
+        # sum_over_gt=True: collapse gt axis → (n_pred, n_i, n_j), return pred_labels
+        # sum_over_gt=False: collapse pred axis → (n_gt, n_i, n_j), return gt_labels
+        if sum_over_gt:
+            return mat.sum(axis=0), pred_labels
+        else:
+            return mat.sum(axis=1), gt_labels
 
 
-def make_dist_image(region, cols, class_norm=False, min_brightness=0.15):
+def make_dist_image(region, colors, class_indices, class_norm=False, min_brightness=0.15):
     sub = 2
     n_classes, n_i, n_j = region.shape
     out = np.ones((n_i * sub, n_j * sub, 3), dtype=np.float32)
+
+    # Build a color lookup for the classes present in this region
+    # class_indices contains the actual class labels (e.g., [2, 3])
+    # We need to map local index (0, 1, ...) to the correct color
+    local_colors = colors[class_indices]  # (n_classes, 3)
 
     ranked = np.argsort(-region, axis=0)             # (n_classes, n_i, n_j)
 
@@ -145,7 +153,7 @@ def make_dist_image(region, cols, class_norm=False, min_brightness=0.15):
         fill_bright  = np.where(use_dominant, dominant_brightness, brightness)
         fill_bright  = np.where(contested, np.maximum(fill_bright, min_brightness), fill_bright)
 
-        pixel_colors = 1.0 - (1.0 - cols[fill_idx]) * fill_bright[:, :, None]
+        pixel_colors = 1.0 - (1.0 - local_colors[fill_idx]) * fill_bright[:, :, None]
         out[dr::sub, dc::sub] = pixel_colors
 
     return np.clip(out, 0, 1)
@@ -179,7 +187,7 @@ color_names = [
     '#911eb4',  # Class 8 - purple
     '#f032e6',  # Class 9 - magenta
 ]
-cols = np.array([mcolors.to_rgb(c) for c in color_names], dtype=np.float32)
+colors = np.array([mcolors.to_rgb(c) for c in color_names], dtype=np.float32)
 all_pairs = [(gt, pred) for gt in range(NUM_CLASSES) for pred in range(NUM_CLASSES)]
 
 # ------------------------------------------------------------------
@@ -286,13 +294,13 @@ def serve_tile(args, z, x, y):
     bbox = (i_min, j_min, i_max, j_max)
     try:
         store = AggregationStore(level=level, database_url=DATABASE_URL, table_prefix=TABLE_PREFIX)
-        result = store.read_region(bbox=bbox, label_pairs=label_pairs, sum_over_gt=sum_over_gt)
+        result, class_indices = store.read_region(bbox=bbox, label_pairs=label_pairs, sum_over_gt=sum_over_gt)
         store.close()
     except Exception as e:
         print(f"DB error for tile z={z} x={x} y={y}: {e}")
         return _empty_tile()
 
-    rgb = make_dist_image(result, cols=cols)
+    rgb = make_dist_image(result, colors=colors, class_indices=class_indices)
     rgb = np.flipud(rgb)
 
     img = Image.fromarray((rgb * 255).astype(np.uint8), mode="RGB")
