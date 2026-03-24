@@ -63,17 +63,18 @@ class Dataset(object):
         
         
         img_new = img
-
+      
         if self.geom_transform:
             geom_out = self.geom_transform(image=img_new)
             img_geom = geom_out["image"]
 
             if self.photo_transform:
+                anchor = ToTensorV2()(image=img_geom)["image"]
                 views = tuple(
                     self.photo_transform(image=img_geom)["image"]
-                    for _ in range(self.nviews)
+                    for _ in range(self.nviews - 1)
                 )
-                return (*views, label, img)
+                return (anchor, *views, label, img)
 
         else:
             print("no aug?")
