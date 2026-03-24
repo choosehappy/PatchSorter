@@ -87,7 +87,7 @@ class Dataset(object):
 
 dataset=Dataset("mitosis_ps_labels.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE))
 dataloader=DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=16,pin_memory=True, 
-                drop_last=True)#, persistent_workers = True, prefetch_factor=2)
+                drop_last=True, persistent_workers = True, prefetch_factor=2)
 
 
 #------------------------
@@ -167,7 +167,7 @@ optimizer = torch.optim.AdamW([
 backbone=backbone.to(DEVICE)
 joint_head=joint_head.to(DEVICE)    
 
-label_tracker = LabeledRateTracker(momentum=0.9)  # outside loop
+label_tracker = LabeledRateTracker(N_CLASS, momentum=0.9, device=DEVICE)  # outside loop
 
 logger = logging.getLogger(__name__)
 writer = SummaryWriter(log_dir='runs/projection')
@@ -266,7 +266,10 @@ for _ in range(10_000):
             semantic_emb_attr_loss, semantic_emb_repel_loss = semantic_head_loss(proj_emb_norm, labels, margin=0.5)
             semantic_emb_loss = semantic_emb_attr_loss + semantic_emb_repel_loss  #report seperately
 
-            sup_pred_loss,pseudo_pred_loss, pred_labels, high_conf   = prediction_loss(pred_logits, labels, pseudo_thresh=PSEUDO_THRESH)
+
+            class_weights = label_tracker.get_class_weights()
+
+            sup_pred_loss,pseudo_pred_loss, pred_labels, high_conf   = prediction_loss(pred_logits, labels, class_weights=class_weights, pseudo_class_weights=class_weights, pseudo_thresh=PSEUDO_THRESH)
             pred_loss = sup_pred_loss + PSEUDO_PRED_LAMBDA*pseudo_pred_loss #report seperately
 
             labeled_rate , num_label, num_pseudo = label_tracker.update(labels,pred_labels[high_conf] if high_conf is not None else None)  # update with current batch's true and pseudo labels
@@ -371,11 +374,12 @@ for _ in range(10_000):
             writer.add_scalar('train/temporal_margin',    margin if mem_z.shape[0] > 0 else 5.0, niter_total)
             writer.add_scalar('train/memory_size',        mem_bank.z.shape[0],      niter_total)
 
-            total_pseudo = 0
-            if num_pseudo:
-                for key, value in num_pseudo.items():
-                    writer.add_scalar(f'loss/num_pseudo/{key}',         value,              niter_total)
-                    total_pseudo += value
+
+            total_pseudo = 0 
+            if num_pseudo is not None and num_pseudo.any():
+                total_pseudo = num_pseudo.sum()
+                for i in (num_pseudo > 0).nonzero(as_tuple=True)[0].tolist():
+                    writer.add_scalar(f'loss/num_pseudo/{i}', num_pseudo[i].item(), niter_total)
 
             writer.add_scalar('loss/num_pseudo/total', total_pseudo, niter_total)
 

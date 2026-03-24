@@ -27,65 +27,69 @@ from patch_logging import _label_to_color
 
 from collections import Counter, defaultdict
 
+
 class LabeledRateTracker:
-    def __init__(self, momentum=0.99):
+    def __init__(self, nclasses: int, momentum: float = 0.99, device: str = "cpu"):
         self.momentum = momentum
+        self.nclasses = nclasses
+        self.device = device
         self.rate = None
-        self.class_weights = defaultdict(float)
-        self.pseudo_class_weights = defaultdict(float)
-        
+        self.class_weights = torch.zeros(nclasses, dtype=torch.float32, device=device)
+        self.pseudo_class_weights = torch.zeros(nclasses, dtype=torch.float32, device=device)
 
-    def _update_class_weights(self, labels, store):
-        counter = Counter(labels.cpu().numpy().tolist())
-        total = sum(counter.values())
+    def _update_class_weights(self, labels: torch.Tensor, store: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        total = labels.numel()
         if total == 0:
-            return
+            return store, torch.zeros(self.nclasses, dtype=torch.float32, device=self.device)
 
-        all_classes = set(store.keys()) | set(counter.keys())
-        for cls in all_classes:
-            freq = counter.get(cls, 0) / total
-            store[cls] = self.momentum * store[cls] + (1 - self.momentum) * freq
-            if store[cls] < 1.0/len(labels):
-                del store[cls]
+        # Raw counts
+        counts = torch.zeros(self.nclasses, dtype=torch.float32, device=self.device)
+        counts.scatter_add_(0, labels.to(self.device), torch.ones(total, dtype=torch.float32, device=self.device))
 
-        return store, counter
+        # Normalized freq for EMA
+        freq = counts / total
+        store = self.momentum * store + (1 - self.momentum) * freq
+        store[store < 1.0 / total] = 0.0
+
+        return store, counts
     
-    def update(self, labels, pseudo_labels=None):
-        # labeled rate EMA
+    def update(self, labels: torch.Tensor, pseudo_labels: torch.Tensor | None = None):
+        # Labeled rate EMA
         batch_rate = (labels >= 0).float().mean().item()
         if self.rate is None:
             self.rate = batch_rate
         else:
             self.rate = self.momentum * self.rate + (1 - self.momentum) * batch_rate
 
-        # true label class weights (only labeled samples)
+        # True label class weights (only labeled samples)
         valid_labels = labels[labels >= 0]
-        label_counter = None
+        label_freq = None
         if len(valid_labels) > 0:
-            _, label_counter = self._update_class_weights(valid_labels, self.class_weights)
-            print("true:",self.class_weights)
+            self.class_weights, label_freq = self._update_class_weights(valid_labels, self.class_weights)
+            print("true:", self.class_weights)
 
-        # pseudo label class weights
-        pseudo_counter = None
+        # Pseudo label class weights
+        pseudo_freq = None
         if pseudo_labels is not None and len(pseudo_labels) > 0:
-            _, pseudo_counter = self._update_class_weights(pseudo_labels, self.pseudo_class_weights)
-            print("psuedo:\t",self.pseudo_class_weights)
+            self.pseudo_class_weights, pseudo_freq = self._update_class_weights(pseudo_labels, self.pseudo_class_weights)
+            print("pseudo:\t", self.pseudo_class_weights)
 
-        return self.rate, label_counter, pseudo_counter
+        return self.rate, label_freq, pseudo_freq
 
-    def get_class_weights(self, pseudo=False, device='cpu'):
+    def get_class_weights(self, pseudo: bool = False) -> torch.Tensor | None:
         """Return inverse-frequency weights as a tensor for use in cross_entropy."""
         store = self.pseudo_class_weights if pseudo else self.class_weights
-        if not store:
+        if store.sum() == 0:
             return None
-        classes = sorted(store.keys())
-        freqs = torch.tensor([store[c] for c in classes], dtype=torch.float32, device=device)
-        weights = 1.0 / (freqs + 1e-8)
+        weights = 1.0 / (store + 1e-8)
+        weights[store == 0] = 0.0  # Mask unseen classes rather than inflating them
         return weights / weights.sum()
+
 
 import albumentations as A
 import cv2
 from albumentations.pytorch import ToTensorV2
+
 
 def get_transforms(patch_size: int) -> A.Compose:
     """
@@ -108,18 +112,21 @@ def get_transforms(patch_size: int) -> A.Compose:
 
     photo_transforms = [
         A.Blur(p=0.3),  # Blur effect
-#        A.GaussNoise(p=0.3, var_limit=(10.0, 50.0)),  # Gaussian noise
-#        A.ISONoise(p=0.3, intensity=(0.1, 0.5), color_shift=(0.01, 0.05)),  # ISO noise
-#        A.RandomBrightnessContrast(p=0.5, brightness_limit=(-0.2, 0.2), contrast_limit=(-0.2, 0.2), brightness_by_max=True),  # Brightness and contrast
-#        A.RandomGamma(p=0.5, gamma_limit=(80, 120), eps=1e-7),  # Gamma correction
-#        A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.5),  # Hue, saturation, and value adjustment
+        #        A.GaussNoise(p=0.3, var_limit=(10.0, 50.0)),  # Gaussian noise
+        #        A.ISONoise(p=0.3, intensity=(0.1, 0.5), color_shift=(0.01, 0.05)),  # ISO noise
+        #        A.RandomBrightnessContrast(p=0.5, brightness_limit=(-0.2, 0.2), contrast_limit=(-0.2, 0.2), brightness_by_max=True),  # Brightness and contrast
+        #        A.RandomGamma(p=0.5, gamma_limit=(80, 120), eps=1e-7),  # Gamma correction
+        A.HueSaturationValue(
+            hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.5
+        ),  # Hue, saturation, and value adjustment
         ToTensorV2(),  # Convert to tensor
     ]
 
     return A.Compose(geom_transforms), A.Compose(photo_transforms)
 
+
 class JointHead(nn.Module):
-    def __init__(self, in_dim, hidden_dim, embed_dim,proj_dim, num_classes, grid_size):
+    def __init__(self, in_dim, hidden_dim, embed_dim, proj_dim, num_classes, grid_size):
         super().__init__()
         self.grid_size = grid_size
         self.shared_fc = nn.Sequential(
@@ -131,13 +138,13 @@ class JointHead(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, embed_dim),
             nn.BatchNorm1d(embed_dim),
-            #nn.ReLU()
+            # nn.ReLU()
         )
         self.proj_fc = nn.Sequential(
             nn.Linear(embed_dim, proj_dim),
-            nn.Hardtanh(min_val=0.0, max_val=grid_size)  # equivalent to clamp(0, 100)
-            )
-         
+            nn.Hardtanh(min_val=0.0, max_val=grid_size),  # equivalent to clamp(0, 100)
+        )
+
         self.pred_fc = nn.Linear(embed_dim, num_classes)
 
         self._init_weights()
@@ -147,11 +154,11 @@ class JointHead(nn.Module):
         nn.init.uniform_(self.proj_fc[0].bias, 0.0, self.grid_size)
 
     def forward(self, z):
-        shared   = self.shared_fc(z)
-        #proj     = (self.proj_fc(shared) + 1) / 2 * self.grid_size  # [0, grid_size]
-        #proj = self.proj_fc(shared) *self.grid_size
+        shared = self.shared_fc(z)
+        # proj     = (self.proj_fc(shared) + 1) / 2 * self.grid_size  # [0, grid_size]
+        # proj = self.proj_fc(shared) *self.grid_size
         proj = self.proj_fc(shared)
-        logits   = self.pred_fc(shared)
+        logits = self.pred_fc(shared)
         return shared, proj, logits
 
 
@@ -163,16 +170,17 @@ def repulsion_loss(coords, margin=10.0, epsilon=1e-6):
     """
     if coords.shape[0] < 2:
         return torch.tensor(0.0, device=coords.device)
-    
+
     dists = torch.cdist(coords, coords)  # [B, B]
     upper = torch.triu(dists, diagonal=1)  # avoid double counting + self
-    
+
     # only repel points closer than margin
     mask = (upper > 0) & (upper < margin)
     if not mask.any():
         return torch.tensor(0.0, device=coords.device)
-    
+
     return ((margin - upper[mask]) ** 2).mean()
+
 
 # ------------------------
 # TENSOR-BASED MEMORY BANK
@@ -180,11 +188,11 @@ def repulsion_loss(coords, margin=10.0, epsilon=1e-6):
 class MemoryBank:
     def __init__(self, size, embed_dim):
         self.size = size
-        self.z      = torch.empty((0, embed_dim), device=DEVICE)
-        self.coords = torch.empty((0, 2),         device=DEVICE)
-        self.labels = torch.empty((0,),           device=DEVICE, dtype=torch.long)
-        self.scores = torch.empty((0,),           device=DEVICE)
-        self.age    = torch.empty((0,),           device=DEVICE)
+        self.z = torch.empty((0, embed_dim), device=DEVICE)
+        self.coords = torch.empty((0, 2), device=DEVICE)
+        self.labels = torch.empty((0,), device=DEVICE, dtype=torch.long)
+        self.scores = torch.empty((0,), device=DEVICE)
+        self.age = torch.empty((0,), device=DEVICE)
 
     def add_candidates(self, z_new, coords_new, labels_new=None):
         """
@@ -201,28 +209,30 @@ class MemoryBank:
 
         scores_new = importance_score_tensor(coords_new, labels_new)
 
-        self.z      = torch.cat([self.z,      z_new.to(DEVICE)],              dim=0)
-        self.coords = torch.cat([self.coords, coords_new.to(DEVICE)],         dim=0)
-        self.labels = torch.cat([self.labels, labels_new],                    dim=0)
-        self.scores = torch.cat([self.scores, scores_new.to(DEVICE)],         dim=0)
-        self.age    = torch.cat([self.age,    torch.zeros(B, device=DEVICE)], dim=0)
+        self.z = torch.cat([self.z, z_new.to(DEVICE)], dim=0)
+        self.coords = torch.cat([self.coords, coords_new.to(DEVICE)], dim=0)
+        self.labels = torch.cat([self.labels, labels_new], dim=0)
+        self.scores = torch.cat([self.scores, scores_new.to(DEVICE)], dim=0)
+        self.age = torch.cat([self.age, torch.zeros(B, device=DEVICE)], dim=0)
 
         # evict lowest-scoring points if over capacity
         if self.z.shape[0] > self.size:
             eviction_scores = self.scores * torch.exp(-0.01 * self.age)
-            _, idx      = torch.topk(eviction_scores, self.size, largest=False)
-            self.z      = self.z[idx]
+            _, idx = torch.topk(eviction_scores, self.size, largest=False)
+            self.z = self.z[idx]
             self.coords = self.coords[idx]
             self.labels = self.labels[idx]
             self.scores = self.scores[idx]
-            self.age    = self.age[idx]
+            self.age = self.age[idx]
 
     def sample(self, k):
         n = self.z.shape[0]
         if n == 0:
-            return (torch.empty((0, self.z.shape[1]), device=DEVICE),
-                    torch.empty((0, 2),               device=DEVICE),
-                    torch.empty((0,),                 device=DEVICE))
+            return (
+                torch.empty((0, self.z.shape[1]), device=DEVICE),
+                torch.empty((0, 2), device=DEVICE),
+                torch.empty((0,), device=DEVICE),
+            )
         idx = torch.randperm(n, device=DEVICE)[:k]
         return self.z[idx], self.coords[idx], self.age[idx]
 
@@ -236,16 +246,15 @@ def importance_score_tensor(coords, labels, epsilon=1e-3):
     labels: [B] long tensor (-1 = unlabeled)
     returns: [B] scores
     """
-    flat_bins   = coords.long().clamp(0, GRID_SIZE-1)
-    flat_bins   = flat_bins[:,0] * GRID_SIZE + flat_bins[:,1]
-    counts      = torch.bincount(flat_bins, minlength=GRID_SIZE*GRID_SIZE)
+    flat_bins = coords.long().clamp(0, GRID_SIZE - 1)
+    flat_bins = flat_bins[:, 0] * GRID_SIZE + flat_bins[:, 1]
+    counts = torch.bincount(flat_bins, minlength=GRID_SIZE * GRID_SIZE)
     point_counts = counts[flat_bins].float()
 
-    scores  = 1.0 + 1.0 / point_counts.sqrt()          # rare bins score higher
-    scores += (labels >= 0).float()                     # labeled points score higher
-    scores += torch.rand_like(scores) * epsilon         # tiebreak noise
+    scores = 1.0 + 1.0 / point_counts.sqrt()  # rare bins score higher
+    scores += (labels >= 0).float()  # labeled points score higher
+    scores += torch.rand_like(scores) * epsilon  # tiebreak noise
     return scores
-
 
 
 # ------------------------
@@ -253,44 +262,45 @@ def importance_score_tensor(coords, labels, epsilon=1e-3):
 # ------------------------
 def assign_bins(coords):
     coords_long = coords.long()
-    coords_long = torch.clamp(coords_long,0,GRID_SIZE-1)
+    coords_long = torch.clamp(coords_long, 0, GRID_SIZE - 1)
     return [tuple(c.tolist()) for c in coords_long]
+
 
 # ------------------------
 # TEMPORAL LOSS
 # ------------------------
 def get_margin(sup_loss, labeled_rate, sensitivity=2.0):
-    alpha_labels = labeled_rate                              # 0 = no labels, 1 = all labeled
-    alpha_loss   = math.exp(-sensitivity * sup_loss.item()) # 0 = high loss, 1 = low loss
+    alpha_labels = labeled_rate  # 0 = no labels, 1 = all labeled
+    alpha_loss = math.exp(-sensitivity * sup_loss.item())  # 0 = high loss, 1 = low loss
     alpha = 0.5 * (alpha_labels + alpha_loss)
     return 5.0 * (1 - alpha) + 0.5 * alpha
+
 
 def temporal_loss(old_coords, new_coords, ages, margin=0.5):
     if old_coords is None or old_coords.shape[0] == 0:
         return torch.tensor(0.0, device=new_coords.device)
     diff = torch.norm(new_coords - old_coords, dim=1)
-    penalized = (diff - margin).clamp(min=0)**2
+    penalized = (diff - margin).clamp(min=0) ** 2
     weights = 1.0 / (ages + 1)
     weights = weights / weights.sum()
     return (weights * penalized).sum()
 
 
-
-
 def intra_bin_repulsion_vectorized(coords, flat_bins, device):
     # pairwise distances for ALL points at once
     dists = torch.cdist(coords, coords)  # [B,B]
-    
+
     # mask: same bin pairs only (upper triangle to avoid double counting)
     same_bin = flat_bins.unsqueeze(1) == flat_bins.unsqueeze(0)  # [B,B]
     upper_tri = torch.ones_like(same_bin).triu(diagonal=1).bool()
     mask = same_bin & upper_tri  # [B,B]
-    
+
     valid_dists = dists[mask]
     if valid_dists.numel() == 0:
         return torch.tensor(0.0, device=device)
-    
+
     return (1.0 / (valid_dists + 1e-6)).mean()
+
 
 # def bin_losses_vectorized(coords, target_count=10):
 #     """
@@ -300,7 +310,7 @@ def intra_bin_repulsion_vectorized(coords, flat_bins, device):
 #     # 1. assign bins
 #     bins = coords.long().clamp(0, GRID_SIZE-1)       # [B,2]
 #     flat_bins = bins[:,0]*GRID_SIZE + bins[:,1]     # flatten to 1D
-    
+
 #     # 2. occupancy
 #     bin_counts = torch.bincount(flat_bins, minlength=GRID_SIZE*GRID_SIZE).float()  # [GRID_SIZE^2]
 #     occupancy_loss = ((bin_counts[flat_bins] - target_count)**2).mean()
@@ -323,38 +333,38 @@ def bin_losses_vectorized(coords, target_count=10, sigma=1.0, radius=3):
 
     # hard bin center (detached — only used to find the local window)
     with torch.no_grad():
-        hard = coords.detach().clamp(0, G - 1).long()   # [B, 2]
-        
+        hard = coords.detach().clamp(0, G - 1).long()  # [B, 2]
+
         # build local offsets: (2r+1)^2 neighbors
         r = radius
         offs = torch.arange(-r, r + 1, device=device)
-        off_x, off_y = torch.meshgrid(offs, offs, indexing='ij')
+        off_x, off_y = torch.meshgrid(offs, offs, indexing="ij")
         off_xy = torch.stack([off_x.flatten(), off_y.flatten()], dim=1)  # [K, 2]
         K = off_xy.shape[0]  # (2r+1)^2
 
         # neighbor bin indices for each point: [B, K, 2]
-        neighbor_bins = hard.unsqueeze(1) + off_xy.unsqueeze(0)          # [B, K, 2]
+        neighbor_bins = hard.unsqueeze(1) + off_xy.unsqueeze(0)  # [B, K, 2]
         neighbor_bins = neighbor_bins.clamp(0, G - 1)
 
         flat_neighbor_bins = neighbor_bins[..., 0] * G + neighbor_bins[..., 1]  # [B, K]
 
     # neighbor bin centers (differentiable target positions)
-    neighbor_centers = neighbor_bins.float() + 0.5                       # [B, K, 2]
+    neighbor_centers = neighbor_bins.float() + 0.5  # [B, K, 2]
 
     # differentiable distances from each point to its local bin centers
-    diff = coords.unsqueeze(1) - neighbor_centers                        # [B, K, 2]
-    sq_dist = (diff ** 2).sum(dim=-1)                                    # [B, K]
+    diff = coords.unsqueeze(1) - neighbor_centers  # [B, K, 2]
+    sq_dist = (diff**2).sum(dim=-1)  # [B, K]
 
     # gaussian weights — grad flows through here
-    weights = torch.exp(-sq_dist / (2 * sigma ** 2))                     # [B, K]
+    weights = torch.exp(-sq_dist / (2 * sigma**2))  # [B, K]
     weights = weights / (weights.sum(dim=1, keepdim=True) + 1e-8)
 
     # scatter into soft bin counts
     soft_counts = torch.zeros(G * G, device=device)
     soft_counts = soft_counts.scatter_add(
         0,
-        flat_neighbor_bins.reshape(-1),   # [B*K]
-        weights.reshape(-1)               # [B*K]
+        flat_neighbor_bins.reshape(-1),  # [B*K]
+        weights.reshape(-1),  # [B*K]
     )
 
     occupancy_loss = ((soft_counts - target_count) ** 2).mean()
@@ -367,14 +377,23 @@ def bin_losses_vectorized(coords, target_count=10, sigma=1.0, radius=3):
     return occupancy_loss, intra_loss
 
 
-def prediction_loss(logits, labels, pseudo_thresh=0.95):
+def prediction_loss(logits, labels, class_weights=None, pseudo_class_weights=None, pseudo_thresh=0.95):
     device = logits.device
     labeled_mask = labels >= 0
     unlabeled_mask = ~labeled_mask
 
     # supervised
-    sup_loss = F.cross_entropy(logits[labeled_mask], labels[labeled_mask].long()) \
-        if labeled_mask.any() else torch.tensor(0.0, device=device)
+    sup_loss = torch.tensor(0.0, device=device)
+    if labeled_mask.any():
+        if class_weights is not None:
+            class_weights = class_weights.to(device)
+            sup_loss = F.cross_entropy(
+                logits[labeled_mask], labels[labeled_mask].long(), weight=class_weights, label_smoothing=0.1
+            )
+        else:
+            sup_loss = F.cross_entropy(
+                logits[labeled_mask], labels[labeled_mask].long(), label_smoothing=0.1
+            )
 
     # pred_labels: argmax over all samples regardless of labeled/unlabeled
     with torch.no_grad():
@@ -389,11 +408,14 @@ def prediction_loss(logits, labels, pseudo_thresh=0.95):
     # pseudo loss over high-confidence unlabeled points
     pseudo_loss = torch.tensor(0.0, device=device)
     if high_conf.any():
-        pseudo_loss = F.cross_entropy(logits[high_conf], pred_labels[high_conf])
+        if pseudo_class_weights is not None:
+            pseudo_class_weights = pseudo_class_weights.to(device)
+            pseudo_loss = F.cross_entropy(logits[high_conf], pred_labels[high_conf], weight=pseudo_class_weights, label_smoothing=0.1)
+        else:
+            pseudo_loss = F.cross_entropy(logits[high_conf], pred_labels[high_conf], label_smoothing=0.1)
         num_pseudo = Counter(pred_labels[high_conf].cpu().numpy())
 
     return sup_loss, pseudo_loss, pred_labels, high_conf
-
 
 
 def semantic_head_loss(coords, labels, margin=5.0):
@@ -412,23 +434,31 @@ def semantic_head_loss(coords, labels, margin=5.0):
     labels = labels[labeled_mask]
 
     if coords.shape[0] < 2:
-        return torch.tensor(0.0, device=device)
+        return torch.tensor(0.0, device=device), torch.tensor(0.0, device=device)
 
     # Pairwise distance matrix
     dists = torch.cdist(coords, coords)  # [B_labeled, B_labeled]
 
     # Create masks
-    same_class = (labels.unsqueeze(0) == labels.unsqueeze(1)) & (~torch.eye(coords.shape[0], dtype=torch.bool, device=device))
-    diff_class = (labels.unsqueeze(0) != labels.unsqueeze(1))
+    same_class = (labels.unsqueeze(0) == labels.unsqueeze(1)) & (
+        ~torch.eye(coords.shape[0], dtype=torch.bool, device=device)
+    )
+    diff_class = labels.unsqueeze(0) != labels.unsqueeze(1)
 
     # Attraction: pull same-class points together
-    attract_loss = (dists[same_class]**2).mean() if same_class.any() else torch.tensor(0.0, device=device)
+    attract_loss = (
+        (dists[same_class] ** 2).mean()
+        if same_class.any()
+        else torch.tensor(0.0, device=device)
+    )
 
     # Repulsion: push different-class points apart (hinge)
     hinge = F.relu(margin - dists[diff_class])
-    repel_loss = (hinge**2).mean() if diff_class.any() else torch.tensor(0.0, device=device)
+    repel_loss = (
+        (hinge**2).mean() if diff_class.any() else torch.tensor(0.0, device=device)
+    )
 
-    return attract_loss , repel_loss
+    return attract_loss, repel_loss
 
 
 # ------------------------
@@ -437,11 +467,11 @@ def semantic_head_loss(coords, labels, margin=5.0):
 def neighborhood_loss(z_batch, proj_coords, k=K_NEIGHBORS):
     if z_batch.shape[0] <= 1:
         return torch.tensor(0.0, device=DEVICE)
-    
+
     # find kNN in embedding space (no grad, just index selection)
     with torch.no_grad():
         emb_dists = torch.cdist(z_batch, z_batch)
-        _, idx = torch.topk(emb_dists, k=k+1, largest=False)
+        _, idx = torch.topk(emb_dists, k=k + 1, largest=False)
         idx = idx[:, 1:]  # [B, k] exclude self
         # embedding distances to neighbors (for weighting)
         emb_neighbor_dists = emb_dists.gather(1, idx)  # [B, k]
@@ -460,11 +490,9 @@ def neighborhood_loss(z_batch, proj_coords, k=K_NEIGHBORS):
     return loss
 
 
-
-
 def initialize_projection_from_batch(backbone, joint_head, imgs, writer, grid_size=100):
     device = imgs.device
-    
+
     with torch.no_grad():
         z_raw = backbone(imgs)  # [B, D]
         z, _, _ = joint_head(z_raw)
@@ -472,40 +500,42 @@ def initialize_projection_from_batch(backbone, joint_head, imgs, writer, grid_si
         # z_centered = z - z.mean(dim=0)
         # U, S, V = torch.pca_lowrank(z_centered, q=2)
         # coords_2d = z_centered @ V  # [B, 2]
-        
 
         _, _, V = torch.pca_lowrank(z, q=2)
         coords_2d = z @ V  # [B, 2]
 
-
         # 2. normalize to [0, grid_size] using quantiles
-        low  = torch.quantile(coords_2d, 0.025, dim=0)   # [2]
-        high = torch.quantile(coords_2d, 0.975, dim=0)   # [2]
+        low = torch.quantile(coords_2d, 0.025, dim=0)  # [2]
+        high = torch.quantile(coords_2d, 0.975, dim=0)  # [2]
         coords_2d = (coords_2d - low) / (high - low + 1e-6) * grid_size
         coords_2d = coords_2d.clamp(0, grid_size)
 
         # 3. least squares on GPU: solve z @ W.T + b = coords_2d
         # augment z with bias column
-        ones  = torch.ones(z.shape[0], 1, device=device)
-        z_aug = torch.cat([z, ones], dim=1)              # [B, D+1]
-        
+        ones = torch.ones(z.shape[0], 1, device=device)
+        z_aug = torch.cat([z, ones], dim=1)  # [B, D+1]
+
         # torch.linalg.lstsq: z_aug @ solution = coords_2d
         solution = torch.linalg.lstsq(z_aug, coords_2d).solution  # [D+1, 2]
-        
-        W = solution[:-1].T                              # [2, D]
-        b = solution[-1]                                 # [2]
+
+        W = solution[:-1].T  # [2, D]
+        b = solution[-1]  # [2]
 
         joint_head.proj_fc[0].weight.copy_(W)
         joint_head.proj_fc[0].bias.copy_(b)
 
-        projected_embeddings = joint_head.proj_fc(z)    # [B, 2]
+        projected_embeddings = joint_head.proj_fc(z)  # [B, 2]
 
-    print(f"Projection head initialized via PCA — "
-          f"coord range x:[{coords_2d[:,0].min():.1f}, {coords_2d[:,0].max():.1f}] "
-          f"y:[{coords_2d[:,1].min():.1f}, {coords_2d[:,1].max():.1f}]")
-    print(f"Projected embeddings range: "
-          f"x:[{projected_embeddings[:,0].min():.1f}, {projected_embeddings[:,0].max():.1f}] "
-          f"y:[{projected_embeddings[:,1].min():.1f}, {projected_embeddings[:,1].max():.1f}]")
+    print(
+        f"Projection head initialized via PCA — "
+        f"coord range x:[{coords_2d[:, 0].min():.1f}, {coords_2d[:, 0].max():.1f}] "
+        f"y:[{coords_2d[:, 1].min():.1f}, {coords_2d[:, 1].max():.1f}]"
+    )
+    print(
+        f"Projected embeddings range: "
+        f"x:[{projected_embeddings[:, 0].min():.1f}, {projected_embeddings[:, 0].max():.1f}] "
+        f"y:[{projected_embeddings[:, 1].min():.1f}, {projected_embeddings[:, 1].max():.1f}]"
+    )
 
     fig, ax = plt.subplots(figsize=(6, 6))
     coords_np = projected_embeddings.detach().cpu().numpy()
@@ -519,32 +549,35 @@ def initialize_projection_from_batch(backbone, joint_head, imgs, writer, grid_si
     return z_raw, projected_embeddings.detach()
 
 
-
 class SpreadLoss(nn.Module):
     def __init__(self, grid_size=GRID_SIZE, quantile=0.95, ema_decay=0.99):
         super().__init__()
         self.grid_size = grid_size
         self.quantile = quantile
         self.decay = ema_decay
-        self.register_buffer('ema_low',  None)
-        self.register_buffer('ema_high', None)
+        self.register_buffer("ema_low", None)
+        self.register_buffer("ema_high", None)
 
     def forward(self, coords):
         coords = coords.float()
-        
-        low  = torch.quantile(coords.detach(), 1 - self.quantile, dim=0)
-        high = torch.quantile(coords.detach(),     self.quantile, dim=0)
+
+        low = torch.quantile(coords.detach(), 1 - self.quantile, dim=0)
+        high = torch.quantile(coords.detach(), self.quantile, dim=0)
 
         # Initialize EMA on first call
         if self.ema_low is None:
-            self.ema_low  = low
+            self.ema_low = low
             self.ema_high = high
         else:
-            self.ema_low  = self.decay * self.ema_low  + (1 - self.decay) * low
+            self.ema_low = self.decay * self.ema_low + (1 - self.decay) * low
             self.ema_high = self.decay * self.ema_high + (1 - self.decay) * high
 
         # Normalize using stable EMA reference
-        target = (coords.detach() - self.ema_low) / (self.ema_high - self.ema_low + 1e-6) * self.grid_size
+        target = (
+            (coords.detach() - self.ema_low)
+            / (self.ema_high - self.ema_low + 1e-6)
+            * self.grid_size
+        )
         target = target.clamp(0, self.grid_size)
 
         return F.mse_loss(coords, target)
@@ -557,24 +590,22 @@ class SpreadLoss(nn.Module):
 
 def max_mean_discrepancy(coords, grid_size=GRID_SIZE, n_samples=500):
     coords = coords.float() / grid_size  # normalize to [0,1]
-    
+
     # Sample from true uniform distribution
-    uniform = torch.rand_like(coords.repeat(n_samples // coords.shape[0] + 1, 1))[:n_samples]
-    
+    uniform = torch.rand_like(coords.repeat(n_samples // coords.shape[0] + 1, 1))[
+        :n_samples
+    ]
+
     # MMD with RBF kernel
     def rbf(a, b, sigma=0.1):
         diff = a.unsqueeze(0) - b.unsqueeze(1)  # [N, M, 2]
         return torch.exp(-diff.pow(2).sum(-1) / (2 * sigma**2))
-    
+
     xx = rbf(coords, coords).mean()
     yy = rbf(uniform, uniform).mean()
     xy = rbf(coords, uniform).mean()
-    
-    return xx - 2*xy + yy
 
-
-
-
+    return xx - 2 * xy + yy
 
 
 def simclr_loss(proj_emb, temperature=0.5):
@@ -597,7 +628,6 @@ def simclr_loss(proj_emb, temperature=0.5):
     return loss
 
 
-
 def vicreg_loss(proj_emb, sim_coeff=25.0, var_coeff=25.0, cov_coeff=1.0, epsilon=1e-4):
     """
     proj_emb: [V, B, D]
@@ -612,7 +642,8 @@ def vicreg_loss(proj_emb, sim_coeff=25.0, var_coeff=25.0, cov_coeff=1.0, epsilon
     # --- Invariance: pull same sample together across views ---
     inv_loss = sum(
         F.mse_loss(views[i].float(), views[j].float())
-        for i in range(V) for j in range(i+1, V)
+        for i in range(V)
+        for j in range(i + 1, V)
     ) / (V * (V - 1) / 2)
 
     # --- Variance: push std of each dim above epsilon ---
@@ -711,20 +742,19 @@ def vicreg_loss(proj_emb, sim_coeff=25.0, var_coeff=25.0, cov_coeff=1.0, epsilon
 #     writer.add_image("nn_orig/coords", make_grid(sim_coords), niter_total)
 
 
-
 def gaussian_mask(H, W, sigma=0.3):
     cy, cx = H / 2, W / 2
     y = torch.arange(H).float() - cy
     x = torch.arange(W).float() - cx
-    yy, xx = torch.meshgrid(y, x, indexing='ij')
-    mask = torch.exp(-(xx**2 + yy**2) / (2 * (sigma * H)**2))
+    yy, xx = torch.meshgrid(y, x, indexing="ij")
+    mask = torch.exp(-(xx**2 + yy**2) / (2 * (sigma * H) ** 2))
     return mask / mask.max()  # [H, W]
 
 
 # class ContentAwareMask(nn.Module):
 #     def __init__(self, in_channels=3, sigma=0.3, H=64, W=64):
 #         super().__init__()
-        
+
 #         # small encoder to predict mask from image
 #         self.encoder = nn.Sequential(
 #             nn.Conv2d(in_channels, 16, kernel_size=3, padding=1),
@@ -734,7 +764,7 @@ def gaussian_mask(H, W, sigma=0.3):
 #             nn.Conv2d(32, 1, kernel_size=3, padding=1),
 #             nn.Sigmoid()  # [B, 1, H, W]
 #         )
-        
+
 #         self._init_to_gaussian(in_channels, H, W, sigma)
 
 #     def _init_to_gaussian(self, in_channels, H, W, sigma):
@@ -745,7 +775,7 @@ def gaussian_mask(H, W, sigma=0.3):
 #         yy, xx = torch.meshgrid(y, x, indexing='ij')
 #         target = torch.exp(-(xx**2 + yy**2) / (2 * (sigma * H)**2))
 #         target = (target / target.max()).unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
-        
+
 #         # fit encoder to output gaussian for random inputs
 #         opt = torch.optim.Adam(self.encoder.parameters(), lr=1e-3)
 #         for _ in range(500):
@@ -755,7 +785,7 @@ def gaussian_mask(H, W, sigma=0.3):
 #             opt.zero_grad()
 #             loss.backward()
 #             opt.step()
-        
+
 #         print(f"mask init loss: {loss.item():.4f}")
 
 #     def forward(self, imgs):
