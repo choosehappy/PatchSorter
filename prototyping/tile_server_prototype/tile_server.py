@@ -180,61 +180,59 @@ class AggregationStore:
                 mat[gt, pred] = count
         return mat
 
-
-def make_dist_image(region, colors, class_indices, global_max, min_brightness=0.15):
+def make_dist_image(region, colors, class_indices, min_brightness=0.15):
     sub = 2
     n_classes, n_i, n_j = region.shape
     out = np.ones((n_i * sub, n_j * sub, 3), dtype=np.float32)
 
     local_colors = colors[class_indices]  # (n_classes, 3)
 
-    ranked = np.argsort(-region, axis=0)             # (n_classes, n_i, n_j)
+    ranked = np.argsort(-region.astype(np.float32), axis=0)  # (n_classes, n_i, n_j)
 
     log_h = np.log1p(region.astype(np.float32))
 
-    gmax = np.log1p(global_max.astype(np.float32))
-    denom = np.where(gmax > 0, gmax, 1.0)[:, None, None]
+    class_max = log_h.max(axis=(1, 2), keepdims=True)
+    denom = np.where(class_max > 0, class_max, 1.0)
     log_h_norm = log_h / denom
 
-    n_present   = (region > 0).sum(axis=0)
-    uncontested = n_present <= 1
-    contested   = n_present > 1
+    n_present = (region > 0).sum(axis=0)
+    contested = n_present > 1
+    clamped_present = np.clip(n_present, 0, 4)
 
-    dominant_idx        = ranked[0]
-    dominant_brightness = np.take_along_axis(log_h_norm, ranked[0:1], axis=0)[0]
-
-    # Subpixel layout for contested cells:
-    #   (0,0) = dominant (rank 0)
-    #   (0,1) = dominant (rank 0)
-    #   (1,0) = rank 1
-    #   (1,1) = rank 2
-    # This gives the dominant class 2 of 4 subpixels.
-    sub_rank_map = [0, 0, 1, 2]
+    sub_alloc = {
+        0: [0, 0, 0, 0],
+        1: [0, 0, 0, 0],
+        2: [0, 0, 0, 1],
+        3: [0, 0, 1, 2],
+        4: [0, 1, 2, 3],
+    }
     sub_positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
 
+    slot_ranks = np.zeros((4, n_i, n_j), dtype=np.int64)
+    for k, alloc in sub_alloc.items():
+        mask = (clamped_present == k)
+        for slot, rank in enumerate(alloc):
+            slot_ranks[slot][mask] = rank
+
+    slot_ranks = np.clip(slot_ranks, 0, n_classes - 1)
+
     for idx, (dr, dc) in enumerate(sub_positions):
-        target_rank = sub_rank_map[idx]
-        safe_rank   = min(target_rank, n_classes - 1)
-        class_idx   = ranked[safe_rank]
-        brightness  = np.take_along_axis(log_h_norm, ranked[safe_rank:safe_rank+1], axis=0)[0]
-        has_count   = np.take_along_axis(region > 0,  ranked[safe_rank:safe_rank+1], axis=0)[0]
+        slot_rank = slot_ranks[idx]  # (n_i, n_j)
 
-        use_dominant = uncontested | ~has_count
-        fill_idx     = np.where(use_dominant, dominant_idx,        class_idx)
-        fill_bright  = np.where(use_dominant, dominant_brightness, brightness)
-        fill_bright  = np.where(contested, np.maximum(fill_bright, min_brightness), fill_bright)
+        class_idx  = np.take_along_axis(ranked,     slot_rank[None], axis=0)[0]
+        brightness = np.take_along_axis(log_h_norm, slot_rank[None], axis=0)[0]
 
-        pixel_colors = 1.0 - (1.0 - local_colors[fill_idx]) * fill_bright[:, :, None]
+        fill_bright = np.where(contested, np.maximum(brightness, min_brightness), brightness)
+        pixel_colors = 1.0 - (1.0 - local_colors[class_idx]) * fill_bright[:, :, None]
         out[dr::sub, dc::sub] = pixel_colors
 
     return np.clip(out, 0, 1)
-
 # ------------------------------------------------------------------
 # Flask tile server
 # ------------------------------------------------------------------
 
 DATABASE_URL = "dbname=testdb user=testuser password=mypassword host=prototyping-pg-1"
-TABLE_PREFIX = "v1"
+TABLE_PREFIX = "v2"
 NUM_CLASSES = 10
 MAX_LEVEL = 12
 WORLD_X_MIN = 0
@@ -415,45 +413,16 @@ def serve_tile(args, z, x, y):
 
     bbox = (i_min, j_min, i_max, j_max)
 
-    # Determine viewport bbox for max count normalization
-    vp_x_min = args.get("vp_x_min")
-    vp_y_min = args.get("vp_y_min")
-    vp_x_max = args.get("vp_x_max")
-    vp_y_max = args.get("vp_y_max")
-    has_viewport = all(v is not None for v in [vp_x_min, vp_y_min, vp_x_max, vp_y_max])
-
     try:
         store = AggregationStore(level=level, database_url=DATABASE_URL, table_prefix=TABLE_PREFIX)
         result, class_indices = store.read_region(bbox=bbox, label_pairs=label_pairs, sum_over_gt=sum_over_gt)
-
-        # Compute max counts at current tile level within viewport
-        if has_viewport:
-            max_bbox = _world_to_grid_bbox(vp_x_min, vp_y_min, vp_x_max, vp_y_max, level=level)
-        else:
-            max_bbox = _world_to_grid_bbox(WORLD_X_MIN, WORLD_Y_MIN, WORLD_X_MAX, WORLD_Y_MAX, level=level)
-        max_counts = store.get_max_counts(max_bbox, label_pairs, NUM_CLASSES)
         store.close()
     except Exception as e:
         print(f"DB error for tile z={z} x={x} y={y}: {e}")
         return _empty_tile()
 
-    # Build per-class global max aligned to class_indices, aggregating over the summed axis
-    if sum_over_gt:
-        # result axis 0 = pred classes (class_indices = pred_labels)
-        # For each pred label p, take the max over all gt labels
-        global_max = np.array([
-            max_counts[:, int(p)].max() if int(p) < NUM_CLASSES else 0.0
-            for p in class_indices
-        ], dtype=np.float32)
-    else:
-        # result axis 0 = gt classes (class_indices = gt_labels)
-        # For each gt label g, take the max over all pred labels
-        global_max = np.array([
-            max_counts[int(g), :].max() if int(g) < NUM_CLASSES else 0.0
-            for g in class_indices
-        ], dtype=np.float32)
-
-    rgb = make_dist_image(result, colors=colors, class_indices=class_indices, global_max=global_max)
+    # No global normalization: just pass result and class_indices
+    rgb = make_dist_image(result, colors=colors, class_indices=class_indices)
 
     # result has shape (n_classes, n_i, n_j) where i=x-axis, j=y-axis.
     # make_dist_image outputs (n_i*2, n_j*2, 3) — but image rows should be y (j) and cols should be x (i).
