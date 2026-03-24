@@ -7,4 +7,5 @@ ps_prototypes_v2/runs/
 ps_prototypes_v2/__pycache__/
 ps_prototypes_v2/.ipynb_checkpoints/
 ps_prototypes_v2/models/
+ps_prototypes_v2/tests/__pycache__/
 ps_prototypes_v2/batch_visualization.png

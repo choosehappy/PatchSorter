@@ -35,16 +35,26 @@ class LabeledRateTracker:
         self.device = device
         self.rate = None
         self.class_weights = torch.zeros(nclasses, dtype=torch.float32, device=device)
-        self.pseudo_class_weights = torch.zeros(nclasses, dtype=torch.float32, device=device)
+        self.pseudo_class_weights = torch.zeros(
+            nclasses, dtype=torch.float32, device=device
+        )
 
-    def _update_class_weights(self, labels: torch.Tensor, store: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def _update_class_weights(
+        self, labels: torch.Tensor, store: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         total = labels.numel()
         if total == 0:
-            return store, torch.zeros(self.nclasses, dtype=torch.float32, device=self.device)
+            return store, torch.zeros(
+                self.nclasses, dtype=torch.float32, device=self.device
+            )
 
         # Raw counts
         counts = torch.zeros(self.nclasses, dtype=torch.float32, device=self.device)
-        counts.scatter_add_(0, labels.to(self.device), torch.ones(total, dtype=torch.float32, device=self.device))
+        counts.scatter_add_(
+            0,
+            labels.to(self.device),
+            torch.ones(total, dtype=torch.float32, device=self.device),
+        )
 
         # Normalized freq for EMA
         freq = counts / total
@@ -52,7 +62,7 @@ class LabeledRateTracker:
         store[store < 1.0 / total] = 0.0
 
         return store, counts
-    
+
     def update(self, labels: torch.Tensor, pseudo_labels: torch.Tensor | None = None):
         # Labeled rate EMA
         batch_rate = (labels >= 0).float().mean().item()
@@ -65,13 +75,17 @@ class LabeledRateTracker:
         valid_labels = labels[labels >= 0]
         label_freq = None
         if len(valid_labels) > 0:
-            self.class_weights, label_freq = self._update_class_weights(valid_labels, self.class_weights)
+            self.class_weights, label_freq = self._update_class_weights(
+                valid_labels, self.class_weights
+            )
             print("true:", self.class_weights)
 
         # Pseudo label class weights
         pseudo_freq = None
         if pseudo_labels is not None and len(pseudo_labels) > 0:
-            self.pseudo_class_weights, pseudo_freq = self._update_class_weights(pseudo_labels, self.pseudo_class_weights)
+            self.pseudo_class_weights, pseudo_freq = self._update_class_weights(
+                pseudo_labels, self.pseudo_class_weights
+            )
             print("pseudo:\t", self.pseudo_class_weights)
 
         return self.rate, label_freq, pseudo_freq
@@ -377,23 +391,43 @@ def bin_losses_vectorized(coords, target_count=10, sigma=1.0, radius=3):
     return occupancy_loss, intra_loss
 
 
-def prediction_loss(logits, labels, class_weights=None, pseudo_class_weights=None, pseudo_thresh=0.95):
+def prediction_loss_sup(
+    logits,
+    labels,
+    class_weights=None,
+):
     device = logits.device
     labeled_mask = labels >= 0
-    unlabeled_mask = ~labeled_mask
 
-    # supervised
+    # supervised loss
     sup_loss = torch.tensor(0.0, device=device)
     if labeled_mask.any():
         if class_weights is not None:
             class_weights = class_weights.to(device)
             sup_loss = F.cross_entropy(
-                logits[labeled_mask], labels[labeled_mask].long(), weight=class_weights, label_smoothing=0.1
+                logits[labeled_mask],
+                labels[labeled_mask].long(),
+                weight=class_weights,
+                label_smoothing=0.1,
             )
         else:
             sup_loss = F.cross_entropy(
                 logits[labeled_mask], labels[labeled_mask].long(), label_smoothing=0.1
             )
+
+    return sup_loss
+
+
+def prediction_loss_pseudo(
+    logits,
+    labels,
+    pseudo_class_weights=None,
+    pseudo_thresh=0.95,
+    views_per_patch=None,
+):
+    device = logits.device
+    labeled_mask = labels >= 0
+    unlabeled_mask = ~labeled_mask
 
     # pred_labels: argmax over all samples regardless of labeled/unlabeled
     with torch.no_grad():
@@ -401,21 +435,87 @@ def prediction_loss(logits, labels, class_weights=None, pseudo_class_weights=Non
         conf, pred_labels = torch.max(probs, dim=1)
 
     # high_conf: only meaningful for unlabeled points; labeled points are False
+    # For multi-view setup: consider patches as high-confidence if >50% of views agree on same label,
+    # AND at least one view has confidence >= pseudo_thresh
     high_conf = torch.zeros(len(labels), dtype=torch.bool, device=device)
-    if unlabeled_mask.any():
-        high_conf[unlabeled_mask] = conf[unlabeled_mask] >= pseudo_thresh
+
+    if unlabeled_mask.any() and views_per_patch is not None:
+        # Get the batch size (number of patches)
+        B = logits.shape[0] // int(views_per_patch)
+        V = int(views_per_patch)
+
+        # Reshape logits to [V, B, num_classes] for per-view processing
+        pred_logits_reshaped = logits.view(V, B, -1)
+
+        # Get predictions and confidence for each view
+        with torch.no_grad():
+            probs_views = F.softmax(pred_logits_reshaped, dim=2)  # [V, B, num_classes]
+            conf_views, pred_labels_views = torch.max(
+                probs_views, dim=2
+            )  # [V, B], [V, B]
+
+        # For each patch b:
+        # 1. Find the most frequent label among its views (majority vote)
+        # 2. Check if >50% of views agree on that label
+        # 3. Check if at least one view has confidence >= pseudo_thresh
+        high_conf_per_patch = torch.zeros(B, dtype=torch.bool, device=device)
+        agreed_labels = torch.full((B,), -1, dtype=torch.long, device=device)
+
+        # Process all patches in a vectorized way using bincount for majority vote
+        # For each patch b, we want to count label occurrences across its views
+        view_preds = pred_labels_views  # [V, B]
+
+        # Vectorized approach for majority voting
+        for b in range(B):
+            # Get predictions for all views of this patch
+            view_predictions = view_preds[:, b]  # [V]
+
+            # Count occurrences of each label (this gives us the majority vote)
+            unique_labels, counts = torch.unique(view_predictions, return_counts=True)
+
+            if len(unique_labels) > 0:
+                max_count_idx = torch.argmax(counts)
+                majority_label = unique_labels[max_count_idx]
+                majority_count = counts[max_count_idx]
+
+                # Check conditions:
+                # - More than half of views agree (majority count > V // 2)
+                # - At least one view has confidence >= pseudo_thresh
+                if (majority_count > V // 2) and (
+                    conf_views[:, b] >= pseudo_thresh
+                ).any():
+                    high_conf_per_patch[b] = True
+                    agreed_labels[b] = majority_label
+
+        # Mark all views in high-confidence patches as high-confidence
+        # and assign the agreed label to all views of that patch
+        for b in range(B): #TODO: Is this correct?
+            if high_conf_per_patch[b]:
+                start_idx = b * V
+                end_idx = (b + 1) * V
+                high_conf[start_idx:end_idx] = True
+
+                # Apply agreed label to ALL views of this patch
+                pred_labels[start_idx:end_idx] = agreed_labels[b]
 
     # pseudo loss over high-confidence unlabeled points
     pseudo_loss = torch.tensor(0.0, device=device)
     if high_conf.any():
         if pseudo_class_weights is not None:
             pseudo_class_weights = pseudo_class_weights.to(device)
-            pseudo_loss = F.cross_entropy(logits[high_conf], pred_labels[high_conf], weight=pseudo_class_weights, label_smoothing=0.1)
+            pseudo_loss = F.cross_entropy(
+                logits[high_conf],
+                pred_labels[high_conf],
+                weight=pseudo_class_weights,
+                label_smoothing=0.1,
+            )  # i don't thin k we actually want the weights..
         else:
-            pseudo_loss = F.cross_entropy(logits[high_conf], pred_labels[high_conf], label_smoothing=0.1)
+            pseudo_loss = F.cross_entropy(
+                logits[high_conf], pred_labels[high_conf], label_smoothing=0.1
+            )
         num_pseudo = Counter(pred_labels[high_conf].cpu().numpy())
 
-    return sup_loss, pseudo_loss, pred_labels, high_conf
+    return pseudo_loss, pred_labels, high_conf
 
 
 def semantic_head_loss(coords, labels, margin=5.0):
