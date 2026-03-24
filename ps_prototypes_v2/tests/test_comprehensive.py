@@ -89,7 +89,7 @@ def test_joint_head_forward():
         in_dim=100,
         hidden_dim=50,
         embed_dim=30,
-        proj_dim=20,
+        proj_dim=2,  # Changed from 20 to 2
         num_classes=3,
         grid_size=100,
     )
@@ -111,7 +111,7 @@ def test_joint_head_edge_cases():
         in_dim=50,
         hidden_dim=25,
         embed_dim=15,
-        proj_dim=10,
+        proj_dim=2,  # Changed from 10 to 2
         num_classes=2,
         grid_size=50,
     )

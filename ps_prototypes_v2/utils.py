@@ -260,6 +260,10 @@ def importance_score_tensor(coords, labels, epsilon=1e-3):
     labels: [B] long tensor (-1 = unlabeled)
     returns: [B] scores
     """
+    # Ensure all tensors are on the same device as coords
+    if coords.device != labels.device:
+        labels = labels.to(coords.device)
+
     flat_bins = coords.long().clamp(0, GRID_SIZE - 1)
     flat_bins = flat_bins[:, 0] * GRID_SIZE + flat_bins[:, 1]
     counts = torch.bincount(flat_bins, minlength=GRID_SIZE * GRID_SIZE)
@@ -489,7 +493,7 @@ def prediction_loss_pseudo(
 
         # Mark all views in high-confidence patches as high-confidence
         # and assign the agreed label to all views of that patch
-        for b in range(B): #TODO: Is this correct?
+        for b in range(B):  # TODO: Is this correct?
             if high_conf_per_patch[b]:
                 start_idx = b * V
                 end_idx = (b + 1) * V

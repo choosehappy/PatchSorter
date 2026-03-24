@@ -76,11 +76,13 @@ def test_get_transforms():
 def test_joint_head_forward():
     """Test JointHead forward pass"""
 
+    from configs import PROJ_DIM
+
     head = JointHead(
         in_dim=100,
         hidden_dim=50,
         embed_dim=30,
-        proj_dim=20,
+        proj_dim=PROJ_DIM,
         num_classes=3,
         grid_size=100,
     )
@@ -252,9 +254,12 @@ def test_prediction_loss_pseudo():
     # Test edge cases
     # Test with all confident predictions
     logits_all_conf = torch.tensor(
-        [[0.95, 0.02, 0.03], [0.85, 0.1, 0.05], [0.75, 0.15, 0.1]]
+        [
+            [0.95, 0.02, 0.03],  # View 1 - high conf for class 0
+            [0.85, 0.1, 0.05],  # View 2 - medium conf for class 0
+        ]
     )
-    labels_all_unlabeled = torch.tensor([-1, -1, -1])
+    labels_all_unlabeled = torch.tensor([-1, -1])
 
     pseudo_loss, pred_labels, high_conf = prediction_loss_pseudo(
         logits_all_conf, labels_all_unlabeled, pseudo_thresh=0.8, views_per_patch=2
@@ -263,10 +268,14 @@ def test_prediction_loss_pseudo():
     assert isinstance(pseudo_loss, torch.Tensor)
     assert isinstance(pred_labels, torch.Tensor)
     assert isinstance(high_conf, torch.BoolTensor)
+    assert high_conf.shape == (2,)
 
     # Test with no confident predictions
     logits_no_conf = torch.tensor(
-        [[0.45, 0.3, 0.25], [0.35, 0.3, 0.35], [0.25, 0.4, 0.35]]
+        [
+            [0.45, 0.3, 0.25],  # View 1 - low conf for class 0
+            [0.35, 0.3, 0.35],  # View 2 - low conf for class 1
+        ]
     )
 
     pseudo_loss, pred_labels, high_conf = prediction_loss_pseudo(
