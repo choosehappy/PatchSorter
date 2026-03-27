@@ -216,15 +216,31 @@ def make_dist_image(region, colors, class_indices, min_brightness=0.15):
 
     slot_ranks = np.clip(slot_ranks, 0, n_classes - 1)
 
+    # For uncontested bins (n_present == 1), fill all subpixels with the present class
+    uncontested_mask = (n_present == 1)
+    if np.any(uncontested_mask):
+        # Find the class index for uncontested bins
+        uncontested_class_idx = np.argmax(region, axis=0)[uncontested_mask]
+        uncontested_brightness = log_h_norm[:, uncontested_mask]
+        # For each subpixel, fill with the present class color and brightness
+        for idx, (dr, dc) in enumerate(sub_positions):
+            # All subpixels get the same class and brightness for uncontested bins
+            out[dr::sub, dc::sub][uncontested_mask] = (
+                1.0 - (1.0 - local_colors[uncontested_class_idx]) * np.maximum(uncontested_brightness[uncontested_class_idx, np.arange(uncontested_class_idx.size)], min_brightness)[:, None]
+            )
+
+    # For contested bins (n_present > 1), use the original logic
     for idx, (dr, dc) in enumerate(sub_positions):
         slot_rank = slot_ranks[idx]  # (n_i, n_j)
-
-        class_idx  = np.take_along_axis(ranked,     slot_rank[None], axis=0)[0]
+        contested_mask = contested
+        if not np.any(contested_mask):
+            continue
+        class_idx = np.take_along_axis(ranked, slot_rank[None], axis=0)[0]
         brightness = np.take_along_axis(log_h_norm, slot_rank[None], axis=0)[0]
-
-        fill_bright = np.where(contested, np.maximum(brightness, min_brightness), brightness)
-        pixel_colors = 1.0 - (1.0 - local_colors[class_idx]) * fill_bright[:, :, None]
-        out[dr::sub, dc::sub] = pixel_colors
+        fill_bright = np.maximum(brightness, min_brightness)
+        # Only update contested bins
+        mask = contested_mask
+        out[dr::sub, dc::sub][mask] = 1.0 - (1.0 - local_colors[class_idx[mask]]) * fill_bright[mask][:, None]
 
     return np.clip(out, 0, 1)
 # ------------------------------------------------------------------
