@@ -75,20 +75,24 @@ class AggregationStore:
         flat_pairs = [v for gt, pred in label_pairs for v in (int(gt), int(pred))]
         conn = self._get_conn()
         cur = conn.cursor()
-        cur.execute(f"""
+        cur.execute(
+            f"""
             SELECT gt_label, pred_label, grid_cell_i, grid_cell_j, patch_count
             FROM {self.table_name}
             WHERE grid_cell_i BETWEEN %s AND %s
             AND grid_cell_j BETWEEN %s AND %s
             AND (gt_label, pred_label) IN ({", ".join(["(%s, %s)"] * len(label_pairs))})
-        """, [i_min, i_max, j_min, j_max] + flat_pairs)
+        """,
+            [i_min, i_max, j_min, j_max] + flat_pairs,
+        )
 
         rows = np.array(cur.fetchall(), dtype=np.int32)  # (N, 5)
         cur.close()
         return rows
 
-
-    def read_region(self, bbox, label_pairs, sum_over_gt: bool=True) -> Tuple[np.ndarray, np.ndarray]:
+    def read_region(
+        self, bbox, label_pairs, sum_over_gt: bool = True
+    ) -> Tuple[np.ndarray, np.ndarray]:
         i_min, j_min, i_max, j_max = bbox
         n_i = i_max - i_min + 1
         n_j = j_max - j_min + 1
@@ -96,17 +100,22 @@ class AggregationStore:
         rows = self.bbox_search(bbox, label_pairs)
 
         lp = np.array(label_pairs, dtype=np.int32)
-        gt_labels  = np.unique(lp[:, 0])
+        gt_labels = np.unique(lp[:, 0])
         pred_labels = np.unique(lp[:, 1])
 
-        gt_lookup   = np.full(gt_labels.max() + 1,   -1, dtype=np.int32)
+        gt_lookup = np.full(gt_labels.max() + 1, -1, dtype=np.int32)
         pred_lookup = np.full(pred_labels.max() + 1, -1, dtype=np.int32)
-        gt_lookup[gt_labels]     = np.arange(len(gt_labels))
+        gt_lookup[gt_labels] = np.arange(len(gt_labels))
         pred_lookup[pred_labels] = np.arange(len(pred_labels))
 
         mat = np.zeros((len(gt_labels), len(pred_labels), n_i, n_j), dtype=np.int32)
         if len(rows) > 0:
-            mat[gt_lookup[rows[:, 0]], pred_lookup[rows[:, 1]], rows[:, 2] - i_min, rows[:, 3] - j_min] = rows[:, 4]
+            mat[
+                gt_lookup[rows[:, 0]],
+                pred_lookup[rows[:, 1]],
+                rows[:, 2] - i_min,
+                rows[:, 3] - j_min,
+            ] = rows[:, 4]
 
         # sum_over_gt=True: collapse gt axis → (n_pred, n_i, n_j), return pred_labels
         # sum_over_gt=False: collapse pred axis → (n_gt, n_i, n_j), return gt_labels
@@ -115,10 +124,12 @@ class AggregationStore:
         else:
             return mat.sum(axis=1), gt_labels
 
-    def read_confusion_matrix(self, bbox, label_pairs) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def read_confusion_matrix(
+        self, bbox, label_pairs
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Read region and return confusion matrix summed over spatial dimensions.
-        
+
         Returns:
             counts: (n_gt, n_pred) confusion matrix
             gt_labels: array of gt class labels
@@ -141,7 +152,12 @@ class AggregationStore:
 
         mat = np.zeros((len(gt_labels), len(pred_labels), n_i, n_j), dtype=np.int64)
         if len(rows) > 0:
-            mat[gt_lookup[rows[:, 0]], pred_lookup[rows[:, 1]], rows[:, 2] - i_min, rows[:, 3] - j_min] = rows[:, 4]
+            mat[
+                gt_lookup[rows[:, 0]],
+                pred_lookup[rows[:, 1]],
+                rows[:, 2] - i_min,
+                rows[:, 3] - j_min,
+            ] = rows[:, 4]
 
         # Sum over spatial dimensions to get confusion matrix
         confusion = mat.sum(axis=(2, 3))  # (n_gt, n_pred)
@@ -162,7 +178,8 @@ class AggregationStore:
         flat_pairs = [v for gt, pred in label_pairs for v in (int(gt), int(pred))]
         conn = self._get_conn()
         cur = conn.cursor()
-        cur.execute(f"""
+        cur.execute(
+            f"""
             SELECT gt_label, pred_label, MAX(patch_count) AS max_count
             FROM {self.table_name}
             WHERE gt_label IS NOT NULL
@@ -170,7 +187,9 @@ class AggregationStore:
             AND grid_cell_j BETWEEN %s AND %s
             AND (gt_label, pred_label) IN ({", ".join(["(%s, %s)"] * len(label_pairs))})
             GROUP BY gt_label, pred_label;
-        """, [i_min, i_max, j_min, j_max] + flat_pairs)
+        """,
+            [i_min, i_max, j_min, j_max] + flat_pairs,
+        )
         rows = cur.fetchall()
         cur.close()
 
@@ -179,6 +198,7 @@ class AggregationStore:
             if 0 <= gt < num_classes and 0 <= pred < num_classes:
                 mat[gt, pred] = count
         return mat
+
 
 def make_dist_image(region, colors, class_indices, min_brightness=0.15):
     sub = 2
@@ -210,14 +230,14 @@ def make_dist_image(region, colors, class_indices, min_brightness=0.15):
 
     slot_ranks = np.zeros((4, n_i, n_j), dtype=np.int64)
     for k, alloc in sub_alloc.items():
-        mask = (clamped_present == k)
+        mask = clamped_present == k
         for slot, rank in enumerate(alloc):
             slot_ranks[slot][mask] = rank
 
     slot_ranks = np.clip(slot_ranks, 0, n_classes - 1)
 
     # For uncontested bins (n_present == 1), fill all subpixels with the present class
-    uncontested_mask = (n_present == 1)
+    uncontested_mask = n_present == 1
     if np.any(uncontested_mask):
         # Find the class index for uncontested bins
         uncontested_class_idx = np.argmax(region, axis=0)[uncontested_mask]
@@ -226,7 +246,14 @@ def make_dist_image(region, colors, class_indices, min_brightness=0.15):
         for idx, (dr, dc) in enumerate(sub_positions):
             # All subpixels get the same class and brightness for uncontested bins
             out[dr::sub, dc::sub][uncontested_mask] = (
-                1.0 - (1.0 - local_colors[uncontested_class_idx]) * np.maximum(uncontested_brightness[uncontested_class_idx, np.arange(uncontested_class_idx.size)], min_brightness)[:, None]
+                1.0
+                - (1.0 - local_colors[uncontested_class_idx])
+                * np.maximum(
+                    uncontested_brightness[
+                        uncontested_class_idx, np.arange(uncontested_class_idx.size)
+                    ],
+                    min_brightness,
+                )[:, None]
             )
 
     # For contested bins (n_present > 1), use the original logic
@@ -240,9 +267,13 @@ def make_dist_image(region, colors, class_indices, min_brightness=0.15):
         fill_bright = np.maximum(brightness, min_brightness)
         # Only update contested bins
         mask = contested_mask
-        out[dr::sub, dc::sub][mask] = 1.0 - (1.0 - local_colors[class_idx[mask]]) * fill_bright[mask][:, None]
+        out[dr::sub, dc::sub][mask] = (
+            1.0 - (1.0 - local_colors[class_idx[mask]]) * fill_bright[mask][:, None]
+        )
 
     return np.clip(out, 0, 1)
+
+
 # ------------------------------------------------------------------
 # Flask tile server
 # ------------------------------------------------------------------
@@ -253,8 +284,8 @@ NUM_CLASSES = 10
 MAX_LEVEL = 12
 WORLD_X_MIN = 0
 WORLD_Y_MIN = 0
-WORLD_X_MAX =  4096
-WORLD_Y_MAX =  4096
+WORLD_X_MAX = 4096
+WORLD_Y_MAX = 4096
 WORLD_SIZE = WORLD_X_MAX - WORLD_X_MIN  # 4096
 
 # OSM zoom 0 -> our level 8, so OSM zoom z -> our level (z + 8)
@@ -265,16 +296,16 @@ OSM_ZOOM_OFFSET = 8
 grid_index = HierarchicalGridIndexIJPair(cell_size=WORLD_SIZE)
 
 color_names = [
-    '#222222',  # Unlabeled - black
-    '#e6194b',  # Class 1 - red
-    '#f58231',  # Class 2 - orange
-    '#ffe119',  # Class 3 - yellow
-    '#bfef45',  # Class 4 - lime
-    '#3cb44b',  # Class 5 - green
-    '#42d4f4',  # Class 6 - cyan
-    '#4363d8',  # Class 7 - blue
-    '#911eb4',  # Class 8 - purple
-    '#f032e6',  # Class 9 - magenta
+    "#222222",  # Unlabeled - black
+    "#e41a1c",  # Class 1 - red (ColorBrewer Set1)
+    "#377eb8",  # Class 2 - blue
+    "#ff7f00",  # Class 3 - orange
+    "#984ea3",  # Class 4 - purple
+    "#4daf4a",  # Class 5 - green
+    "#ffff33",  # Class 6 - yellow
+    "#a65628",  # Class 7 - brown
+    "#f781bf",  # Class 8 - pink
+    "#999999",  # Class 9 - grey
 ]
 colors = np.array([mcolors.to_rgb(c) for c in color_names], dtype=np.float32)
 all_pairs = [(gt, pred) for gt in range(NUM_CLASSES) for pred in range(NUM_CLASSES)]
@@ -282,6 +313,7 @@ all_pairs = [(gt, pred) for gt in range(NUM_CLASSES) for pred in range(NUM_CLASS
 # ------------------------------------------------------------------
 # Query argument schemas
 # ------------------------------------------------------------------
+
 
 class LabelPairField(ma.fields.Field):
     """Deserializes a 'gt,pred' string into a (gt, pred) tuple of ints."""
@@ -304,17 +336,27 @@ class TileQueryArgs(ma.Schema):
     lp = ma.fields.List(
         LabelPairField(),
         load_default=None,
-        metadata={"description": "Label pair filter as 'gt,pred'. Repeatable, e.g. ?lp=0,1&lp=2,3"},
+        metadata={
+            "description": "Label pair filter as 'gt,pred'. Repeatable, e.g. ?lp=0,1&lp=2,3"
+        },
     )
     sum_over = ma.fields.String(
         load_default="gt",
         validate=ma.validate.OneOf(["gt", "pred"]),
         metadata={"description": "Axis to sum over: 'gt' (default) or 'pred'"},
     )
-    vp_x_min = ma.fields.Float(load_default=None, metadata={"description": "Viewport min x in world space"})
-    vp_y_min = ma.fields.Float(load_default=None, metadata={"description": "Viewport min y in world space"})
-    vp_x_max = ma.fields.Float(load_default=None, metadata={"description": "Viewport max x in world space"})
-    vp_y_max = ma.fields.Float(load_default=None, metadata={"description": "Viewport max y in world space"})
+    vp_x_min = ma.fields.Float(
+        load_default=None, metadata={"description": "Viewport min x in world space"}
+    )
+    vp_y_min = ma.fields.Float(
+        load_default=None, metadata={"description": "Viewport min y in world space"}
+    )
+    vp_x_max = ma.fields.Float(
+        load_default=None, metadata={"description": "Viewport max x in world space"}
+    )
+    vp_y_max = ma.fields.Float(
+        load_default=None, metadata={"description": "Viewport max y in world space"}
+    )
 
 
 class ConfusionMatrixQueryArgs(ma.Schema):
@@ -359,7 +401,7 @@ bp = Blueprint("tiles", __name__, url_prefix="")
 
 def _world_to_grid_bbox(x_min, y_min, x_max, y_max, level):
     """Convert embed-space coordinates [0, 4096] to grid bbox at the given level.
-    
+
     Convention matches point_to_cell: i = x-axis, j = y-axis.
     """
     grid_scale = 2 ** (MAX_LEVEL - level)
@@ -382,11 +424,11 @@ def osm_tile_to_bbox(z, x, y, level):
     """
     Convert OSM tile (z, x, y) to grid bbox (i_min, j_min, i_max, j_max)
     at the given aggregation level.
-    
+
     Convention matches point_to_cell: i = x-axis, j = y-axis.
     OSM tile x → grid i (horizontal), OSM tile y → grid j (vertical).
     """
-    num_tiles = 2 ** z
+    num_tiles = 2**z
     scale = WORLD_SIZE / num_tiles
 
     wx0 = x * scale
@@ -418,7 +460,7 @@ def serve_tile(args, z, x, y):
     level = z + OSM_ZOOM_OFFSET
     level = max(8, min(MAX_LEVEL, level))
 
-    num_tiles = 2 ** z
+    num_tiles = 2**z
     if x < 0 or x >= num_tiles or y < 0 or y >= num_tiles:
         return _empty_tile()
 
@@ -430,8 +472,12 @@ def serve_tile(args, z, x, y):
     bbox = (i_min, j_min, i_max, j_max)
 
     try:
-        store = AggregationStore(level=level, database_url=DATABASE_URL, table_prefix=TABLE_PREFIX)
-        result, class_indices = store.read_region(bbox=bbox, label_pairs=label_pairs, sum_over_gt=sum_over_gt)
+        store = AggregationStore(
+            level=level, database_url=DATABASE_URL, table_prefix=TABLE_PREFIX
+        )
+        result, class_indices = store.read_region(
+            bbox=bbox, label_pairs=label_pairs, sum_over_gt=sum_over_gt
+        )
         store.close()
     except Exception as e:
         print(f"DB error for tile z={z} x={x} y={y}: {e}")
@@ -466,12 +512,18 @@ def index():
 
 @bp.route("/info")
 def info():
-    return jsonify({
-        "world": {"x_min": WORLD_X_MIN, "y_min": WORLD_Y_MIN,
-                  "x_max": WORLD_X_MAX, "y_max": WORLD_Y_MAX},
-        "osm_zoom_offset": OSM_ZOOM_OFFSET,
-        "max_level": MAX_LEVEL,
-    })
+    return jsonify(
+        {
+            "world": {
+                "x_min": WORLD_X_MIN,
+                "y_min": WORLD_Y_MIN,
+                "x_max": WORLD_X_MAX,
+                "y_max": WORLD_Y_MAX,
+            },
+            "osm_zoom_offset": OSM_ZOOM_OFFSET,
+            "max_level": MAX_LEVEL,
+        }
+    )
 
 
 @bp.route("/confusion_matrix")
@@ -485,9 +537,13 @@ def get_confusion_matrix(args):
     x_max, y_max = args["x_max"], args["y_max"]
 
     # Use _world_to_grid_bbox which handles the WORLD_X_MIN offset internally
-    i_min, j_min, i_max, j_max = _world_to_grid_bbox(x_min, y_min, x_max, y_max, coarsest_level)
+    i_min, j_min, i_max, j_max = _world_to_grid_bbox(
+        x_min, y_min, x_max, y_max, coarsest_level
+    )
 
-    print(f"confusion_matrix bbox: world=({x_min},{y_min},{x_max},{y_max}) → grid=({i_min},{j_min},{i_max},{j_max})")
+    print(
+        f"confusion_matrix bbox: world=({x_min},{y_min},{x_max},{y_max}) → grid=({i_min},{j_min},{i_max},{j_max})"
+    )
 
     if i_max < i_min or j_max < j_min:
         return jsonify({"gt_labels": [], "pred_labels": [], "matrix": []})
@@ -496,9 +552,7 @@ def get_confusion_matrix(args):
 
     try:
         store = AggregationStore(
-            level=coarsest_level,
-            database_url=DATABASE_URL,
-            table_prefix=TABLE_PREFIX
+            level=coarsest_level, database_url=DATABASE_URL, table_prefix=TABLE_PREFIX
         )
         confusion, gt_labels, pred_labels = store.read_confusion_matrix(
             bbox=bbox, label_pairs=label_pairs
@@ -508,11 +562,13 @@ def get_confusion_matrix(args):
         print(f"DB error for confusion matrix: {e}")
         return jsonify({"error": str(e)}), 500
 
-    return jsonify({
-        "gt_labels": gt_labels.tolist(),
-        "pred_labels": pred_labels.tolist(),
-        "matrix": confusion.tolist(),
-    })
+    return jsonify(
+        {
+            "gt_labels": gt_labels.tolist(),
+            "pred_labels": pred_labels.tolist(),
+            "matrix": confusion.tolist(),
+        }
+    )
 
 
 api.register_blueprint(bp)
