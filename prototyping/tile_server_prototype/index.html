@@ -60,6 +60,13 @@
       min-width: 32px;
       box-sizing: border-box;
     }
+    /* Wider Totals column (last column only) */
+    .matrix-table th.totals-header:last-child,
+    .matrix-table td.totals-cell:last-child {
+      width: 60px;
+      min-width: 60px;
+      max-width: 80px;
+    }
     .matrix-table .cell,
     .matrix-table .totals-cell {
       overflow: hidden;
