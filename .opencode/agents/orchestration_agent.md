@@ -30,6 +30,7 @@ You will receive:
 4. If `Result` is already populated, print a warning and ask the user for confirmation before proceeding.
 5. Set `iteration = 0`, `approved = false`, `reviewer_feedback = null`.
 
+
 ### Example CSV file:
 ```
 Link,Title,Description,Result
@@ -44,6 +45,8 @@ Link,Title,Description,Result
 ```
 
 Where each link corresponds to a section in the technical design `.md` that describes the benchmark in detail. Section numbering is excluded.
+
+**Note:** The `Result` column should never be populated by the orchestration agent itself. Only subagents (such as the benchmarking agent) are permitted to write results to this column.
 
 ## Phase 1 — Benchmark loop
 
