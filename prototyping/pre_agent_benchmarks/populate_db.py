@@ -6,7 +6,7 @@ Usage:
 """
 import random
 import psycopg2
-from utils import create_agg_tables, populate_agg_tables, create_patch_tables
+from prototyping.pre_agent_prototypes.utils import create_agg_tables, populate_agg_tables, create_patch_tables
 
 DATABASE_URL = "dbname=testdb user=testuser password=mypassword host=prototyping-pg-1"
 
