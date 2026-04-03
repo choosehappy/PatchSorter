@@ -1,1 +1,3 @@
 Link,Title,Description,Result
+[](#batch-read-of-patch-data-for-model-training),Batch read of patch data for model training,Read 10k patches from 1M total into memory,"0.673s, 14,865 r/s"
+[](#batch-read-of-patch-data-for-model-training-tiledb),Batch read of patch data for model training (TileDB),Read 10k patches from 1M total into memory using TileDB,"0.655s, ~15,261 r/s"

@@ -86,18 +86,24 @@ Capture the full review output.
 - If `APPROVED`: set `approved = true`, confirm the result is written to the CSV, break.
 - If `NEEDS_REVISION`: store `critical_issues` as `reviewer_feedback`, continue loop.
 
-## Phase 2 — Termination
+## Phase 2 — Evolver
+
+After the loop ends (whether approved or not), invoke `evolver_agent.md` with:
+- `mistakes` — all `critical_issues` collected across every `NEEDS_REVISION` verdict, plus any agent errors or infrastructure failures encountered during the run
+- `agents` — absolute paths to all agent files involved in the run (`benchmark_agent.md`, `code_review_agent.md`, `orchestration_agent.md`)
+
+Skip this step only if no problems or revision requests occurred (i.e., approved on iteration 1 with no issues).
+
+## Phase 3 — Termination
 
 **Approved:**
 ```
-
 ✓ Benchmark APPROVED after {iteration} iteration(s).
 Result written to row with Title "{benchmark_name}": {result}
 ```
 
 **Max iterations reached without approval:**
 ```
-
 ✗ Max iterations ({max_iterations}) reached. Benchmark NOT approved.
 Last result: {result}
 Outstanding issues:
