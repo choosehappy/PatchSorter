@@ -52,41 +52,129 @@ class InfiniteDataset(Dataset):
 
 import torch
 
-class CudaPrefetcher:
-    def __init__(self, loader, device='cuda'):
-        self.loader = iter(loader)
-        self.device = device
-        self.stream = torch.cuda.Stream()
-        self.next_input = None
-        self.next_target = None
-        self.preload()
+import torch
 
-    def preload(self):
+import torch
+
+
+import torch
+
+def to_cuda(obj, stream):
+    """Recursively moves tensors to GPU in a specific stream."""
+    if isinstance(obj, torch.Tensor):
+        with torch.cuda.stream(stream):
+            return obj.cuda(non_blocking=True)
+    elif isinstance(obj, list):
+        return [to_cuda(v, stream) for v in obj]
+    elif isinstance(obj, tuple):
+        return tuple(to_cuda(v, stream) for v in obj)
+    return obj
+
+def cuda_prefetcher(loader):
+    stream = torch.cuda.Stream()
+    loader_iter = iter(loader)
+    
+    def bck_load():
         try:
-            # This pulls from the 16 workers we set up earlier
-            self.next_input, self.next_target = next(self.loader)
+            batch = next(loader_iter)
+            # This handles *views, labels, orig automatically
+            return to_cuda(batch, stream)
         except StopIteration:
-            self.next_input = None
-            self.next_target = None
-            return
+            return None
 
-        # Move to GPU in a background stream
-        with torch.cuda.stream(self.stream):
-            self.next_input = self.next_input.to(device=self.device, non_blocking=True)
-            self.next_target = self.next_target.to(device=self.device, non_blocking=True)
+    next_batch = bck_load()
 
-    def next(self):
-        # Sync: ensure the background transfer is finished before returning
-        torch.cuda.current_stream().wait_stream(self.stream)
+    while next_batch is not None:
+        torch.cuda.current_stream().wait_stream(stream)
         
-        inputs = self.next_input
-        targets = self.next_target
+        current_batch = next_batch
         
-        # Immediately start preloading the NEXT batch
-        if inputs is not None:
-            self.preload()
+        # Record stream for every tensor in the batch to prevent memory corruption
+        def record_all(obj):
+            if isinstance(obj, torch.Tensor):
+                obj.record_stream(torch.cuda.current_stream())
+            elif isinstance(obj, (list, tuple)):
+                for i in obj: record_all(i)
+        
+        record_all(current_batch)
+        
+        # Start preloading the next set of views/labels
+        next_batch = bck_load()
+        
+        yield current_batch
+
+# def cuda_prefetcher(loader):
+#     stream = torch.cuda.Stream()
+#     loader_iter = iter(loader)
+    
+#     def bck_load():
+#         try:
+#             input, target = next(loader_iter)
+#             with torch.cuda.stream(stream):
+#                 # non_blocking=True is key here!
+#                 input = input.cuda(non_blocking=True)
+#                 target = target.cuda(non_blocking=True)
+#             return input, target
+#         except StopIteration:
+#             return None, None
+
+#     # Preload the very first batch
+#     next_input, next_target = bck_load()
+
+#     while next_input is not None:
+#         # 1. Sync the streams: Ensure the background copy is DONE 
+#         # before the main stream tries to use it.
+#         torch.cuda.current_stream().wait_stream(stream)
+        
+#         current_input = next_input
+#         current_target = next_target
+
+#         # 2. IMPORTANT: Prevent premature memory recycling
+#         # This tells the allocator: "Wait until the compute stream is done 
+#         # with this tensor before you let another batch overwrite its memory."
+#         current_input.record_stream(torch.cuda.current_stream())
+#         current_target.record_stream(torch.cuda.current_stream())
+
+#         # 3. Start preloading the NEXT batch immediately
+#         next_input, next_target = bck_load()
+        
+#         yield current_input, current_target
+
+# class CudaPrefetcher:
+#     def __init__(self, loader, device='cuda'):
+#         self.loader = iter(loader)
+#         self.device = device
+#         self.stream = torch.cuda.Stream()
+#         self.next_input = None
+#         self.next_target = None
+#         self.preload()
+
+#     def preload(self):
+#         try:
+#             # This pulls from the 16 workers we set up earlier
+#             self.next_input, self.next_target = next(self.loader)
+#         except StopIteration:
+#             self.next_input = None
+#             self.next_target = None
+#             return
+
+#         # Move to GPU in a background stream
+#         with torch.cuda.stream(self.stream):
+#             self.next_input = self.next_input.to(device=self.device, non_blocking=True)
+#             self.next_target = self.next_target.to(device=self.device, non_blocking=True)
+
+#     def next(self):
+#         # Sync: ensure the background transfer is finished before returning
+#         torch.cuda.current_stream().wait_stream(self.stream)
+        
+#         inputs = self.next_input
+#         targets = self.next_target
+        
+#         # Immediately start preloading the NEXT batch
+#         if inputs is not None:
+#             self.preload()
             
-        return inputs, targets
+#         return inputs, targets
 
 
 

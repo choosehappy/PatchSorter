@@ -103,7 +103,7 @@ dataloader = DataLoader(
     persistent_workers=True,
     prefetch_factor=2,
 )
-
+prefetcher = cuda_prefetcher(dataloader)
 
 # ------------------------
 
@@ -237,7 +237,7 @@ patch_mask = gaussian_mask(PATCH_SIZE, PATCH_SIZE).to(DEVICE)
 
 
 for _ in range(10_000):
-    for batch_idx, batch_data in tqdm(enumerate(dataloader)):
+    for batch_idx, batch_data in tqdm(enumerate(prefetcher)):
         # forward all views → [nviews, B, D]
         with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=True):
             *views, labels, orig = batch_data
