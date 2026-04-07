@@ -60,6 +60,8 @@ If the list is empty, write `No files in scope. Nothing to review.` and stop.
 5. If user provides a range (e.g., "HEAD~5..HEAD"), return files changed in that range
 6. If user provides file paths directly, validate and return those Python files with proper absolute path resolution
 7. If user references PR numbers or tags/releases, determine the appropriate git command for that context
+8. **After determining files from commit reference, verify each file exists in repository. If not found, search for similar filenames in current directory structure and suggest alternatives**
+8. **After determining files from commit reference, verify each file exists in repository. If not found, search for similar filenames in current directory structure and suggest alternatives**
 
 ## Path Resolution
 
@@ -68,6 +70,7 @@ When processing file paths:
 - When validating file paths directly provided by users, resolve relative paths against the repository root (current working directory)
 - Ensure all files exist before returning them in the scope list
 - Repository root is determined dynamically as the current working directory when this skill is invoked
+- **If a commit references files that don't exist in the repository, check for alternative file locations and suggest corrections**
 
 ## Confirmation Process
 
@@ -77,6 +80,8 @@ After determining the files to review:
 3. If user confirms with "y", proceed with the review scope
 4. If user declines with "n", ask for clarification on what they'd like instead
 5. Repeat until user confirms or provides a different specification
+6. **If any files from commit reference don't exist in repository, notify user and suggest alternatives**
+6. **If any files from commit reference don't exist in repository, notify user and suggest alternatives**
 
 ## Example Interaction Flow
 

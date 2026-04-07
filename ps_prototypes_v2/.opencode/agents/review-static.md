@@ -42,18 +42,37 @@ Create temporary directory for this execution in ${REPO_ROOT}/tmp/review_cache/$
 # Change to repository root directory for proper execution context
 cd "${REPO_ROOT}"
 
+# First, validate that all files in stdin actually exist in the repository
+VALID_FILES=""
+while IFS= read -r file; do
+  if [ -f "$file" ]; then
+    VALID_FILES="$VALID_FILES$file"$'\n'
+  else
+    echo "⚠️ File not found: $file (skipping)" >&2
+  fi
+done
+
+# If no valid files, exit early with error message
+if [ -z "$VALID_FILES" ]; then
+  echo "No valid files to analyze. All specified files were not found in repository." >&2
+  exit 1
+fi
+
+# Run static analysis on only the valid files
+echo "$VALID_FILES" > "/tmp/valid_files_${TIMESTAMP}.txt"
+
 Run the following commands exactly. Capture all output including exit codes.
 
 ```bash
-python3 -m ruff check .
+python3 -m ruff check /tmp/valid_files_${TIMESTAMP}.txt
 ```
 
 ```bash
-python3 -m ruff format --check .
+python3 -m ruff format --check /tmp/valid_files_${TIMESTAMP}.txt
 ```
 
 ```bash
-python3 -m mypy . --ignore-missing-imports
+python3 -m mypy /tmp/valid_files_${TIMESTAMP}.txt --ignore-missing-imports
 ```
 
 ## Output

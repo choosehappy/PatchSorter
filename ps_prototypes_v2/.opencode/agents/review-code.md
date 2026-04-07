@@ -15,7 +15,6 @@ You perform deep code review on a batch of files. You do not run tools or write 
 ## Before You Start
 
 Load the following skills. They contain the rules you must apply:
-
 - `@.opencode/skills/review-domain-rules/SKILL.md`
 - `@.opencode/skills/review-scalability-lens/SKILL.md`
 - `@.opencode/skills/review-compliance-checklist/SKILL.md`
@@ -62,6 +61,22 @@ if [ -n "$1" ]; then
   TIMESTAMP="$1"
 else
   TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+fi
+
+# Validate that all files in stdin actually exist in the repository before proceeding
+VALID_FILES=""
+while IFS= read -r file; do
+  if [ -f "$file" ]; then
+    VALID_FILES="$VALID_FILES$file"$'\n'
+  else
+    echo "⚠️ File not found: $file (skipping)" >&2
+  fi
+done
+
+# If no valid files, exit early with error message
+if [ -z "$VALID_FILES" ]; then
+  echo "No valid files to review. All specified files were not found in repository." >&2
+  exit 1
 fi
 
 Create temporary directory for this execution in ./tmp/review_cache/${TIMESTAMP}/code_review/
