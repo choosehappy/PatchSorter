@@ -4,7 +4,7 @@ mode: subagent
 temperature: 0.0
 tools:
   bash: true
-  write: false
+  write: true
   edit: false
 ---
 
@@ -13,6 +13,15 @@ tools:
 You run the test suite and return structured results. You do not write reports or make code changes.
 
 ## Steps
+
+# Use timestamp from first argument if provided, otherwise generate new one:
+if [ -n "$1" ]; then
+  TIMESTAMP="$1"
+else
+  TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+fi
+
+Create temporary directory for this execution in ./tmp/review_cache/${TIMESTAMP}/test_results/
 
 Run the following commands exactly and capture all output.
 
@@ -26,22 +35,20 @@ python3 -m pytest --cov=src --cov-report=term-missing 2>&1
 
 ## Output
 
+Create temporary files for test results:
+- ./tmp/review_cache/${TIMESTAMP}/test_results/test_run_output.txt
+- ./tmp/review_cache/${TIMESTAMP}/test_results/coverage_output.txt
+
 Return a single markdown block structured as follows:
 
 ```markdown
 ### Test Run
 **Passed / Failed / Errors:** X / Y / Z
 
-<paste full pytest -v output>
+File: ./tmp/review_cache/${TIMESTAMP}/test_results/test_run_output.txt
 
 ### Coverage
-| Module | Coverage |
-|--------|----------|
-| ...    | ...%     |
-
-**Modules below 80%:** <list, or "none">
-
-<paste full coverage term-missing output>
+File: ./tmp/review_cache/${TIMESTAMP}/test_results/coverage_output.txt
 ```
 
 Flag any test failure with `❌` and any module below 80% coverage with `⚠️`.

@@ -55,7 +55,23 @@ For each new or changed module:
 - Parameters, Returns, Raises documented?
 - Loss weight defaults justified?
 
+## Steps
+
+# Use timestamp from first argument if provided, otherwise generate new one:
+if [ -n "$1" ]; then
+  TIMESTAMP="$1"
+else
+  TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+fi
+
+Create temporary directory for this execution in ./tmp/review_cache/${TIMESTAMP}/code_review/
+
 ## Output Format
+
+Create temporary files for findings, compliance checklist and missing tests table:
+- ./tmp/review_cache/${TIMESTAMP}/code_review/findings.txt
+- ./tmp/review_cache/${TIMESTAMP}/code_review/compliance_checklist.txt
+- ./tmp/review_cache/${TIMESTAMP}/code_review/missing_tests.txt
 
 Return findings only — no preamble, no summary. Use this format for each finding:
 
@@ -67,16 +83,14 @@ Return findings only — no preamble, no summary. Use this format for each findi
 **Suggestion:** One sentence — concrete, actionable fix.
 ```
 
-Then append a completed compliance checklist (✅/❌ per item) and a missing-tests table:
+Then append the completed compliance checklist and missing-tests table:
 
 ```markdown
 ## Compliance Checklist
-- [✅/❌] item ...
+File: ./tmp/review_cache/${TIMESTAMP}/code_review/compliance_checklist.txt
 
 ## Missing Tests
-| Module | Missing scenario |
-|--------|-----------------|
-| ...    | ...             |
+File: ./tmp/review_cache/${TIMESTAMP}/code_review/missing_tests.txt
 ```
 
 Severity levels: `CRITICAL` · `HIGH` · `MEDIUM` · `LOW` · `INFO`

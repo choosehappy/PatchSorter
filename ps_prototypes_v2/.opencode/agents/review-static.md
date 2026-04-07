@@ -14,14 +14,17 @@ You run static analysis tools and return structured findings. You do not review 
 
 ## Input
 
-You will receive a list of Python files to analyse (one path per line).
+You will receive a list of Python files to analyse (one path per line) as stdin.
+You also accept an optional timestamp parameter as $1.
 
 ## Steps
 
-Get timestamp for this execution:
-```bash
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-```
+# Use timestamp from first argument if provided, otherwise generate new one:
+if [ -n "$1" ]; then
+  TIMESTAMP="$1"
+else
+  TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+fi
 
 Create temporary directory for this execution in ./tmp/review_cache/${TIMESTAMP}/static_analysis/ 
 - ./tmp/review_cache/${TIMESTAMP}/static_analysis/ruff_output.txt

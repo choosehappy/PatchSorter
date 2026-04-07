@@ -37,24 +37,36 @@ Note the scope mode — you will include it in the report header.
 
 Read `PROJECT.md` and `AGENTS.md`. You need these to write an accurate Summary and Recommended Actions. Do not skip this step.
 
-## Step 4 — Delegate to Subagents
+## Step 4 — Generate Timestamp and Prepare Directories
+
+Generate a single timestamp for this review run:
+```bash
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+```
+
+Create the temporary directory structure:
+```bash
+mkdir -p ./tmp/review_cache/${TIMESTAMP}
+```
+
+## Step 5 — Delegate to Subagents
 
 Invoke all three subagents. You may invoke them in parallel if your runtime supports it; otherwise invoke sequentially.
 
-### 4a — @review-static
-Pass: the file list from Step 2.
+### 5a — @review-static
+Pass: the file list from Step 2, followed by the TIMESTAMP as the first parameter.
 Collect: the Static Analysis section (Ruff, Ruff Format, Mypy output) by reading the temporary files created by the agent.
 
-### 4b — @review-tests
-Pass: no additional input needed.
+### 5b — @review-tests
+Pass: the TIMESTAMP as the first parameter.
 Collect: the Test Results section (pass/fail counts, coverage table).
 
-### 4c — @review-code
-Pass: the file list from Step 2, split into batches of ≤10 files if the list is large.
+### 5c — @review-code
+Pass: the file list from Step 2, split into batches of ≤10 files if the list is large. For each batch, pass the TIMESTAMP as the first parameter.
 If you split into batches, invoke @review-code once per batch and merge all findings.
 Collect: all Findings, the Compliance Checklist, and the Missing Tests table.
 
-## Step 5 — Write the Report
+## Step 6 — Write the Report
 
 Apply the `review-report-format` skill to assemble the final report.
 
@@ -84,7 +96,7 @@ mkdir -p review
 # write assembled report to review/${DATETIME}.md
 ```
 
-## Step 6 — Confirm
+## Step 7 — Confirm
 
 Print to the user:
 ```
