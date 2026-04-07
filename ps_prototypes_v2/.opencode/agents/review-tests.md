@@ -23,6 +23,29 @@ fi
 
 Create temporary directory for this execution in ./tmp/review_cache/${TIMESTAMP}/test_results/
 
+# Read file list from temporary storage instead of stdin
+FILE_LIST_PATH="./tmp/review_cache/${TIMESTAMP}/scope_files.txt"
+if [ ! -f "$FILE_LIST_PATH" ]; then
+  echo "⚠️ File list not found at $FILE_LIST_PATH" >&2
+  exit 1
+fi
+
+# Validate that all files in the stored file actually exist in the repository
+VALID_FILES=""
+while IFS= read -r file; do
+  if [ -f "$file" ]; then
+    VALID_FILES="$VALID_FILES$file"$'\n'
+  else
+    echo "⚠️ File not found: $file (skipping)" >&2
+  fi
+done < "$FILE_LIST_PATH"
+
+# If no valid files, exit early with error message
+if [ -z "$VALID_FILES" ]; then
+  echo "No valid files to analyze. All specified files were not found in repository." >&2
+  exit 1
+fi
+
 Run the following commands exactly and capture all output.
 
 ```bash

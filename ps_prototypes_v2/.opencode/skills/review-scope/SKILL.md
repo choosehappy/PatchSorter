@@ -51,6 +51,13 @@ echo "<file_path_1>
 Return a plain list of file paths, one per line. This list is passed to downstream subagents.
 If the list is empty, write `No files in scope. Nothing to review.` and stop.
 
+## File Storage
+
+After determining the file list, save it to:
+`./tmp/review_cache/${TIMESTAMP}/scope_files.txt`
+
+Each file path should be written as a separate line in this file for downstream processing.
+
 ## Processing Logic
 
 1. If user specifies "all", return all Python files under src/ and tests/
@@ -61,7 +68,7 @@ If the list is empty, write `No files in scope. Nothing to review.` and stop.
 6. If user provides file paths directly, validate and return those Python files with proper absolute path resolution
 7. If user references PR numbers or tags/releases, determine the appropriate git command for that context
 8. **After determining files from commit reference, verify each file exists in repository. If not found, search for similar filenames in current directory structure and suggest alternatives**
-8. **After determining files from commit reference, verify each file exists in repository. If not found, search for similar filenames in current directory structure and suggest alternatives**
+9. **Save the final file list to ./tmp/review_cache/${TIMESTAMP}/scope_files.txt for downstream processing**
 
 ## Path Resolution
 
@@ -81,7 +88,7 @@ After determining the files to review:
 4. If user declines with "n", ask for clarification on what they'd like instead
 5. Repeat until user confirms or provides a different specification
 6. **If any files from commit reference don't exist in repository, notify user and suggest alternatives**
-6. **If any files from commit reference don't exist in repository, notify user and suggest alternatives**
+7. **Save the final file list to ./tmp/review_cache/${TIMESTAMP}/scope_files.txt for downstream processing**
 
 ## Example Interaction Flow
 

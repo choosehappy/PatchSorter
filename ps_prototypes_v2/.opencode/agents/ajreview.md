@@ -56,15 +56,19 @@ Invoke all three subagents. You may invoke them in parallel if your runtime supp
 ### 5a — @review-static
 Pass: the file list from Step 2, followed by the TIMESTAMP as the first parameter.
 Collect: the Static Analysis section (Ruff, Ruff Format, Mypy output) by reading the temporary files created by the agent.
+**Timeout:** Set a maximum execution time of 300 seconds (5 minutes) per subagent to prevent hanging.
 
 ### 5b — @review-tests
 Pass: the TIMESTAMP as the first parameter.
 Collect: the Test Results section (pass/fail counts, coverage table).
+**Timeout:** Set a maximum execution time of 300 seconds (5 minutes) per subagent to prevent hanging.
 
 ### 5c — @review-code
 Pass: the file list from Step 2, split into batches of ≤10 files if the list is large. For each batch, pass the TIMESTAMP as the first parameter.
 If you split into batches, invoke @review-code once per batch and merge all findings.
 Collect: all Findings, the Compliance Checklist, and the Missing Tests table.
+**Timeout:** Set a maximum execution time of 300 seconds (5 minutes) per subagent to prevent hanging.
+**Batch Size Limit:** Maximum 50 files per batch to prevent memory exhaustion.
 
 ## Step 6 — Write the Report
 

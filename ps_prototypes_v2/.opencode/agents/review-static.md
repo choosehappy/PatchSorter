@@ -14,8 +14,8 @@ You run static analysis tools and return structured findings. You do not review 
 
 ## Input
 
-You will receive a list of Python files to analyse (one path per line) as stdin.
-You also accept an optional timestamp parameter as $1.
+You will receive a timestamp parameter as $1.
+You also need to read the file list from the temporary storage: ./tmp/review_cache/${TIMESTAMP}/scope_files.txt
 
 ## Working Directory
 
@@ -34,15 +34,17 @@ fi
 # Determine repository root (current working directory)
 REPO_ROOT="$(pwd)"
 
-Create temporary directory for this execution in ${REPO_ROOT}/tmp/review_cache/${TIMESTAMP}/static_analysis/ 
-- ${REPO_ROOT}/tmp/review_cache/${TIMESTAMP}/static_analysis/ruff_output.txt
-- ${REPO_ROOT}/tmp/review_cache/${TIMESTAMP}/static_analysis/ruff_format_output.txt  
-- ${REPO_ROOT}/tmp/review_cache/${TIMESTAMP}/static_analysis/mypy_output.txt
+# Create temporary directory for this execution in ${REPO_ROOT}/tmp/review_cache/${TIMESTAMP}/static_analysis/ 
+mkdir -p "${REPO_ROOT}/tmp/review_cache/${TIMESTAMP}/static_analysis/"
 
-# Change to repository root directory for proper execution context
-cd "${REPO_ROOT}"
+# Read file list from temporary storage instead of stdin
+FILE_LIST_PATH="${REPO_ROOT}/tmp/review_cache/${TIMESTAMP}/scope_files.txt"
+if [ ! -f "$FILE_LIST_PATH" ]; then
+  echo "⚠️ File list not found at $FILE_LIST_PATH" >&2
+  exit 1
+fi
 
-# First, validate that all files in stdin actually exist in the repository
+# First, validate that all files in the stored file actually exist in the repository
 VALID_FILES=""
 while IFS= read -r file; do
   if [ -f "$file" ]; then
@@ -50,7 +52,7 @@ while IFS= read -r file; do
   else
     echo "⚠️ File not found: $file (skipping)" >&2
   fi
-done
+done < "$FILE_LIST_PATH"
 
 # If no valid files, exit early with error message
 if [ -z "$VALID_FILES" ]; then
@@ -60,6 +62,9 @@ fi
 
 # Run static analysis on only the valid files
 echo "$VALID_FILES" > "/tmp/valid_files_${TIMESTAMP}.txt"
+
+# Change to repository root directory for proper execution context
+cd "${REPO_ROOT}"
 
 Run the following commands exactly. Capture all output including exit codes.
 

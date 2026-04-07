@@ -63,15 +63,37 @@ else
   TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 fi
 
-# Validate that all files in stdin actually exist in the repository before proceeding
+# Read file list from temporary storage instead of stdin
+FILE_LIST_PATH="./tmp/review_cache/${TIMESTAMP}/scope_files.txt"
+if [ ! -f "$FILE_LIST_PATH" ]; then
+  echo "⚠️ File list not found at $FILE_LIST_PATH" >&2
+  exit 1
+fi
+
+# Validate that all files in the stored file actually exist in the repository before proceeding
 VALID_FILES=""
+FILE_COUNT=0
 while IFS= read -r file; do
+  # Check if we've hit a reasonable limit to prevent infinite loops
+  FILE_COUNT=$((FILE_COUNT + 1))
+  
+  # Maximum number of files to process (prevents memory issues)
+  if [ $FILE_COUNT -gt 1000 ]; then
+    echo "⚠️ Maximum file count limit (1000) reached, stopping input processing" >&2
+    break
+  fi
+  
+  # Check for empty lines or malformed input that could cause infinite loops  
+  if [ -z "$file" ]; then
+    continue
+  fi
+  
   if [ -f "$file" ]; then
     VALID_FILES="$VALID_FILES$file"$'\n'
   else
     echo "⚠️ File not found: $file (skipping)" >&2
   fi
-done
+done < "$FILE_LIST_PATH"
 
 # If no valid files, exit early with error message
 if [ -z "$VALID_FILES" ]; then
@@ -79,7 +101,8 @@ if [ -z "$VALID_FILES" ]; then
   exit 1
 fi
 
-Create temporary directory for this execution in ./tmp/review_cache/${TIMESTAMP}/code_review/
+# Create temporary directory for this execution
+mkdir -p "./tmp/review_cache/${TIMESTAMP}/code_review/"
 
 ## Output Format
 
