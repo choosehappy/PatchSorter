@@ -44,24 +44,8 @@ if [ ! -f "$FILE_LIST_PATH" ]; then
   exit 1
 fi
 
-# First, validate that all files in the stored file actually exist in the repository
-VALID_FILES=""
-while IFS= read -r file; do
-  if [ -f "$file" ]; then
-    VALID_FILES="$VALID_FILES$file"$'\n'
-  else
-    echo "⚠️ File not found: $file (skipping)" >&2
-  fi
-done < "$FILE_LIST_PATH"
-
-# If no valid files, exit early with error message
-if [ -z "$VALID_FILES" ]; then
-  echo "No valid files to analyze. All specified files were not found in repository." >&2
-  exit 1
-fi
-
-# Run static analysis on only the valid files
-echo "$VALID_FILES" > "/tmp/valid_files_${TIMESTAMP}.txt"
+# Run static analysis on the files (validation is handled by review-scope)
+cp "$FILE_LIST_PATH" "/tmp/valid_files_${TIMESTAMP}.txt"
 
 # Change to repository root directory for proper execution context
 cd "${REPO_ROOT}"

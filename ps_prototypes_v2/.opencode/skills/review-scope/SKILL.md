@@ -46,6 +46,14 @@ echo "<file_path_1>
 <file_path_2>" | grep -E "\.(py)$"
 ```
 
+## File Validation
+
+After determining the file list but before saving it:
+1. For each file path in the list, verify that it exists in the repository
+2. If a file does not exist, attempt to find similar filenames in the current directory structure 
+3. Report any files that cannot be found and suggest alternatives if possible
+4. If no valid files remain after validation, exit with an error message
+
 ## Output
 
 Return a plain list of file paths, one per line. This list is passed to downstream subagents.
@@ -68,7 +76,39 @@ Each file path should be written as a separate line in this file for downstream 
 6. If user provides file paths directly, validate and return those Python files with proper absolute path resolution
 7. If user references PR numbers or tags/releases, determine the appropriate git command for that context
 8. **After determining files from commit reference, verify each file exists in repository. If not found, search for similar filenames in current directory structure and suggest alternatives**
-9. **Save the final file list to ./tmp/review_cache/${TIMESTAMP}/scope_files.txt for downstream processing**
+9. **For all file paths returned by this skill, ensure they exist in the repository before adding to scope list**
+10. **After processing all files but before saving to scope_files.txt, validate that each file path exists**
+11. **Save the final file list to ./tmp/review_cache/${TIMESTAMP}/scope_files.txt for downstream processing**
+
+## File Validation
+
+After determining the file list but before saving it:
+1. For each file path in the list, verify that it exists in the repository
+2. If a file does not exist, attempt to find similar filenames in the current directory structure 
+3. Report any files that cannot be found and suggest alternatives if possible
+4. If no valid files remain after validation, exit with an error message
+
+## Implementation Example (in bash)
+
+```bash
+# After determining the initial list of files:
+VALID_FILES=""
+while IFS= read -r file; do
+  if [ -f "$file" ]; then
+    VALID_FILES="$VALID_FILES$file"$'\n'
+  else
+    echo "⚠️ File not found: $file (skipping)" >&2
+  fi
+done <<< "$INITIAL_FILE_LIST"
+
+# If no valid files, exit early with error message
+if [ -z "$VALID_FILES" ]; then
+  echo "No valid files to analyze. All specified files were not found in repository." >&2
+  exit 1
+fi
+
+echo "$VALID_FILES" > "./tmp/review_cache/${TIMESTAMP}/scope_files.txt"
+```
 
 ## Path Resolution
 
@@ -78,6 +118,7 @@ When processing file paths:
 - Ensure all files exist before returning them in the scope list
 - Repository root is determined dynamically as the current working directory when this skill is invoked
 - **If a commit references files that don't exist in the repository, check for alternative file locations and suggest corrections**
+- **For each file path processed, validate its existence and report any missing files with suggestions**
 
 ## Confirmation Process
 
@@ -88,7 +129,8 @@ After determining the files to review:
 4. If user declines with "n", ask for clarification on what they'd like instead
 5. Repeat until user confirms or provides a different specification
 6. **If any files from commit reference don't exist in repository, notify user and suggest alternatives**
-7. **Save the final file list to ./tmp/review_cache/${TIMESTAMP}/scope_files.txt for downstream processing**
+7. **For all file paths returned by this skill, ensure they exist before saving to scope_files.txt**
+8. **Save the final file list to ./tmp/review_cache/${TIMESTAMP}/scope_files.txt for downstream processing**
 
 ## Example Interaction Flow
 
