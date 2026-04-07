@@ -58,8 +58,16 @@ If the list is empty, write `No files in scope. Nothing to review.` and stop.
 3. If user provides a commit SHA, return files changed in that specific commit
 4. If user provides a branch name, return files changed compared to that branch
 5. If user provides a range (e.g., "HEAD~5..HEAD"), return files changed in that range
-6. If user provides file paths directly, validate and return those Python files
+6. If user provides file paths directly, validate and return those Python files with proper absolute path resolution
 7. If user references PR numbers or tags/releases, determine the appropriate git command for that context
+
+## Path Resolution
+
+When processing file paths:
+- All returned file paths should be absolute paths to ensure tools can locate them correctly
+- When validating file paths directly provided by users, resolve relative paths against the repository root (current working directory)
+- Ensure all files exist before returning them in the scope list
+- Repository root is determined dynamically as the current working directory when this skill is invoked
 
 ## Confirmation Process
 

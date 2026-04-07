@@ -113,3 +113,11 @@ Ordered by priority. Concrete tasks only — no vague suggestions.
 - One clear sentence per Detail and Suggestion field.
 - Do not omit any section — write "N/A" if a section has nothing to report.
 - The report is the only file written. Never edit source files.
+
+## File Path Handling
+
+When referencing files in the review report:
+- All file paths should be absolute paths when possible
+- When using relative paths, ensure they are relative to the repository root
+- Paths must be resolvable from the working directory where the review is run
+- Repository root is determined dynamically as the current working directory when this skill is invoked

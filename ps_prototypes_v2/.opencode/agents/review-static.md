@@ -17,6 +17,11 @@ You run static analysis tools and return structured findings. You do not review 
 You will receive a list of Python files to analyse (one path per line) as stdin.
 You also accept an optional timestamp parameter as $1.
 
+## Working Directory
+
+All commands must be run from the repository root directory to ensure proper file resolution and tool execution.
+The repository root is determined by the current working directory when this agent is invoked.
+
 ## Steps
 
 # Use timestamp from first argument if provided, otherwise generate new one:
@@ -26,10 +31,16 @@ else
   TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 fi
 
-Create temporary directory for this execution in ./tmp/review_cache/${TIMESTAMP}/static_analysis/ 
-- ./tmp/review_cache/${TIMESTAMP}/static_analysis/ruff_output.txt
-- ./tmp/review_cache/${TIMESTAMP}/static_analysis/ruff_format_output.txt  
-- ./tmp/review_cache/${TIMESTAMP}/static_analysis/mypy_output.txt
+# Determine repository root (current working directory)
+REPO_ROOT="$(pwd)"
+
+Create temporary directory for this execution in ${REPO_ROOT}/tmp/review_cache/${TIMESTAMP}/static_analysis/ 
+- ${REPO_ROOT}/tmp/review_cache/${TIMESTAMP}/static_analysis/ruff_output.txt
+- ${REPO_ROOT}/tmp/review_cache/${TIMESTAMP}/static_analysis/ruff_format_output.txt  
+- ${REPO_ROOT}/tmp/review_cache/${TIMESTAMP}/static_analysis/mypy_output.txt
+
+# Change to repository root directory for proper execution context
+cd "${REPO_ROOT}"
 
 Run the following commands exactly. Capture all output including exit codes.
 
