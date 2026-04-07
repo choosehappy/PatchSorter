@@ -91,10 +91,12 @@ class Dataset(object):
 dataset = Dataset(
     "mitosis_ps_labels.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
 )
+
+
 dataloader = DataLoader(
-    dataset,
+    InfiniteDataset(dataset),
     batch_size=BATCH_SIZE,
-    shuffle=True,
+    shuffle=False,
     num_workers=16,
     pin_memory=True,
     drop_last=True,

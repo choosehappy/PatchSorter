@@ -28,6 +28,68 @@ from patch_logging import _label_to_color
 from collections import Counter, defaultdict
 
 
+import torch
+from torch.utils.data import DataLoader, Dataset
+import itertools
+
+import random
+
+class InfiniteDataset(Dataset):
+    def __init__(self, dataset):
+        self.dataset = dataset
+        self.indices = list(range(len(dataset)))
+        random.shuffle(self.indices) # Initial shuffle
+
+    def __len__(self):
+        return 10**12
+
+    def __getitem__(self, idx):
+        # Pick a random index instead of sequential
+        # This gives you "shuffling" even in an infinite loop
+        random_idx = random.choice(self.indices)
+        return self.dataset[random_idx]
+
+
+import torch
+
+class CudaPrefetcher:
+    def __init__(self, loader, device='cuda'):
+        self.loader = iter(loader)
+        self.device = device
+        self.stream = torch.cuda.Stream()
+        self.next_input = None
+        self.next_target = None
+        self.preload()
+
+    def preload(self):
+        try:
+            # This pulls from the 16 workers we set up earlier
+            self.next_input, self.next_target = next(self.loader)
+        except StopIteration:
+            self.next_input = None
+            self.next_target = None
+            return
+
+        # Move to GPU in a background stream
+        with torch.cuda.stream(self.stream):
+            self.next_input = self.next_input.to(device=self.device, non_blocking=True)
+            self.next_target = self.next_target.to(device=self.device, non_blocking=True)
+
+    def next(self):
+        # Sync: ensure the background transfer is finished before returning
+        torch.cuda.current_stream().wait_stream(self.stream)
+        
+        inputs = self.next_input
+        targets = self.next_target
+        
+        # Immediately start preloading the NEXT batch
+        if inputs is not None:
+            self.preload()
+            
+        return inputs, targets
+
+
+
 class LabeledRateTracker:
     def __init__(self, nclasses: int, momentum: float = 0.99, device: str = "cpu"):
         self.momentum = momentum
