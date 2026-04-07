@@ -1,3 +1,13 @@
+---
+name: review-report-format
+description: Defines the canonical output format for all review reports
+license: MIT
+compatibility: opencode
+metadata:
+  audience: reviewers
+  workflow: code-review
+---
+
 # Skill: review-report-format
 
 Defines the canonical output format for all review reports.

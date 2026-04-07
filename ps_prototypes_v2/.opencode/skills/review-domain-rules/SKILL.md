@@ -1,3 +1,13 @@
+---
+name: review-domain-rules
+description: PatchSorter v2 domain-specific review rules
+license: MIT
+compatibility: opencode
+metadata:
+  audience: reviewers
+  workflow: code-review
+---
+
 # Skill: review-domain-rules
 
 PatchSorter v2 domain-specific review rules. These extend general code quality checks

@@ -1,3 +1,13 @@
+---
+name: review-scalability-lens
+description: Patterns to actively look for when reviewing code at ≥1B object scale
+license: MIT
+compatibility: opencode
+metadata:
+  audience: reviewers
+  workflow: code-review
+---
+
 # Skill: review-scalability-lens
 
 Patterns to actively look for when reviewing code at ≥1B object scale.

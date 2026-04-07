@@ -1,3 +1,13 @@
+---
+name: review-scope
+description: Determines which files are in scope for a review run
+license: MIT
+compatibility: opencode
+metadata:
+  audience: reviewers
+  workflow: code-review
+---
+
 # Skill: review-scope
 
 Determines which files are in scope for a review run.

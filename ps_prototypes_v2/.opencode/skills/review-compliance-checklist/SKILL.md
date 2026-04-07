@@ -1,3 +1,13 @@
+---
+name: review-compliance-checklist
+description: AGENTS.md compliance checklist for code reviews
+license: MIT
+compatibility: opencode
+metadata:
+  audience: reviewers
+  workflow: code-review
+---
+
 # Skill: review-compliance-checklist
 
 The AGENTS.md compliance checklist. Evaluate every item and mark ✅ or ❌.
