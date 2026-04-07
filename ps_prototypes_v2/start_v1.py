@@ -97,14 +97,18 @@ dataloader = DataLoader(
     InfiniteDataset(dataset),
     batch_size=BATCH_SIZE,
     shuffle=False,
-    num_workers=16,
+    num_workers=64,
     pin_memory=True,
     drop_last=True,
     persistent_workers=True,
-    prefetch_factor=2,
+    prefetch_factor=4,
 )
-prefetcher = cuda_prefetcher(dataloader)
+#prefetcher = cuda_prefetc[her(dataloader)
+vram_prefetcher = threaded_vram_prefetcher(dataloader, buffer_size=4)
 
+
+
+#
 # ------------------------
 
 
@@ -237,7 +241,7 @@ patch_mask = gaussian_mask(PATCH_SIZE, PATCH_SIZE).to(DEVICE)
 
 
 for _ in range(10_000):
-    for batch_idx, batch_data in tqdm(enumerate(prefetcher)):
+    for batch_idx, batch_data in tqdm(enumerate(vram_prefetcher)):
         # forward all views → [nviews, B, D]
         with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=True):
             *views, labels, orig = batch_data
@@ -333,6 +337,7 @@ for _ in range(10_000):
                 sup_pred_loss + PSEUDO_PRED_LAMBDA * pseudo_pred_loss
             )  # report seperately
 
+
             labeled_rate, num_label, num_pseudo = label_tracker.update(
                 labels, pred_labels[high_conf] if high_conf is not None else None
             )  # update with current batch's true and pseudo labels
@@ -378,6 +383,7 @@ for _ in range(10_000):
             mem_bank.age_all()
 
             if niter_total % LOG_EVERY == 0:
+                logger.info("writing embeddings")
                 log_embeddings(
                     writer,
                     z_batch,

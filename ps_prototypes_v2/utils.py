@@ -103,6 +103,60 @@ def cuda_prefetcher(loader):
         
         yield current_batch
 
+
+import torch
+from collections import deque
+
+import torch
+import threading
+from collections import deque
+from queue import Queue
+
+def threaded_vram_prefetcher(loader, buffer_size=10):
+    stream = torch.cuda.Stream()
+    loader_iter = iter(loader)
+    # Use a thread-safe Queue for handoff
+    gpu_queue = Queue(maxsize=buffer_size)
+
+    def producer():
+        """This runs in a background thread to keep the VRAM full."""
+        try:
+            for batch in loader_iter:
+                # 1. Move to GPU (This happens in the background stream)
+                with torch.cuda.stream(stream):
+                    gpu_batch = to_cuda(batch, stream)
+                
+                # 2. Put it in the queue. 
+                # If the queue is full (buffer_size reached), this thread sleeps.
+                gpu_queue.put(gpu_batch)
+                
+        except StopIteration:
+            gpu_queue.put(None) # Signal end of data
+
+    # Start the "Background Refiller" thread
+    worker_thread = threading.Thread(target=producer, daemon=True)
+    worker_thread.start()
+
+    while True:
+        # Get the next batch from our VRAM buffer
+        batch = gpu_queue.get()
+        #print("\t\t" + str(gpu_queue.qsize()))
+        if batch is None:
+            break
+            
+        # Ensure the background CUDA copy is finished before the model touches it
+        torch.cuda.current_stream().wait_stream(stream)
+        
+        # Record stream for memory safety
+        def record_all(obj):
+            if isinstance(obj, torch.Tensor):
+                obj.record_stream(torch.cuda.current_stream())
+            elif isinstance(obj, (list, tuple)):
+                for i in obj: record_all(i)
+        record_all(batch)
+        
+        yield batch
+
 # def cuda_prefetcher(loader):
 #     stream = torch.cuda.Stream()
 #     loader_iter = iter(loader)
@@ -620,57 +674,106 @@ def prediction_loss_pseudo(
         view_preds = pred_labels_views  # [V, B]
 
         # Vectorized approach for majority voting
-        for b in range(B):
-            # Get predictions for all views of this patch
-            view_predictions = view_preds[:, b]  # [V]
+        # for b in range(B):
+        #     # Get predictions for all views of this patch
+        #     view_predictions = view_preds[:, b]  # [V]
 
-            # Count occurrences of each label (this gives us the majority vote)
-            unique_labels, counts = torch.unique(view_predictions, return_counts=True)
+        #     # Count occurrences of each label (this gives us the majority vote)
+        #     unique_labels, counts = torch.unique(view_predictions, return_counts=True)
 
-            if len(unique_labels) > 0:
-                max_count_idx = torch.argmax(counts)
-                majority_label = unique_labels[max_count_idx]
-                majority_count = counts[max_count_idx]
+        #     if len(unique_labels) > 0:
+        #         max_count_idx = torch.argmax(counts)
+        #         majority_label = unique_labels[max_count_idx]
+        #         majority_count = counts[max_count_idx]
 
-                # Check conditions:
-                # - More than half of views agree (majority count > V // 2)
-                # - At least one view has confidence >= pseudo_thresh
-                if (majority_count > V // 2) and (
-                    conf_views[:, b] >= pseudo_thresh
-                ).any():
-                    high_conf_per_patch[b] = True
-                    agreed_labels[b] = majority_label
+        #         # Check conditions:
+        #         # - More than half of views agree (majority count > V // 2)
+        #         # - At least one view has confidence >= pseudo_thresh
+        #         if (majority_count > V // 2) and (
+        #             conf_views[:, b] >= pseudo_thresh
+        #         ).any():
+        #             high_conf_per_patch[b] = True
+        #             agreed_labels[b] = majority_label
+
+        # view_preds: [V, B]
+        # conf_views: [V, B]
+
+        # → passer en [B, V]
+        vp = view_preds.transpose(0, 1)      # [B, V]
+        cv = conf_views.transpose(0, 1)      # [B, V]
+
+        # Comptage des labels par patch
+        one_hot = torch.nn.functional.one_hot(vp, N_CLASS)  # [B, V, C]
+        counts = one_hot.sum(dim=1)                             # [B, C]
+
+        # Label majoritaire et nombre d’occurrences
+        majority_count, majority_label = counts.max(dim=1)      # [B], [B]
+
+        # Conditions
+        majority_mask = majority_count > (V // 2)
+        conf_mask = (cv >= pseudo_thresh).any(dim=1)
+
+        mask = majority_mask & conf_mask
+
+        # Mise à jour
+        high_conf_per_patch[mask] = True
+        agreed_labels[mask] = majority_label[mask]
 
         # Mark all views in high-confidence patches as high-confidence
         # and assign the agreed label to all views of that patch
-        for b in range(B):  # TODO: Is this correct?
-            if high_conf_per_patch[b]:
-                start_idx = b * V
-                end_idx = (b + 1) * V
-                high_conf[start_idx:end_idx] = True
+        # for b in range(B):  # TODO: Is this correct?
+        #     if high_conf_per_patch[b]:
+        #         start_idx = b * V
+        #         end_idx = (b + 1) * V
+        #         high_conf[start_idx:end_idx] = True
 
-                # Apply agreed label to ALL views of this patch
-                pred_labels[start_idx:end_idx] = agreed_labels[b]
+        #         # Apply agreed label to ALL views of this patch
+        #         pred_labels[start_idx:end_idx] = agreed_labels[b]
+
+        high_conf = high_conf_per_patch.repeat_interleave(V)
+        pred_labels = agreed_labels.repeat_interleave(V)
+
+    # # pseudo loss over high-confidence unlabeled points
+    # pseudo_loss = torch.tensor(0.0, device=device)
+    # if high_conf.any():
+    #     if pseudo_class_weights is not None:
+    #         pseudo_class_weights = pseudo_class_weights.to(device)
+    #         pseudo_loss = F.cross_entropy(
+    #             logits[high_conf],
+    #             pred_labels[high_conf],
+    #             weight=pseudo_class_weights,
+    #             label_smoothing=0.1,
+    #         )  # i don't thin k we actually want the weights..
+    #     else:
+    #         pseudo_loss = F.cross_entropy(
+    #             logits[high_conf], pred_labels[high_conf], label_smoothing=0.1
+    #         )
+    #     num_pseudo = Counter(pred_labels[high_conf].cpu().numpy())
+
+    # return pseudo_loss, pred_labels, high_conf
 
     # pseudo loss over high-confidence unlabeled points
-    pseudo_loss = torch.tensor(0.0, device=device)
     if high_conf.any():
+        targets = pred_labels[high_conf]
+
+        weight = None
         if pseudo_class_weights is not None:
-            pseudo_class_weights = pseudo_class_weights.to(device)
-            pseudo_loss = F.cross_entropy(
-                logits[high_conf],
-                pred_labels[high_conf],
-                weight=pseudo_class_weights,
-                label_smoothing=0.1,
-            )  # i don't thin k we actually want the weights..
-        else:
-            pseudo_loss = F.cross_entropy(
-                logits[high_conf], pred_labels[high_conf], label_smoothing=0.1
-            )
-        num_pseudo = Counter(pred_labels[high_conf].cpu().numpy())
+            weight = pseudo_class_weights.to(device)
+
+        pseudo_loss = F.cross_entropy(
+            logits[high_conf],
+            targets,
+            weight=weight,
+            label_smoothing=0.1,
+        )
+
+        # Comptage rapide sur GPU
+        num_pseudo = torch.bincount(targets, minlength=N_CLASS)
+    else:
+        pseudo_loss = torch.zeros((), device=device)
+        num_pseudo = torch.zeros(N_CLASS, device=device)
 
     return pseudo_loss, pred_labels, high_conf
-
 
 def semantic_head_loss(coords, labels, margin=5.0):
     """
