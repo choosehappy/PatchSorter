@@ -429,7 +429,7 @@ def prediction_loss_pseudo(
     pseudo_thresh=0.95,
     views_per_patch=None,
 ):
-    device = logits.device00
+    device = logits.device
     labeled_mask = labels >= 0
     unlabeled_mask = ~labeled_mask
 

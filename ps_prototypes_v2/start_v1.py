@@ -241,7 +241,11 @@ for _ in range(10_000):
             *views, labels, orig = batch_data
             labels = labels.long().to(DEVICE)
 
-            imgs = torch.cat(views, dim=0).half().to(DEVICE) / 255.0  # [B*V, C, H, W]
+            #imgs = torch.cat(views, dim=0).half().to(DEVICE) / 255.0  # [B*V, C, H, W]
+            views = [v.half().to(DEVICE) for v in views]
+
+            # Concatenate, convert to half-precision, and normalize
+            imgs = torch.cat(views, dim=0) / 255.0  # [B*V, C, H, W]
 
             if USE_MASK:
                 # imgs = spatial_mask(imgs)
@@ -356,8 +360,10 @@ for _ in range(10_000):
                 # + INTRA_BIN_LAMBDA  * intra_loss
                 + NEIGHBOR_LAMBDA * neigh_loss
                 #                   + TEMPORAL_LAMBDA   * loss_temp
-                + SEMANTIC_LAMBDA * semantic_coord_loss  # * labeled_rate  # not sure if this addidtional makes sense?
-                + SEMANTIC_LAMBDA * semantic_emb_loss  # * labeled_rate  # not sure if this addidtional makes sense?
+                + SEMANTIC_LAMBDA
+                * semantic_coord_loss  # * labeled_rate  # not sure if this addidtional makes sense?
+                + SEMANTIC_LAMBDA
+                * semantic_emb_loss  # * labeled_rate  # not sure if this addidtional makes sense?
                 + PRED_LAMBDA * pred_loss
             )
 
@@ -366,7 +372,7 @@ for _ in range(10_000):
             scaler.step(optimizer)
             scaler.update()
 
-            mem_bank.add_candidates(z_batch.detach(), proj_coords.detach())
+            #mem_bank.add_candidates(z_batch.detach(), proj_coords.detach()) #___COMMENTED OUT
             mem_bank.age_all()
 
             if niter_total % LOG_EVERY == 0:
@@ -431,38 +437,63 @@ for _ in range(10_000):
                     del imgs_orig, z_orig, emb_orig, coords_orig
                     del emb_orig_norm, sim_emb, sim_coords
 
-
             # tensorboard
-            writer.add_scalar('loss/total',               total_loss.item(),        niter_total)
-            writer.add_scalar('loss/coord_consistency', coord_consistency_loss.item(), niter_total)
-            writer.add_scalar('loss/coord_contrastive', coord_contrastive_loss.item(), niter_total)
-            writer.add_scalar('loss/simclr_emb',          simclr_emb_loss.item(), niter_total)
-            writer.add_scalar('loss/spread',             spread_loss_val.item(),   niter_total)
-            writer.add_scalar('loss/max_mean_discrepancy',               max_mean_discrepancy_loss.item(),     niter_total)
-            writer.add_scalar('loss/repulsion', repulsion_loss_val.item(), niter_total)
-            writer.add_scalar('loss/occupancy',           occ_loss.item(),          niter_total)
-            writer.add_scalar('loss/intra_bin',           intra_loss.item(),        niter_total)
-            writer.add_scalar('loss/neighborhood',        neigh_loss.item(),        niter_total)
-            writer.add_scalar('loss/temporal',            loss_temp.item(),         niter_total)
-            writer.add_scalar('loss/semantic_coord',            semantic_coord_loss.item(),                niter_total)
-            #writer.add_scalar('loss/semantic_coord_weighted',   semantic_coord_loss.item() * labeled_rate, niter_total)
-            #writer.add_scalar('train/semantic_coord_lambda',    labeled_rate * SEMANTIC_LAMBDA,      niter_total)        
-            writer.add_scalar('loss/semantic_coord_attract',    semantic_coord_attr_loss.item(),niter_total)
-            writer.add_scalar('loss/semantic_coord_repel',      semantic_coord_repel_loss.item(),niter_total)
+            writer.add_scalar("loss/total", total_loss.item(), niter_total)
+            writer.add_scalar(
+                "loss/coord_consistency", coord_consistency_loss.item(), niter_total
+            )
+            writer.add_scalar(
+                "loss/coord_contrastive", coord_contrastive_loss.item(), niter_total
+            )
+            writer.add_scalar("loss/simclr_emb", simclr_emb_loss.item(), niter_total)
+            writer.add_scalar("loss/spread", spread_loss_val.item(), niter_total)
+            writer.add_scalar(
+                "loss/max_mean_discrepancy",
+                max_mean_discrepancy_loss.item(),
+                niter_total,
+            )
+            writer.add_scalar("loss/repulsion", repulsion_loss_val.item(), niter_total)
+            writer.add_scalar("loss/occupancy", occ_loss.item(), niter_total)
+            writer.add_scalar("loss/intra_bin", intra_loss.item(), niter_total)
+            writer.add_scalar("loss/neighborhood", neigh_loss.item(), niter_total)
+            writer.add_scalar("loss/temporal", loss_temp.item(), niter_total)
+            writer.add_scalar(
+                "loss/semantic_coord", semantic_coord_loss.item(), niter_total
+            )
+            # writer.add_scalar('loss/semantic_coord_weighted',   semantic_coord_loss.item() * labeled_rate, niter_total)
+            # writer.add_scalar('train/semantic_coord_lambda',    labeled_rate * SEMANTIC_LAMBDA,      niter_total)
+            writer.add_scalar(
+                "loss/semantic_coord_attract",
+                semantic_coord_attr_loss.item(),
+                niter_total,
+            )
+            writer.add_scalar(
+                "loss/semantic_coord_repel",
+                semantic_coord_repel_loss.item(),
+                niter_total,
+            )
 
-            writer.add_scalar('loss/semantic_emb',            semantic_emb_loss.item(),                niter_total)
-            #writer.add_scalar('loss/semantic_emb_weighted',   semantic_emb_loss.item() * labeled_rate, niter_total)
-            writer.add_scalar('loss/semantic_emb_attract',    semantic_emb_attr_loss.item(),niter_total)
-            writer.add_scalar('loss/semantic_emb_repel',      semantic_emb_repel_loss.item(),niter_total)
-            
+            writer.add_scalar(
+                "loss/semantic_emb", semantic_emb_loss.item(), niter_total
+            )
+            # writer.add_scalar('loss/semantic_emb_weighted',   semantic_emb_loss.item() * labeled_rate, niter_total)
+            writer.add_scalar(
+                "loss/semantic_emb_attract", semantic_emb_attr_loss.item(), niter_total
+            )
+            writer.add_scalar(
+                "loss/semantic_emb_repel", semantic_emb_repel_loss.item(), niter_total
+            )
 
-            writer.add_scalar('loss/pred',                pred_loss.item(),         niter_total)
-            writer.add_scalar('loss/pred_supervised',     sup_pred_loss.item(),     niter_total)
-            writer.add_scalar('loss/pred_pseudo',         pseudo_pred_loss.item(),  niter_total)
-            writer.add_scalar('train/labeled_rate',       labeled_rate,             niter_total)
-            writer.add_scalar('train/temporal_margin',    margin if mem_z.shape[0] > 0 else 5.0, niter_total)
-            writer.add_scalar('train/memory_size',        mem_bank.z.shape[0],      niter_total)
-
+            writer.add_scalar("loss/pred", pred_loss.item(), niter_total)
+            writer.add_scalar("loss/pred_supervised", sup_pred_loss.item(), niter_total)
+            writer.add_scalar("loss/pred_pseudo", pseudo_pred_loss.item(), niter_total)
+            writer.add_scalar("train/labeled_rate", labeled_rate, niter_total)
+            writer.add_scalar(
+                "train/temporal_margin",
+                margin if mem_z.shape[0] > 0 else 5.0,
+                niter_total,
+            )
+            writer.add_scalar("train/memory_size", mem_bank.z.shape[0], niter_total)
 
             total_pseudo = 0
             if num_pseudo is not None and num_pseudo.any():

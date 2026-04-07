@@ -7,15 +7,16 @@ import math
 # ------------------------
 # CONFIG
 # ------------------------
-EMBED_DIM = 256        # D-dimensional embedding from backbone
-PROJ_DIM = 2           # 2D projection
+EMBED_DIM = 256  # D-dimensional embedding from backbone
+PROJ_DIM = 2  # 2D projection
 BATCH_SIZE = 1024
 MEMORY_BANK_SIZE = 5000
 MEMORY_SAMPLE_SIZE = 1024
-GRID_SIZE = 100         # for binning [0, GRID_SIZE]^2
-TEMPORAL_ALPHA = 0.05   # moving average for memory coordinates
-TEMPORAL_LAMBDA = 0.1   # temporal smoothness weight
+GRID_SIZE = 100  # for binning [0, GRID_SIZE]^2
+TEMPORAL_ALPHA = 0.05  # moving average for memory coordinates
+TEMPORAL_LAMBDA = 0.1  # temporal smoothness weight
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
 
 # ------------------------
 # PROJECTION HEAD
@@ -27,11 +28,12 @@ class ProjectionHead(nn.Module):
             nn.Linear(embed_dim, 128),
             nn.ReLU(),
             nn.Linear(128, proj_dim),
-            nn.Sigmoid()  # output in [0,1]^2
+            nn.Sigmoid(),  # output in [0,1]^2
         )
-    
+
     def forward(self, z):
         return self.fc(z) * GRID_SIZE
+
 
 # ------------------------
 # MEMORY BANK STRUCTURE
@@ -44,14 +46,16 @@ class MemoryBank:
     def add_candidates(self, candidates, importance_fn):
         """candidates: list of dicts {'z': tensor, 'x': float, 'y': float, 'label': int or None}"""
         for cand in candidates:
-            cand['age'] = 0  # reset age
-            cand['score'] = importance_fn(cand)
+            cand["age"] = 0  # reset age
+            cand["score"] = importance_fn(cand)
             if len(self.points) < self.size:
                 self.points.append(cand)
             else:
                 # replace lowest scoring point if candidate better
-                min_idx = min(range(len(self.points)), key=lambda i: self.points[i]['score'])
-                if cand['score'] > self.points[min_idx]['score']:
+                min_idx = min(
+                    range(len(self.points)), key=lambda i: self.points[i]["score"]
+                )
+                if cand["score"] > self.points[min_idx]["score"]:
                     self.points[min_idx] = cand
 
     def sample(self, k):
@@ -59,7 +63,8 @@ class MemoryBank:
 
     def age_all(self):
         for p in self.points:
-            p['age'] += 1
+            p["age"] += 1
+
 
 # ------------------------
 # IMPORTANCE FUNCTION
@@ -72,10 +77,11 @@ def importance_score(point):
     - age decays score slightly
     """
     score = 1.0
-    if point.get('label') is not None:
+    if point.get("label") is not None:
         score += 1.0
-    score *= math.exp(-point['age'] * 0.01)
+    score *= math.exp(-point["age"] * 0.01)
     return score
+
 
 # ------------------------
 # TEMPORAL SMOOTHNESS LOSS
@@ -86,15 +92,16 @@ def temporal_loss(mem_points, head):
     """
     if len(mem_points) == 0:
         return torch.tensor(0.0, device=DEVICE)
-    
-    zs = torch.stack([p['z'] for p in mem_points]).to(DEVICE)
-    x_old = torch.tensor([p['x'] for p in mem_points], device=DEVICE)
-    y_old = torch.tensor([p['y'] for p in mem_points], device=DEVICE)
+
+    zs = torch.stack([p["z"] for p in mem_points]).to(DEVICE)
+    x_old = torch.tensor([p["x"] for p in mem_points], device=DEVICE)
+    y_old = torch.tensor([p["y"] for p in mem_points], device=DEVICE)
     old_coords = torch.stack([x_old, y_old], dim=1)
 
     new_coords = head(zs)
     loss = F.mse_loss(new_coords, old_coords)
     return loss
+
 
 # ------------------------
 # BATCH PROJECTION + BINNING
@@ -106,8 +113,9 @@ def assign_bins(coords):
     returns: list of (bin_x, bin_y)
     """
     bin_coords = coords.long()
-    bin_coords = torch.clamp(bin_coords, 0, GRID_SIZE-1)
+    bin_coords = torch.clamp(bin_coords, 0, GRID_SIZE - 1)
     return [tuple(b.tolist()) for b in bin_coords]
+
 
 # ------------------------
 # MAIN STREAMING LOOP (PROTOTYPE)
@@ -120,14 +128,14 @@ def streaming_training_loop(backbone, projection_head, data_loader, memory_bank)
     memory_bank: MemoryBank instance
     """
     optimizer = torch.optim.Adam(projection_head.parameters(), lr=1e-3)
-    
+
     for batch_idx, batch_patches in enumerate(data_loader):
         # ------------------------
         # 1. Compute embeddings
         # ------------------------
         with torch.no_grad():
             z_batch = backbone(batch_patches.to(DEVICE))  # [BATCH_SIZE, EMBED_DIM]
-        
+
         # ------------------------
         # 2. Project to 2D
         # ------------------------
@@ -140,13 +148,13 @@ def streaming_training_loop(backbone, projection_head, data_loader, memory_bank)
         batch_points = []
         for i in range(len(batch_patches)):
             point = {
-                'z': z_batch[i].detach().cpu(),
-                'x': coords_batch[i,0].item(),
-                'y': coords_batch[i,1].item(),
-                'label': None  # placeholder; use if available
+                "z": z_batch[i].detach().cpu(),
+                "x": coords_batch[i, 0].item(),
+                "y": coords_batch[i, 1].item(),
+                "label": None,  # placeholder; use if available
             }
             batch_points.append(point)
-        
+
         # ------------------------
         # 4. Sample memory bank points
         # ------------------------
@@ -171,10 +179,14 @@ def streaming_training_loop(backbone, projection_head, data_loader, memory_bank)
         # 6. Update memory bank coordinates (moving average)
         # ------------------------
         for i, p in enumerate(mem_sample):
-            new_coord = projection_head(p['z'].to(DEVICE)).detach().cpu()
-            p['x'] = (1 - TEMPORAL_ALPHA) * p['x'] + TEMPORAL_ALPHA * new_coord[0].item()
-            p['y'] = (1 - TEMPORAL_ALPHA) * p['y'] + TEMPORAL_ALPHA * new_coord[1].item()
-            p['age'] += 1  # age incremented
+            new_coord = projection_head(p["z"].to(DEVICE)).detach().cpu()
+            p["x"] = (1 - TEMPORAL_ALPHA) * p["x"] + TEMPORAL_ALPHA * new_coord[
+                0
+            ].item()
+            p["y"] = (1 - TEMPORAL_ALPHA) * p["y"] + TEMPORAL_ALPHA * new_coord[
+                1
+            ].item()
+            p["age"] += 1  # age incremented
 
         # ------------------------
         # 7. Add current batch candidates to memory bank (importance-weighted)
@@ -182,7 +194,10 @@ def streaming_training_loop(backbone, projection_head, data_loader, memory_bank)
         memory_bank.add_candidates(batch_points, importance_score)
 
         if batch_idx % 10 == 0:
-            print(f"Batch {batch_idx}: temporal_loss={temp_loss.item():.4f}, memory_size={len(memory_bank.points)}")
+            print(
+                f"Batch {batch_idx}: temporal_loss={temp_loss.item():.4f}, memory_size={len(memory_bank.points)}"
+            )
+
 
 # ------------------------
 # USAGE EXAMPLE (pseudo)
@@ -190,8 +205,9 @@ def streaming_training_loop(backbone, projection_head, data_loader, memory_bank)
 if __name__ == "__main__":
     # dummy backbone and data loader
     class DummyBackbone(nn.Module):
-        def forward(self, x): return torch.randn(x.shape[0], EMBED_DIM)
-    
+        def forward(self, x):
+            return torch.randn(x.shape[0], EMBED_DIM)
+
     class DummyLoader:
         def __iter__(self):
             for _ in range(100):  # 100 batches
