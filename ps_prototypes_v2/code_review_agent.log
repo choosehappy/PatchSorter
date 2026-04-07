@@ -1,0 +1,23 @@
+2026-04-07 22:44:15,155 - __main__ - INFO - Starting code review for reference: HEAD
+2026-04-07 22:44:15,155 - __main__ - INFO - Initialized code review agent for run 2026-04-07_22-44-15
+2026-04-07 22:44:15,155 - __main__ - INFO - Step 1: Identifying files to analyze
+2026-04-07 22:44:15,159 - __main__ - WARNING - No files identified for analysis
+2026-04-07 22:44:32,797 - __main__ - INFO - Starting code review for reference: HEAD
+2026-04-07 22:44:32,798 - __main__ - INFO - Initialized code review agent for run 2026-04-07_22-44-32
+2026-04-07 22:44:32,798 - __main__ - INFO - Step 1: Identifying files to analyze
+2026-04-07 22:44:32,798 - __main__ - INFO - Using cached file identification results
+2026-04-07 22:44:32,798 - __main__ - WARNING - No files identified for analysis
+2026-04-07 22:44:44,262 - __main__ - INFO - Starting code review for reference: HEAD~1
+2026-04-07 22:44:44,262 - __main__ - INFO - Initialized code review agent for run 2026-04-07_22-44-44
+2026-04-07 22:44:44,262 - __main__ - INFO - Step 1: Identifying files to analyze
+2026-04-07 22:44:44,266 - __main__ - WARNING - No files identified for analysis
+2026-04-07 22:46:42,693 - __main__ - INFO - Starting code review for reference: HEAD~1
+2026-04-07 22:46:42,693 - __main__ - INFO - Initialized code review agent for run 2026-04-07_22-46-42
+2026-04-07 22:46:42,693 - __main__ - INFO - Step 1: Identifying files to analyze
+2026-04-07 22:46:42,693 - __main__ - INFO - Using cached file identification results
+2026-04-07 22:46:42,694 - __main__ - WARNING - No files identified for analysis via git diff - using all .py files
+2026-04-07 22:46:42,716 - __main__ - INFO - Step 2: Analyzing project context from PROJECT.md
+2026-04-07 22:46:42,716 - __main__ - INFO - Project context analyzed: Unknown
+2026-04-07 22:46:42,716 - __main__ - INFO - Step 3: Running static analysis
+2026-04-07 22:46:42,852 - __main__ - ERROR - Error in code quality inspection: invalid literal for int() with base 10: ''
+2026-04-07 22:46:42,853 - __main__ - ERROR - Error during analysis: invalid literal for int() with base 10: ''

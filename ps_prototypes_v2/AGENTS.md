@@ -94,3 +94,20 @@ These rules reflect the constraints described in `PROJECT.md`.
 - [ ] Type hints present and correct
 - [ ] Tests cover edge cases (empty batch, single-item batch, label-free batch)
 - [ ] Linter and formatter pass cleanly
+
+---
+
+## Code Review Agent Architecture
+
+The code review system is implemented as a multi-agent architecture:
+
+1. **Main CodeReviewAgent** - Orchestrates the entire review process
+2. **RuffAgent** - Handles static code analysis using ruff 
+3. **MypyAgent** - Performs type checking with mypy
+4. **TestAgent** - Executes tests and reports results
+5. **CoverageAgent** - Checks code coverage metrics
+
+All agents follow a consistent pattern:
+- Each agent is in its own file within `/src/` directory  
+- Agents save their outputs to the same timestamped review directory under `reviews/`
+- Results are structured consistently for easy parsing and reporting
