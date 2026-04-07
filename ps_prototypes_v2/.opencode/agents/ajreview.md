@@ -43,7 +43,7 @@ Invoke all three subagents. You may invoke them in parallel if your runtime supp
 
 ### 4a — @review-static
 Pass: the file list from Step 2.
-Collect: the Static Analysis section (Ruff, Ruff Format, Mypy output).
+Collect: the Static Analysis section (Ruff, Ruff Format, Mypy output) by reading the temporary files created by the agent.
 
 ### 4b — @review-tests
 Pass: no additional input needed.

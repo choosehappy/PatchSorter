@@ -4,7 +4,7 @@ mode: subagent
 temperature: 0.0
 tools:
   bash: true
-  write: false
+  write: true
   edit: false
 ---
 
@@ -17,6 +17,16 @@ You run static analysis tools and return structured findings. You do not review 
 You will receive a list of Python files to analyse (one path per line).
 
 ## Steps
+
+Get timestamp for this execution:
+```bash
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+```
+
+Create temporary directory for this execution in ./tmp/review_cache/${TIMESTAMP}/static_analysis/ 
+- ./tmp/review_cache/${TIMESTAMP}/static_analysis/ruff_output.txt
+- ./tmp/review_cache/${TIMESTAMP}/static_analysis/ruff_format_output.txt  
+- ./tmp/review_cache/${TIMESTAMP}/static_analysis/mypy_output.txt
 
 Run the following commands exactly. Capture all output including exit codes.
 
@@ -34,17 +44,17 @@ python3 -m mypy . --ignore-missing-imports
 
 ## Output
 
-Return a single markdown block with three sections. Do not add commentary or analysis — raw tool output only.
+Return a single markdown block with three sections that reference the file paths. Do not add commentary or analysis — raw tool output only.
 
 ```markdown
 ### Ruff
-<full stdout/stderr of ruff check, or "✅ No violations">
+File: ./tmp/review_cache/${TIMESTAMP}/static_analysis/ruff_output.txt
 
-### Ruff Format
-<full stdout/stderr of ruff format --check, or "✅ No formatting issues">
+### Ruff Format  
+File: ./tmp/review_cache/${TIMESTAMP}/static_analysis/ruff_format_output.txt
 
 ### Mypy
-<full stdout/stderr of mypy, or "✅ No type errors">
+File: ./tmp/review_cache/${TIMESTAMP}/static_analysis/mypy_output.txt
 ```
 
 If a tool is not installed, report: `⚠️ <tool> not found — install with pip install <tool>` and continue with the remaining tools.
