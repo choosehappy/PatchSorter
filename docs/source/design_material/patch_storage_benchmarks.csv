@@ -1,3 +1,6 @@
 Link,Title,Description,Result
-[](#batch-read-of-patch-data-for-model-training),Batch read of patch data for model training,Read 10k patches from 1M total into memory,"0.673s, 14,865 r/s"
-[](#batch-read-of-patch-data-for-model-training-tiledb),Batch read of patch data for model training (TileDB),Read 10k patches from 1M total into memory using TileDB,"0.655s, ~15,261 r/s"
+[](#random-batch-read-of-patch-data),Random batch read of patch data (Zarr),Read 1k patches from 1M total (1k chunk size Zarr) into memory,"0.427s, 2,341 r/s"
+[](#random-read-of-patch-data),Random read of patch data (TileDB),Read 1k patches from 1M total into memory using TileDB with 1k chunk size,"0.392s, ~2,551 r/s"
+[](#batch-read-of-1000-contiguous-patches-zarr),Batch read of 1000 contiguous patches (Zarr),Read 1000 contiguous patches (adjacent patch_ids) from a 1M patch 1k chunk Zarr array into memory; measure total time and throughput.,"0.005s, ~196,880 patches/s"
+[](#random-read-of-1000-patches-postgres),Random read of 1000 patches (Postgres),Read 1000 randomly-selected patches by primary key from a 1M-row Postgres patch table; measure total elapsed time and throughput (patches/s).,"0.072s, 13,931 patches/s"
+[](#random-batch-read-of-patch-data-for-visualization-postgres),Random batch read of patch data for visualization (Postgres),Randomly sample 1k patch IDs from a 1M-row Postgres patch table and retrieve all rows including raw patch pixel data (3072 bytes/patch) in a single batched WHERE id = ANY(...) query; measure total elapsed time and throughput. Useful for gallery/visualization use cases; DL model training uses contiguous sequential reads instead.,"0.056s, 18,005 patches/s"
