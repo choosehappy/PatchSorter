@@ -11,6 +11,11 @@
 	"forwardPorts": [],
 	"updateRemoteUserUID": false,
 
+	// Mount local directory ~/emory_ts to /workspace/emory_ts in the container
+	"mounts": [
+		"source=${localEnv:HOME}/emory_ts,target=/workspace/emory_ts,type=bind"
+	],
+
 	// Add VS Code extensions
 	"customizations": {
 		"vscode": {
