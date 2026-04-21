@@ -6,10 +6,11 @@
 
 The Landing Page is the entry point of the application. It lists all existing projects and provides controls to create, edit, delete, and configure projects.
 
-The page header displays **Projects (N)**, where N is the current project count, alongside a **Plus (+)** button to create a new project.
+The page header displays **Projects (N)**, where N is the current project count, alongside a **Plus (+)** button to create a new project. Access buttons for **Application Settings** and **Project Settings** are also available in the header.
 
+### Projects Table
 
-The projects table contains the following columns (as shown in the UI):
+The projects table contains the following columns:
 
 | Column | Description |
 |---|---|
@@ -18,11 +19,11 @@ The projects table contains the following columns (as shown in the UI):
 | **Creation Date** | Timestamp of when the project was created |
 | **Modification Date** | Timestamp of last modification |
 | **No. of images** | Number of images associated with the project |
-| **Patch Size** | The configured patch size for the project |
+| **Patch Size** | The configured patch size for the project (e.g., 256) |
 | **No. of label classes** | Number of label classes defined in the project |
 | **No. Total Objects** | Total number of objects in the project |
 | **No. Labeled** | Number of labeled objects |
-| **Action** | Per-row action buttons: Edit (blue pencil), Delete (red trash), Settings (gray gear) |
+| **Action** | Per-row action buttons: Edit, Delete, Settings (via gear icon) |
 
 Clicking a project row navigates to that project's [Project Page](#project-page).
 
@@ -38,7 +39,7 @@ Clicking the **Plus (+)** button in the page header opens the **New Project** di
 |---|---|---|
 | **Project Name** | Text input | Required. The name of the new project. |
 | **Project Description** | Textarea | Required. A short description of the project. |
-| **Patch Size** | Dropdown | Required. The patch size to use. Default: `256`. |
+| **Patch Size** | Dropdown/Number input | Required. The patch size to use. Default: `256`. |
 
 **Actions:**
 
@@ -57,376 +58,281 @@ Clicking the **Plus (+)** button in the page header opens the **New Project** di
 
 ---
 
-### 1.2 Edit Project
-
-Clicking the **Edit** button (blue pencil icon) in a project row opens the project editing dialog.
-
-**Inputs:**
-
-| Field | Type | Description |
-|---|---|---|
-| **Project Name** | Text input | Pre-populated with the current project name. |
-| **Project Description** | Textarea | Pre-populated with the current project description. |
-
-**Actions:**
-
-| Action | Description |
-|---|---|
-| **Save** | Submits the updated values. |
-| **Cancel** | Closes the dialog without saving. |
-
-**States:**
-
-| State | Description |
-|---|---|
-| *Loading* | Spinner shown while the update request is in progress. |
-| *Error* | An error message is displayed on failure. |
-
----
-
-### 1.3 Delete Project
-
-Clicking the **Delete** button (red trash icon) in a project row opens a confirmation dialog.
-
-**Prompt:** "Are you sure you want to delete?"
-
-**Actions:**
-
-| Action | Description |
-|---|---|
-| **Confirm** | Permanently deletes the project. |
-| **Cancel** | Closes the dialog without deleting. |
-
-**States:**
-
-| State | Description |
-|---|---|
-| *Loading* | Spinner shown while the deletion request is in progress. |
-| *Error* | Displays **Error: error status** on failure. |
-
----
-
-### 1.4 Project Settings
-
-Clicking the **Settings** button (gray gear icon) in a project row opens the project settings dialog.
-
-**Configurable Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| **Pad patches** | Boolean | Whether to pad patches. Default: `True`. |
-| **Resize patches** | Boolean | Whether to resize patches. Default: `False`. |
-| **Update embedding (s)** | Integer | Embedding update interval in seconds. Default: `5`. |
-
-**Actions:**
-
-| Action | Description |
-|---|---|
-| **Save** | Persists the updated settings. |
-| **Reset** | Restores all settings to their default values. |
-
-**Status Feedback:**
-
-- **Settings saved!** — The project settings have been saved.
-- **Settings reset!** — The project settings have been reset.
-
----
-
 ## 2. Project Page
 
-The Project Page is the central hub for managing a single project. It displays project details, label classes, and images, and provides access to the labeling workflow.
+The Project Page displays detailed information and controls for managing a specific project. It includes tabs or sections for **Application Settings**, **Project Settings**, and project-specific actions.
 
-The page header displays the **Project Name** and **Project Description**.
+### 2.1 Header Bar
+
+The header displays:
+- **Projects (N)** counter
+- **Application Settings** button
+- **Project Settings** button
 
 ---
 
-### 2.1 Manage Label Classes
+### 2.2 Project Settings Section
 
-The **Label Classes** section lists all defined label classes for the project and allows users to add, edit, and delete them.
+This section allows modification of core project parameters.
 
-**Label Classes Table:**
+**Settings Table:**
 
-| Column | Description |
-|---|---|
-| **Name** | The label class name (e.g., "Nuclei") |
-| **Comments** | Optional notes; displays "N/A" if empty |
-| **DateTime** | Timestamp of creation or last modification |
-| **No. GT labels** | Count of ground truth labels for this class |
-| **Action** | Edit (blue pencil) and Delete (red trash) buttons |
-
-**Add Label Class:**
-
-A **Plus (+)** button next to the "Label Classes" header opens the creation dialog.
-
-| Field | Type | Description |
+| Setting Name | Value | Actions |
 |---|---|---|
-| **Name** | Text input | Required. The name of the new label class. |
-| **Color** | Color picker | Required. Display color for the class. |
+| Pad patches | [Toggle/Value] | Save, Reset |
+| Resize patches | [Toggle/Value] | Save, Reset |
+| Update embedding(s) | [Toggle/Value] | Save, Reset |
 
-| Action | Description |
-|---|---|
-| **Confirm** | Creates the new label class. |
-| **Cancel** | Closes the dialog without saving. |
+**Actions:**
+- **Save** (`[💾]` icon): Saves the current settings configuration. Displays "Settings saved!" toast notification on success.
+- **Reset**: Resets all project settings to defaults. Displays "Settings reset!" toast notification on success.
 
-On failure: **Error: Failed to add new label class**
+**Pad Patches Setting:**
+- Controls padding around patches during extraction.
+- Default: 0 pixels (or adjustable via slider/input).
 
-**Edit Label Class:**
+**Resize Patches Setting:**
+- Allows resizing of extracted patches.
+- Options include standard resize methods (e.g., nearest neighbor, bilinear interpolation).
 
-Clicking the Edit button on a label class row opens the editing dialog with pre-populated fields.
+**Update Embedding(s) Setting:**
+- Toggle to enable/disable embedding updates for the project.
+- Default value: 5 (number of embedding dimensions or iterations).
 
-| Field | Type | Description |
+---
+
+## 3. Import/Upload Section
+
+This section handles the initial data ingestion for projects.
+
+### 3.1 Upload Methods
+
+Three upload options are available:
+
+| Method | Description | Recommended Use Case |
 |---|---|---|
-| **Name** | Text input | Current label class name. |
-| **Color** | Color picker | Current label class color. |
+| **Upload Files** | Individual file selection via drag-and-drop or file picker | < 100 images |
+| **Upload Folder** | Batch upload of entire directory | > 100 images (recommended) |
+| **File List** | Upload a TSV/CSV file listing image paths | Large datasets with predefined paths |
 
-On failure: **Error: Could not edit label class**
+**Supported Image Formats:**
+- `.png`, `.svs`, `.geoson`, `.cov`, and other common image formats.
 
-**Delete Label Class:**
+**Upload State Indicators:**
+- Progress counters showing number of uploaded images.
+- Error indicators for failed uploads.
 
-Clicking the Delete button on a label class row opens a confirmation dialog equivalent to [Delete Project](#13-delete-project).
+### 3.2 Label Upload
+
+**Label File Upload:**
+- **CSV Files**: Required format for label data.
+- If no labels are uploaded, objects are considered "unlabeled".
+
+**Mask Format Selection:**
+- Dropdown to specify mask file format (e.g., `.tif`, `.png`).
+- Used when uploading segmented masks alongside images.
+
+**Upload Dialog Options:**
+- **Open Labeling Page**: Button to proceed directly to annotation interface after upload.
+- **Export All Patch Labels**: Button to export labels after processing.
 
 ---
 
-### 2.2 Upload Images
+## 4. Image List Management (Labeling Configuration Page)
 
-The **Images** section lists all images in the project. A **Plus (+)** button (pink/red icon) in the table header opens the **Upload Wizard**.
+This page manages the list of images and their associated label classes.
 
-**Images Table:**
+### 4.1 Image List Table
+
+The table displays the following columns:
 
 | Column | Description |
 |---|---|
-| **Thumbnail** | Small preview of the image |
-| **Name** | File name (e.g., `image_file1.png`, `image_file2.svs`) |
-| **Dimensions** | Resolution in pixels (e.g., `256×256`, `100,000×100,000`) |
-| **No. Objects** | Count of annotated objects in the image |
-| **Actions** | View/Edit (blue folder icon) and Delete (red trash icon) |
+| **Thumbnail** | Small preview image of the content |
+| **Name** | Image file name |
+| **Width** | Image width in pixels |
+| **Height** | Image height in pixels |
+| **No. Total** | Total number of objects/patches |
+| **No. Unlabeled** | Count of unlabeled objects |
+| **Label Class 1** | Checkbox/indicator for Class 1 assignment |
+| **Label Class 2** | Checkbox/indicator for Class 2 assignment |
+| **Actions** | Per-row action buttons: Open Labeling Page, Color (for mask visualization), Export All Image Labels |
 
-#### Upload Wizard
+### 4.2 Label Class Management
 
-A 6-step wizard for uploading images and associated annotations.
+**Add New Label Class:**
+- Button to create a new label class category.
+- Requires input of the new class name.
+- Displayed in dropdown/input field above table.
 
-A **step progress indicator** appears at the top of the wizard after selecting an approach, showing all 6 steps. The active step is highlighted; completed and future steps appear in gray.
-
----
-
-##### Step 1: Approach
-
-Users select an upload method:
-
-| Option | Description |
-|---|---|
-| **Step by step** | Guided workflow through each upload type sequentially |
-| **File list** | Upload all files at once via a CSV with columns: Image Filename, Mask Filename (optional), Label CSV Filename (optional) |
-
-| Navigation | Description |
-|---|---|
-| **Next** | Proceed to Step 2 based on the selected approach |
-| **Cancel** | Exit the wizard without saving |
-
----
-
-##### Step 2: Upload Images
-
-Users upload image files.
-
-| Option | Description |
-|---|---|
-| **Upload Files** | Select individual image files |
-| **Upload Folder** | Select an entire directory of images |
-
-**Upload Box:**
-- Header: "Upload Image Files (.svs, .png, etc.)"
-- Drop zone: "Drop files or click to upload"
-- Uploaded files are listed with a filename and a **Remove (×)** button
-
-| Navigation | Description |
-|---|---|
-| **Back** | Return to Step 1 |
-| **Next** | Proceed to Step 3 |
-| **Cancel** | Exit the wizard |
-
----
-
-##### Step 3: Upload Masks
-
-Optional step for uploading mask files.
-
-Users first choose whether to upload masks:
-
-| Option | Description |
-|---|---|
-| **Yes** | Expand mask upload options |
-| **No** | Skip to Step 4 |
-
-If **Yes**, additional options appear:
-
-| Field | Options |
-|---|---|
-| **Data source** | Upload Files, Upload Folder |
-| **Mask type** | Geojson, Binary Mask, Multi-class Mask |
-
-**Upload Box:**
-- Header: "Upload Mask Files (.geojson, .json, .png)"
-- Drop zone: "Drop files or click to upload"
-- Uploaded files are listed with a filename and a **Remove (×)** button
-
-| Navigation | Description |
-|---|---|
-| **Back** | Return to Step 2 |
-| **Next** | Proceed to Step 4 |
-| **Cancel** | Exit the wizard |
-
----
-
-##### Step 4: Upload Labels
-
-Optional step for uploading label CSV files.
-
-Users first choose whether to upload label files:
-
-| Option | Description |
-|---|---|
-| **Yes** | Expand label upload options |
-| **No** | Skip to Step 5 |
-
-If **Yes**, additional options appear:
-
-| Field | Options |
-|---|---|
-| **Data source** | Upload Files, Upload Folder |
-
-**Upload Box:**
-- Header: "Upload .csv Files"
-- Drop zone: "Drop files or click to upload"
-- Uploaded files are listed with a filename and a **Remove (×)** button
-
-> Uploaded label CSVs update the **No. Objects** count for the corresponding image.
-
-| Navigation | Description |
-|---|---|
-| **Back** | Return to Step 3 |
-| **Next** | Proceed to Step 5 |
-| **Cancel** | Exit the wizard |
-
----
-
-##### Step 5: Review
-
-A summary table of all files queued for import is displayed before processing begins.
-
-| Column | Description |
-|---|---|
-| **Image** | Image filename |
-| **Mask** | Associated mask filename, or blank |
-| **CSV** | Associated label CSV filename, or blank |
-| **Error** | Validation error message, or "N/A" |
-| **Status** | Current processing state (see below) |
-
-**Status values:**
-
-| Status | Description |
-|---|---|
-| **READY TO IMPORT** | File passed validation; ready to process |
-| *(spinner)* | File is currently being processed |
-| ✓ | File was successfully imported |
-| ✗ | File import failed; see Error column |
-
-**Validation checks include:**
-- File naming consistency across images, masks, and CSVs
-- Valid and supported file formats
-- No conflicts with existing project data
-
-| Navigation | Description |
-|---|---|
-| **Back** | Return to Step 4 |
-| **Process** | Begin importing all queued files sequentially |
-| **Cancel** | Exit the wizard without importing |
-
----
-
-##### Step 6: Done
-
-Confirms successful completion of the upload. The project dashboard updates to reflect newly added images.
-
----
-
-### 2.3 Export Annotations
-
-The **Export Labels** dialog allows users to export annotations from the project.
-
-**Export Formats:**
-
-| Format | Description |
-|---|---|
-| **GeoJSON files** | One `.geojson` file per image |
-| **Image-level CSVs** | One `.csv` file per image |
+**Label Class Editing:**
+- Each row can edit existing label classes.
+- Input fields for: "New label class name", "Class 1", "Class 2", etc.
 
 **States:**
 
 | State | Description |
 |---|---|
-| *Job running* | Export job has been submitted and is in progress |
-| *File processing in progress* | Individual files are being written |
+| *Default* | Empty state with "Add a new label class" option. |
+| *Loading* | Shows loading spinner during data fetch or save operations. |
+| *Saving* | Button shows "Saving Label Class..." during update operation. |
+| *Success* | Changes applied, table refreshes automatically. |
+| *Error: Failed to add new label class* | Displayed when class name is invalid or duplicate. |
+| *Error: Could not edit label class* | Displayed when editing fails due to data corruption or permissions. |
 
----
+**Actions per Row:**
 
-### 2.4 Open Labeling Page
-
-A prominent **"Open Labeling Page"** button with an arrow icon appears at the bottom right of the Project Page.
-
-- **Requirement:** At least 2 label classes must be defined. The button displays "Requires at least 2 label classes" and is disabled until this condition is met.
-- **Action:** Navigates to the [Labeling Page](#3-labeling-page).
-
----
-
-## 3. Labeling Page
-
-The Labeling Page is the primary interface for annotating patches within a standard image. It is accessed via the **Open Labeling Page** button on the Project Page.
-
----
-
-### 3.1 Select and Move Patches
-
-Users can navigate and select patches using the available tools.
-
-| Tool | Shortcut | Description |
+| Action | Icon/Button | Description |
 |---|---|---|
-| **Move** | `1` | Pan and navigate the image canvas |
-| **Lasso** | `2` | Draw a freeform selection region to select multiple patches |
-
-**Bulk selection:** The **Select all patches** option selects all visible patches at once.
-
----
-
-### 3.2 Assign Labels
-
-Once patches are selected, labels are assigned via the **Apply Label** menu.
-
-- Available label classes are listed with numeric shortcuts, e.g., **(1) Epithelial cell**, **(2) Lymphocyte**, **(3) Other**.
-- The current default label assignment is shown in the interface, e.g., "'ENTER' assigns label: **Lymphocyte**".
-- Pressing `ENTER` assigns the currently configured default label to the selected patches.
+| Open Labeling Page | `[▶]` (Play/Forward) | Navigate to annotation interface for this image. |
+| Color | `[●]` | Toggle color visualization of masks/labels. |
+| Export All Image Labels | Button | Exports all labels for this image in batch. |
+| Cancel | Button | Cancels current operation (e.g., editing). |
 
 ---
 
-### 3.3 Visualization and Filtering
+## 5. Labeling Interface (Annotation View)
 
-Users can control the display of patches and labels using the following options:
+The Labeling Page is where users annotate patches and assign label classes.
 
-| Option | Description |
-|---|---|
-| **Color By Ground Truth** | Colors patches by their assigned ground truth label |
-| **Filter By Labeled** | Shows only patches that have been labeled |
-| **Include Label Classes** | Filters the view to include specific label classes (e.g., Lymphocyte) |
-| **Toggle Show Patches** | Toggles visibility of patch overlays on the image |
+### 5.1 Toolbar & Controls
+
+**Top Toolbar:**
+- **Next/Previous**: Navigate between images or patches (`Cv e— Ev se—` buttons).
+- **Cancel**: Aborts current annotation session.
+
+**Side/Sidebar Controls:**
+- **Zoom**: Zoom in/out of the image view.
+- **Pan**: Drag to navigate within the image.
+- **Scroll**: Scroll through content if larger than viewport.
+- **Annotation Tools**: Brush, eraser, selector tools for drawing patches.
+- **Brush Size Slider**: Adjust size of annotation brush.
+- **Color Picker**: Select color for label overlays/masks.
+- **Label Class Selector**: Dropdown to choose active label class from available classes (Class 1, Class 2, etc.).
+
+### 5.2 Image/Patch View
+
+The main area displays:
+- Full or zoomed view of the image/patch.
+- Overlay grid showing patch extraction regions.
+- Color-coded mask overlays for labeled patches.
+- Annotation marks and bounding boxes drawn by users.
+
+**View Modes:**
+- **Single Patch**: Focus on one extracted patch at a time.
+- **Grid View**: Display multiple patches in a tiled layout.
+- **Full Image**: View entire image with overlay annotations.
+
+### 5.3 Patch Extraction Controls
+
+Accessed via settings or dedicated panel:
+
+| Control | Options | Description |
+|---|---|---|
+| **Downsample Factor** | Integer input (e.g., 1:2) | Reduces image resolution for faster processing. 1:2 = half resolution. |
+| **Patch Extraction Method** | Dropdown | Choose between: <br> • *Center crop and resize*: One patch per object <br> • *Stride*: Multiple patches per object/annotation |
 
 ---
 
-### 3.4 Navigate to Embedding View
+## 6. Label Classes Management (List View)
 
-A navigation control allows users to switch to the **Embedding** view, which provides a dimensionality-reduced visualization of patch features to assist with batch labeling decisions.
+A dedicated view to manage all label classes across the project.
+
+### 6.1 Table Structure
+
+Columns:
+- **Name**: Class name (e.g., "unknown", "irrelevant")
+- **Comments**: Optional notes for each class
+- **Creation Date**: Timestamp when class was added
+- **Modification Date**: Last edit timestamp
+- **No. GT labels**: Count of ground truth labels assigned to this class
+- **Action**: Edit/Delete buttons per class
+
+### 6.2 Add Label Class Dialog
+
+**Inputs:**
+- **Name**: Required text input for the new class name.
+- **Comments**: Optional textarea for class description.
+
+**Actions:**
+- **Add**: Creates the new label class.
+- **Cancel**: Discards changes.
 
 ---
 
-## 4. WSI Labeling Page
+## 7. Export Functions
 
-The WSI (Whole Slide Image) Labeling Page provides an annotation interface optimized for very large images (e.g., `.svs` files with resolutions up to `100,000×100,000` pixels). It is accessed by clicking the **View/Edit** button on a whole slide image in the Project Page images table.
+### 7.1 Export All Patch Labels
+
+**Location:** Found on labeling configuration page and project actions.
+
+**Functionality:**
+- Exports all annotated patches for the project or selected images.
+- Output format: Typically TSV or CSV with columns: patch_path, label_class, coordinates, metadata.
+- Triggered via dedicated button: `Export All Patch Labels [▶]`.
+
+### 7.2 Export All Image Labels
+
+**Location:** Image list management page per row.
+
+**Functionality:**
+- Exports labels for a specific image or batch of images.
+- Includes image metadata (width, height, name) alongside labels.
+- Format: CSV with structured columns per label type.
+
+---
+
+## 8. Filter & Search Controls
+
+### 8.1 Toolbar Filters
+
+Available filter options include:
+- **Label Classes**: Checkbox filters to show/hide patches by assigned class.
+- **Mask Types**: Toggle between different mask visualizations (e.g., segmented vs. raw).
+- **Search Bar**: Text input to search image names or labels.
+
+### 8.2 Legend Control
+
+**Button:** `msc teamna` / `mace legen` / `mse fie sce Wa` (likely internal component names)
+- Displays/hides legend overlay showing color codes for each label class.
+- Shows mapping between colors and label categories.
+
+---
+
+## 9. Toast Notifications & Feedback
+
+The application uses non-intrusive toast notifications for user feedback:
+
+| Notification | Trigger | Message |
+|---|---|---|
+| **Settings saved!** | Click Save button | Confirmation that project settings were persisted. |
+| **Settings reset!** | Click Reset button | Confirmation that settings reverted to defaults. |
+| **Saving Label Class...** | Edit operation in progress | Indicates asynchronous save is occurring. |
+| **Error: Failed to add new label class** | Invalid input during class creation | Describes the validation failure. |
+| **Error: Could not edit label class** | Save failed due to data issues | Generic error for editing failures. |
+
+---
+
+## 10. Base Magnification Setting
+
+A setting in the labeling interface controls:
+
+**"What is the base magnification of your images?"**
+- Allows users to define the native zoom level or optical magnification for microscopy/medical imaging datasets.
+- Used for accurate scaling and annotation when working with high-magnification images.
+- Options likely include: 10x, 20x, 40x, 60x, 100x, etc. (microscope standard objectives).
+
+---
+
+## Summary of Key Features
+
+1. **Project Management**: Create, edit, delete projects with configurable patch sizes and object counts.
+2. **Flexible Import**: Support for individual files, folder uploads, or file list TSVs.
+3. **Configurable Patch Extraction**: Choose between center-crop (1 patch per object) or stride (multiple patches).
+4. **Downsampling Control**: Adjustable resolution reduction for performance optimization.
+5. **Rich Label Class System**: Multi-class annotation with color-coded masks and editable categories.
+6. **Interactive Annotation Interface**: Zoom, pan, scroll, brush tools, and label selection for precise labeling.
+7. **Batch Export Options**: Export patch labels or image-level labels in structured formats.
+8. **Visual Feedback**: Toast notifications for save/reset actions and error handling.
+
+---
