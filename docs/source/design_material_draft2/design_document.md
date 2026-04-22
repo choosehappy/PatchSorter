@@ -190,7 +190,13 @@ This use case depicts the process of uploading images to a project using a step-
 </div>
 
 #### 2.4.4. Use Case: Upload, File list
-This use case shows the user uploading images by selecting multiple files at once. The interface displays a list of selected files, their upload status, and any errors encountered. The user can remove files from the list before confirming the upload.
+This use case illustrates an upload wizard flow where files are uploaded in bulk by uploading a file list CSV in the following format:
+
+- filepath (required): The path to the image file to be uploaded, relative to a mounted directory on the server.
+- geojson_filepath (required): The path to the corresponding .geojson file containing object annotations.
+
+TODO: Complete this section!
+
 
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase7_upload_file_list.png" style="height: 400px; width: auto; max-width: none; display: block;">
@@ -322,6 +328,8 @@ This use case demonstrates user control over deep learning (DL) processing tasks
 
 Accessed via the gear icon in the project header.
 
+Certain project settings are shown as being disabled as they are set during project creation and cannot be modified afterwards.
+
 
 ### 4.1. Project Settings
 | Setting        | Value    | Description |
@@ -329,7 +337,7 @@ Accessed via the gear icon in the project header.
 | **Patch Size** | Disabled |            |
 
 
-### 4.2. 4.2 Application Settings
+### 4.2. Application Settings
 | Setting | Value | Description |
 | ------- | ----- | ----------- |
 
