@@ -6,6 +6,16 @@
 
 The Landing Page is the entry point of the application. It lists all existing projects and provides controls to create, edit, delete, and configure projects.
 
+### Use Case: Create Project
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase1_create_project.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+### Use Case: Delete Project
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase2_delete_project.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
 The page header displays **Projects (N)**, where N is the current project count, alongside a **Plus (+)** button to create a new project.
 
 The projects table contains the following columns (as shown in the UI):
@@ -60,6 +70,41 @@ Clicking the **Plus (+)** button in the page header opens the **New Project** di
 
 The Project Page is accessed by clicking a project row from the Landing Page. It displays project metadata, label classes, and image thumbnails with labeling controls.
 
+### Use Case: Add Label Classes
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase3_add_label_classes.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+### Use Case: Edit Label Classes
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase4_edit_label_classes.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+### Use Case: Enter Project Page
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase5_enter_project_page.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+### Use Case: Upload, Step-by-step
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase6_upload_step_by_step.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+### Use Case: Upload, File list
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase7_upload_file_list.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+### Use Case: Check Job Status
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase8_check_job_status.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+### Use Case: Export Annotations With Labels
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase16_export_annotations_with_labels.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
 The page header displays the project title and a breadcrumb: **Projects > [Project Name]**. It includes a **Back** button to return to the Landing Page and a **Settings** (gear) button to open project settings.
 
 Below the header, the page is divided into three sections:
@@ -104,8 +149,8 @@ Displays all label classes in a collapsible list. Each class can be edited or de
 
 | State | Description |
 |---|---|
-| *Default* | Empty modal with “Add New Label Class” button. |
-| *Saving* | Spinner and “Saving” label while processing. |
+| *Default* | Empty modal with "Add New Label Class" button. |
+| *Saving* | Spinner and "Saving" label while processing. |
 | *Success* | Label class added to list, modal closes. |
 | *Error* | Error message displayed if validation fails. |
 
@@ -137,11 +182,46 @@ Displays a grid of image thumbnails. Each thumbnail has:
 
 Accessed via **Open Labeling Page** from the Images section.
 
+### Use Case: Enter Object Labeling Page
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase9_Enter_object_labeling_page.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+### Use Case: Enter Image View
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase10_Enter_image_view.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+### Use Case: Show Patches
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase11_show_patches.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+### Use Case: Navigate Embedding
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase12_Navigate_embedding.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+### Use Case: Assign Labels
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase13_assign_labels.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+### Use Case: Filter Embedding
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase14_filter_embedding.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+### Use Case: Enter Image View From Patch
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase15_enter_image_view_from_patch.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
 ### 3.1. Overview
 
 Displays a single image with a grid of patches (based on configured patch size). Each patch has:
 
-- **Label selector**: Dropdown to choose a label class (default: “Unlabeled”)
+- **Label selector**: Dropdown to choose a label class (default: "Unlabeled")
 - **Confidence slider**: Optional for labeling confidence (0–100%)
 - **Save button**: Saves label for the patch
 
@@ -159,7 +239,7 @@ Displays a single image with a grid of patches (based on configured patch size).
 | State | Description |
 |---|---|
 | *Default* | Image loaded, patches displayed, label selector active. |
-| *Saving* | Spinner and “Saving” label during save. |
+| *Saving* | Spinner and "Saving" label during save. |
 | *Success* | Confirmation toast appears after successful save. |
 | *Error* | Error message if save fails. |
 
@@ -168,6 +248,11 @@ Displays a single image with a grid of patches (based on configured patch size).
 ## 4. Settings Page.
 
 Accessed via the gear icon in the project header.
+
+### Use Case: Enter Settings
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase17_enter_settings.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
 
 ### 4.1. Settings
 
@@ -189,8 +274,8 @@ Accessed via the gear icon in the project header.
 
 | State | Description |
 |---|---|
-| *Default* | All settings displayed with “Save Settings” button. |
-| *Saving* | Spinner and “Saving” label while processing. |
+| *Default* | All settings displayed with "Save Settings" button. |
+| *Saving* | Spinner and "Saving" label while processing. |
 | *Success* | Confirmation toast appears after saving. |
 | *Error* | Error message if saving fails. |
 
@@ -213,14 +298,19 @@ Located in the Images section. Exports all labeled objects for the project.
 
 | State | Description |
 |---|---|
-| *Default* | “Export All Image Labels” button visible. |
-| *Processing* | Spinner and “Exporting…” label while processing. |
+| *Default* | "Export All Image Labels" button visible. |
+| *Processing* | Spinner and "Exporting…" label while processing. |
 | *Success* | File download starts, toast confirms success. |
 | *Error* | Error message if export fails. |
 
 ---
 
 ## 6. Error Handling.
+
+### Use Case: Control DL Processing
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase18_control_DL_processing.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
 
 All components display error states with:
 
@@ -243,17 +333,17 @@ All components display error states with:
 ### 7.1. Loading States
 
 - Spinners in buttons or modals during async operations.
-- “Loading…” text overlays during data fetches.
+- "Loading…" text overlays during data fetches.
 
 ### 7.2. Success States
 
 - Toast notifications with success messages.
-- “Success” labels on buttons after completion.
+- "Success" labels on buttons after completion.
 
 ### 7.3. Error States
 
 - Toast or modal with error message.
-- “Error” label on buttons or inputs.
+- "Error" label on buttons or inputs.
 - Red outlines on failed form fields.
 
 ---
@@ -263,13 +353,13 @@ All components display error states with:
 ### 8.1. Breadcrumbs
 
 - **Projects > [Project Name]** on Project Page.
-- **Landing Page** accessible via “Back” button.
+- **Landing Page** accessible via "Back" button.
 
 ### 8.2. Routing
 
 - Clicking project row → navigates to Project Page.
-- Clicking “Back” → returns to Landing Page.
-- Clicking “Settings” → opens Settings modal.
+- Clicking "Back" → returns to Landing Page.
+- Clicking "Settings" → opens Settings modal.
 
 ---
 
