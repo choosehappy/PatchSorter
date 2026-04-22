@@ -12,18 +12,18 @@ The page header displays **Projects (N)**, where N is the current project count,
 The projects table contains the following columns (as shown in the UI):
 
 
-| Column | Description |
-|---|---|
-| **Project Name** | The name of the project |
-| **Description** | A short description of the project |
-| **Creation Date** | Timestamp of when the project was created |
-| **Modification Date** | Timestamp of last modification |
-| **No. of images** | Number of images associated with the project |
-| **Patch Size** | The configured patch size for the project |
-| **No. of label classes** | Number of label classes defined in the project |
-| **No. Total Objects** | Total number of objects in the project |
-| **No. Labeled** | Number of labeled objects |
-| **Action** | Per-row action buttons: Edit (blue pencil), Delete (red trash), Settings (gray gear) |
+| Column                   | Description                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------ |
+| **Project Name**         | The name of the project                                                              |
+| **Description**          | A short description of the project                                                   |
+| **Creation Date**        | Timestamp of when the project was created                                            |
+| **Modification Date**    | Timestamp of last modification                                                       |
+| **No. of images**        | Number of images associated with the project                                         |
+| **Patch Size**           | The configured patch size for the project                                            |
+| **No. of label classes** | Number of label classes defined in the project                                       |
+| **No. Total Objects**    | Total number of objects in the project                                               |
+| **No. Labeled**          | Number of labeled objects                                                            |
+| **Action**               | Per-row action buttons: Edit (blue pencil), Delete (red trash), Settings (gray gear) |
 
 Clicking a project row navigates to that project's [Project Page](#project-page).
 
@@ -41,26 +41,26 @@ Clicking the **Plus (+)** button in the page header opens the **New Project** di
 
 **Inputs:**
 
-| Field | Type | Description |
-|---|---|---|
-| **Project Name** | Text input | Required. The name of the new project. |
-| **Project Description** | Textarea | Required. A short description of the project. |
-| **Patch Size** | Dropdown | Required. The patch size to use. Default: `256`. |
+| Field                   | Type       | Description                                      |
+| ----------------------- | ---------- | ------------------------------------------------ |
+| **Project Name**        | Text input | Required. The name of the new project.           |
+| **Project Description** | Textarea   | Required. A short description of the project.    |
+| **Patch Size**          | Dropdown   | Required. The patch size to use. Default: `256`. |
 
 **Actions:**
 
-| Action | Description |
-|---|---|
+| Action             | Description                               |
+| ------------------ | ----------------------------------------- |
 | **Create Project** | Submits the form and creates the project. |
 
 **States:**
 
-| State | Description |
-|---|---|
-| *Default* | Empty form fields, **Create Project** button enabled. |
-| *Saving* | A spinner and "Saving" label appear below the button while the request is in progress. |
-| *Success* | Dialog closes and the new project appears in the projects table. |
-| *Error* | An error message is displayed below the button. |
+| State     | Description                                                                            |
+| --------- | -------------------------------------------------------------------------------------- |
+| *Default* | Empty form fields, **Create Project** button enabled.                                  |
+| *Saving*  | A spinner and "Saving" label appear below the button while the request is in progress. |
+| *Success* | Dialog closes and the new project appears in the projects table.                       |
+| *Error*   | An error message is displayed below the button.                                        |
 
 
 <div style="overflow-x: auto; width: 100%;">
@@ -96,17 +96,17 @@ Below the header, the page is divided into three sections:
 
 Displays project-level information:
 
-| Field | Description |
-|---|---|
-| **Project Title** | The project name |
-| **Description** | The project description |
-| **Creation Date** | Timestamp of project creation |
-| **Modification Date** | Timestamp of last modification |
-| **No. of images** | Total number of images |
-| **Patch Size** | Configured patch size |
+| Field                    | Description                     |
+| ------------------------ | ------------------------------- |
+| **Project Title**        | The project name                |
+| **Description**          | The project description         |
+| **Creation Date**        | Timestamp of project creation   |
+| **Modification Date**    | Timestamp of last modification  |
+| **No. of images**        | Total number of images          |
+| **Patch Size**           | Configured patch size           |
 | **No. of label classes** | Number of defined label classes |
-| **No. Total Objects** | Total objects across all images |
-| **No. Labeled** | Number of labeled objects |
+| **No. Total Objects**    | Total objects across all images |
+| **No. Labeled**          | Number of labeled objects       |
 
 
 ### 2.2. Label Classes
@@ -115,28 +115,28 @@ Displays all label classes in a collapsible list. Each class can be edited or de
 
 **Actions:**
 
-| Action | Description |
-|---|---|
-| **Edit Label Class** | Opens an inline editor for the label class. |
-| **Delete Label Class** | Confirms deletion of the label class. |
-| **New Label Class** | Opens a modal to add a new label class. |
+| Action                 | Description                                 |
+| ---------------------- | ------------------------------------------- |
+| **Edit Label Class**   | Opens an inline editor for the label class. |
+| **Delete Label Class** | Confirms deletion of the label class.       |
+| **New Label Class**    | Opens a modal to add a new label class.     |
 
 **Label Class Modal Inputs:**
 
-| Field | Type | Description |
-|---|---|---|
-| **Name** | Text input | Required. The name of the label class. |
-| **Color** | Color picker | Optional. Assigns a visual color to the label. |
-| **Comments** | Textarea | Optional. Additional notes. |
+| Field        | Type         | Description                                    |
+| ------------ | ------------ | ---------------------------------------------- |
+| **Name**     | Text input   | Required. The name of the label class.         |
+| **Color**    | Color picker | Optional. Assigns a visual color to the label. |
+| **Comments** | Textarea     | Optional. Additional notes.                    |
 
 **States:**
 
-| State | Description |
-|---|---|
+| State     | Description                                    |
+| --------- | ---------------------------------------------- |
 | *Default* | Empty modal with "Add New Label Class" button. |
-| *Saving* | Spinner and "Saving" label while processing. |
-| *Success* | Label class added to list, modal closes. |
-| *Error* | Error message displayed if validation fails. |
+| *Saving*  | Spinner and "Saving" label while processing.   |
+| *Success* | Label class added to list, modal closes.       |
+| *Error*   | Error message displayed if validation fails.   |
 
 
 ### 2.3. Images
@@ -148,18 +148,18 @@ Displays a grid of image thumbnails. Each thumbnail has:
 
 **Actions per Image:**
 
-| Action | Description |
-|---|---|
-| **Open Labeling Page** | Opens the labeling interface for this image. |
+| Action                      | Description                                       |
+| --------------------------- | ------------------------------------------------- |
+| **Open Labeling Page**      | Opens the labeling interface for this image.      |
 | **Export All Image Labels** | Exports all labels for this image as a JSON file. |
 
 **States:**
 
-| State | Description |
-|---|---|
+| State     | Description                                        |
+| --------- | -------------------------------------------------- |
 | *Default* | Images displayed with metadata and action buttons. |
-| *Loading* | Spinner while fetching or processing image data. |
-| *Error* | Error message if image fails to load or export. |
+| *Loading* | Spinner while fetching or processing image data.   |
+| *Error*   | Error message if image fails to load or export.    |
 
 
 ---
@@ -226,22 +226,22 @@ Displays a single image with a grid of patches (based on configured patch size).
 
 ### 3.2. Controls
 
-| Control | Description |
-|---|---|
-| **Previous/Next** | Navigate between images. |
-| **Save Labels** | Saves all labels for the current image. |
-| **Export Labels** | Exports all labels as JSON. |
-| **Reset Labels** | Clears all labels for the current image. |
+| Control           | Description                              |
+| ----------------- | ---------------------------------------- |
+| **Previous/Next** | Navigate between images.                 |
+| **Save Labels**   | Saves all labels for the current image.  |
+| **Export Labels** | Exports all labels as JSON.              |
+| **Reset Labels**  | Clears all labels for the current image. |
 
 
 ### 3.3. States
 
-| State | Description |
-|---|---|
+| State     | Description                                             |
+| --------- | ------------------------------------------------------- |
 | *Default* | Image loaded, patches displayed, label selector active. |
-| *Saving* | Spinner and "Saving" label during save. |
-| *Success* | Confirmation toast appears after successful save. |
-| *Error* | Error message if save fails. |
+| *Saving*  | Spinner and "Saving" label during save.                 |
+| *Success* | Confirmation toast appears after successful save.       |
+| *Error*   | Error message if save fails.                            |
 
 ---
 
@@ -311,29 +311,33 @@ This use case demonstrates user control over deep learning (DL) processing tasks
 
 Accessed via the gear icon in the project header.
 
-### 4.1. Settings
 
-| Setting | Description |
-|---|---|
-| **Patch Size** | Dropdown to change patch size (256, 512, 1024). |
-| **Default Label Class** | Dropdown to set default label class for new labels. |
-| **Export Format** | Dropdown for export format: JSON, CSV, TFRecord. |
+### 4.1. Project Settings
+| Setting        | Value    | Description |
+| -------------- | -------- | ----------- |
+| **Patch Size** | Disabled |            |
+
+
+### 4.2 Application Settings
+| Setting | Value | Description |
+| ------- | ----- | ----------- |
+
 
 ### 4.2. Actions
 
-| Action | Description |
-|---|---|
-| **Save Settings** | Saves changes and applies them to the project. |
-| **Reset Settings** | Resets settings to default values. |
+| Action             | Description                                    |
+| ------------------ | ---------------------------------------------- |
+| **Save Settings**  | Saves changes and applies them to the project. |
+| **Reset Settings** | Resets settings to default values.             |
 
 ### 4.3. States
 
-| State | Description |
-|---|---|
+| State     | Description                                         |
+| --------- | --------------------------------------------------- |
 | *Default* | All settings displayed with "Save Settings" button. |
-| *Saving* | Spinner and "Saving" label while processing. |
-| *Success* | Confirmation toast appears after saving. |
-| *Error* | Error message if saving fails. |
+| *Saving*  | Spinner and "Saving" label while processing.        |
+| *Success* | Confirmation toast appears after saving.            |
+| *Error*   | Error message if saving fails.                      |
 
 ---
 
@@ -355,19 +359,19 @@ Located in the Images section. Exports all labeled objects for the project.
 
 ### 5.1. Actions
 
-| Action | Description |
-|---|---|
-| **Export** | Triggers export. |
+| Action     | Description                    |
+| ---------- | ------------------------------ |
+| **Export** | Triggers export.               |
 | **Cancel** | Cancels export if in progress. |
 
 ### 5.2. States
 
-| State | Description |
-|---|---|
-| *Default* | "Export All Image Labels" button visible. |
+| State        | Description                                      |
+| ------------ | ------------------------------------------------ |
+| *Default*    | "Export All Image Labels" button visible.        |
 | *Processing* | Spinner and "Exporting…" label while processing. |
-| *Success* | File download starts, toast confirms success. |
-| *Error* | Error message if export fails. |
+| *Success*    | File download starts, toast confirms success.    |
+| *Error*      | Error message if export fails.                   |
 
 ---
 
@@ -394,10 +398,10 @@ All components display error states with:
 
 **Error Types:**
 
-| Type | Description |
-|---|---|
-| *Validation* | Form fields not meeting required criteria. |
-| *Network* | Failed API calls (e.g., save, export, delete). |
+| Type          | Description                                     |
+| ------------- | ----------------------------------------------- |
+| *Validation*  | Form fields not meeting required criteria.      |
+| *Network*     | Failed API calls (e.g., save, export, delete).  |
 | *User Action* | Confirmed user actions (e.g., deletion) failed. |
 
 
