@@ -67,9 +67,19 @@ Clicking the **Plus (+)** button in the page header opens the **New Project** di
   <img src="../_static/figma_mockups/Usecase1_create_project.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
+
 #### 1.2.2. Use Case: Delete Project
+This use case shows a user selecting the delete (red trash) icon for a project in the projects table. A confirmation dialog appears, prompting the user to confirm or cancel the deletion. Upon confirmation, the project is removed from the list, and the project count in the header is updated.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase2_delete_project.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 1.2.3. Use Case: Enter Project Page
+This use case illustrates the user entering a project's page by clicking on a project row from the landing page. The project page displays project metadata, label classes, and a grid of image thumbnails, each with associated actions and metadata.
+
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase5_enter_project_page.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
 
@@ -157,36 +167,45 @@ Displays a grid of image thumbnails. Each thumbnail has:
 ### 2.4. Use Cases
 
 #### 2.4.1. Use Case: Add Label Classes
+This use case demonstrates adding a new label class to a project. The user clicks the "Add New Label Class" button, opening a modal dialog. The modal contains fields for the label class name, color, and comments. After entering the details and clicking save, the new label class appears in the list of label classes.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase3_add_label_classes.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
 #### 2.4.2. Use Case: Edit Label Classes
+This use case shows a user editing an existing label class. The user clicks the edit (pencil) icon next to a label class, which opens an inline editor or modal. The user can modify the name, color, or comments, and then save the changes. The updated label class is reflected in the list.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase4_edit_label_classes.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
-#### 2.4.3. Use Case: Enter Project Page
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase5_enter_project_page.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
 
-#### 2.4.4. Use Case: Upload, Step-by-step
+
+#### 2.4.3. Use Case: Upload, Step-by-step
+This use case depicts the process of uploading images to a project using a step-by-step wizard. The user is guided through selecting files, confirming upload details, and monitoring upload progress. Each step is clearly indicated, and the user can navigate between steps.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase6_upload_step_by_step.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
-#### 2.4.5. Use Case: Upload, File list
+#### 2.4.4. Use Case: Upload, File list
+This use case shows the user uploading images by selecting multiple files at once. The interface displays a list of selected files, their upload status, and any errors encountered. The user can remove files from the list before confirming the upload.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase7_upload_file_list.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
-#### 2.4.6. Use Case: Check Job Status
+#### 2.4.5. Use Case: Check Job Status
+This use case demonstrates how the user can monitor the status of background jobs, such as image processing or batch labeling. The interface provides a job status panel showing job progress, completion, or errors, with options to retry or cancel jobs if needed.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase8_check_job_status.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
-#### 2.4.7. Use Case: Export Annotations With Labels
+#### 2.4.6. Use Case: Export Annotations With Labels
+This use case shows the process of exporting all annotations with their associated labels for a project. The user clicks the export button, and a dialog or progress indicator appears. Upon completion, a file download is triggered, and a confirmation message is shown.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase16_export_annotations_with_labels.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
@@ -230,41 +249,57 @@ Displays a single image with a grid of patches (based on configured patch size).
 ### 3.4. Use Cases
 
 #### 3.4.1. Use Case: Enter Object Labeling Page
+This use case illustrates the user entering the object labeling interface for a specific image. The interface displays the image with a grid overlay representing patches, and controls for assigning labels to each patch.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase9_Enter_objectlabeling_page.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
 #### 3.4.2. Use Case: Enter Image View
+This use case shows the user viewing a full image in the labeling interface. The image is displayed with navigation controls, and the user can zoom, pan, or select specific patches for labeling.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase10_Enter_image_view.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
 #### 3.4.3. Use Case: Show Patches
+This use case demonstrates the visualization of image patches within the labeling interface. Each patch is outlined or highlighted, and the user can interact with individual patches to assign or modify labels.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase11_show_patches.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
 #### 3.4.4. Use Case: Navigate Embedding
+This use case shows the user navigating an embedding visualization, such as a 2D or 3D plot of patch features. The user can filter, select, or highlight groups of patches based on their embedding positions.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase12_Navigate_embedding.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
 #### 3.4.5. Use Case: Assign Labels
+This use case demonstrates the process of assigning labels to patches. The user selects a patch, chooses a label class from a dropdown, optionally adjusts the confidence slider, and saves the label. The patch's appearance updates to reflect the assigned label.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase13_assign_labels.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
 #### 3.4.6. Use Case: Filter Embedding
+This use case shows the user filtering the embedding visualization to display only patches matching certain criteria, such as label class or confidence range. The filtered view helps focus labeling or review efforts.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase14_filter_embedding.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
 #### 3.4.7. Use Case: Enter Image View From Patch
+This use case illustrates the user navigating from a patch in the embedding or patch grid view back to the full image view, maintaining context for the selected patch.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase15_enter_image_view_from_patch.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
 #### 3.4.8. Use Case: Control DL Processing
+This use case demonstrates user control over deep learning (DL) processing tasks within the labeling interface. The user can start, pause, or stop DL-based operations, such as automated labeling or feature extraction, and monitor their progress or results.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase18_control_DL_processing.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
@@ -282,7 +317,6 @@ Accessed via the gear icon in the project header.
 |---|---|
 | **Patch Size** | Dropdown to change patch size (256, 512, 1024). |
 | **Default Label Class** | Dropdown to set default label class for new labels. |
-| **Auto-save** | Toggle to enable/disable auto-saving labels. |
 | **Export Format** | Dropdown for export format: JSON, CSV, TFRecord. |
 
 ### 4.2. Actions
@@ -306,6 +340,8 @@ Accessed via the gear icon in the project header.
 ### 4.4. Use Cases
 
 #### 4.4.1. Use Case: Enter Settings
+This use case shows the user accessing the project settings page by clicking the gear icon. The settings modal or page displays configurable options such as patch size, default label class, auto-save, and export format.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase17_enter_settings.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
@@ -338,6 +374,8 @@ Located in the Images section. Exports all labeled objects for the project.
 ### 5.3. Use Cases
 
 #### 5.3.1. Use Case: Export All Image Labels
+This use case demonstrates exporting all labeled objects for the project. The user initiates the export, sees a progress indicator, and upon completion, a file containing the labels is downloaded and a success message is shown.
+
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase16_export_annotations_with_labels.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
