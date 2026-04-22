@@ -266,40 +266,47 @@ This use case shows the user transitioning from the project overview to a detail
   <img src="../_static/figma_mockups/Usecase10_Enter_image_view.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
-#### 3.4.3. Use Case: Show Patches
+#### 3.4.3. Use Case: Enter Image View From Patch
+```{admonition} Post-MVP Feature
+:class: note
+This feature is planned for after the MVP release.
+```
+
+This use case illustrates the user navigating from a patch in the embedding or patch grid view back to the full image view, maintaining context for the selected patch.
+
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase15_enter_image_view_from_patch.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 3.4.4. Use Case: Show Patches
 This use case demonstrates the visualization of image patches within the labeling interface. Each patch is outlined or highlighted, and the user can interact with individual patches to assign or modify labels.
 
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase11_show_patches.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
-#### 3.4.4. Use Case: Navigate Embedding
+#### 3.4.5. Use Case: Navigate Embedding
 This use case demonstrates how users interactively explore a patch embedding visualization. The interface displays a 2D plot where each point represents a patch, with the density and distribution of points becoming clearer as the user zooms in. The sequence of screenshots shows the embedding view transitioning from a broad, low-detail overview to a highly detailed, zoomed-in state where individual patches are distinguishable. A floating "Ground Truth Labels" legend provides color-coded reference for label classes, helping users interpret the embedding. Users can pan and zoom to focus on regions of interest, visually identify clusters or outliers, and use the legend to filter or highlight patches by label class.
 
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase12_Navigate_embedding.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
-#### 3.4.5. Use Case: Assign Labels
+#### 3.4.6. Use Case: Assign Labels
 This use case demonstrates the interactive workflow for assigning labels to image patches within the labeling interface. The sequence begins with the user viewing the patch grid and selecting (via multi-selection or bbox selection), which highlights one or more patches and opens a label selection dropdown. The user selects a label class from the dropdown, and the patch is visually updated to reflect the new label color. The density plot on the left updates in real-time to reflect new label assignments.
 
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase13_assign_labels.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
-#### 3.4.6. Use Case: Filter Embedding
+#### 3.4.7. Use Case: Filter Embedding
 This use case shows the user filtering the embedding visualization to display only patches matching certain criteria, such as label class or confidence range. The filtered view helps focus labeling or review efforts.
 
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase14_filter_embedding.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
-#### 3.4.7. Use Case: Enter Image View From Patch
-This use case illustrates the user navigating from a patch in the embedding or patch grid view back to the full image view, maintaining context for the selected patch.
 
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase15_enter_image_view_from_patch.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
 
 #### 3.4.8. Use Case: Control DL Processing
 This use case demonstrates user control over deep learning (DL) processing tasks within the labeling interface. The user can start, pause, or stop DL-based operations, such as automated labeling or feature extraction, and monitor their progress or results.
@@ -322,19 +329,19 @@ Accessed via the gear icon in the project header.
 | **Patch Size** | Disabled |            |
 
 
-### 4.2 Application Settings
+### 4.2. 4.2 Application Settings
 | Setting | Value | Description |
 | ------- | ----- | ----------- |
 
 
-### 4.2. Actions
+### 4.3. Actions
 
 | Action             | Description                                    |
 | ------------------ | ---------------------------------------------- |
 | **Save Settings**  | Saves changes and applies them to the project. |
 | **Reset Settings** | Resets settings to default values.             |
 
-### 4.3. States
+### 4.4. States
 
 | State     | Description                                         |
 | --------- | --------------------------------------------------- |
@@ -345,9 +352,9 @@ Accessed via the gear icon in the project header.
 
 ---
 
-### 4.4. Use Cases
+### 4.5. Use Cases
 
-#### 4.4.1. Use Case: Enter Settings
+#### 4.5.1. Use Case: Enter Settings
 This use case shows the user accessing the project settings page by clicking the gear icon. The settings modal or page displays configurable options such as patch size, default label class, auto-save, and export format.
 
 <div style="overflow-x: auto; width: 100%;">
