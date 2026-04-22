@@ -2,23 +2,15 @@
 
 ---
 
-## 1. Landing Page.
+
+## 1. Landing Page
 
 The Landing Page is the entry point of the application. It lists all existing projects and provides controls to create, edit, delete, and configure projects.
-
-### Use Case: Create Project
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase1_create_project.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
-
-### Use Case: Delete Project
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase2_delete_project.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
 
 The page header displays **Projects (N)**, where N is the current project count, alongside a **Plus (+)** button to create a new project.
 
 The projects table contains the following columns (as shown in the UI):
+
 
 | Column | Description |
 |---|---|
@@ -39,6 +31,12 @@ Clicking a project row navigates to that project's [Project Page](#project-page)
 
 ### 1.1. Create Project
 
+
+---
+
+### 1.2. Use Cases
+
+#### 1.2.1. Use Case: Create Project
 Clicking the **Plus (+)** button in the page header opens the **New Project** dialog.
 
 **Inputs:**
@@ -64,50 +62,25 @@ Clicking the **Plus (+)** button in the page header opens the **New Project** di
 | *Success* | Dialog closes and the new project appears in the projects table. |
 | *Error* | An error message is displayed below the button. |
 
----
 
-## 2. Project Page.
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase1_create_project.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 1.2.2. Use Case: Delete Project
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase2_delete_project.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+
+## 2. Project Page
 
 The Project Page is accessed by clicking a project row from the Landing Page. It displays project metadata, label classes, and image thumbnails with labeling controls.
-
-### Use Case: Add Label Classes
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase3_add_label_classes.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
-
-### Use Case: Edit Label Classes
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase4_edit_label_classes.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
-
-### Use Case: Enter Project Page
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase5_enter_project_page.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
-
-### Use Case: Upload, Step-by-step
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase6_upload_step_by_step.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
-
-### Use Case: Upload, File list
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase7_upload_file_list.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
-
-### Use Case: Check Job Status
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase8_check_job_status.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
-
-### Use Case: Export Annotations With Labels
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase16_export_annotations_with_labels.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
 
 The page header displays the project title and a breadcrumb: **Projects > [Project Name]**. It includes a **Back** button to return to the Landing Page and a **Settings** (gear) button to open project settings.
 
 Below the header, the page is divided into three sections:
+
 
 ### 2.1. Project Metadata
 
@@ -124,6 +97,7 @@ Displays project-level information:
 | **No. of label classes** | Number of defined label classes |
 | **No. Total Objects** | Total objects across all images |
 | **No. Labeled** | Number of labeled objects |
+
 
 ### 2.2. Label Classes
 
@@ -154,6 +128,7 @@ Displays all label classes in a collapsible list. Each class can be edited or de
 | *Success* | Label class added to list, modal closes. |
 | *Error* | Error message displayed if validation fails. |
 
+
 ### 2.3. Images
 
 Displays a grid of image thumbnails. Each thumbnail has:
@@ -176,46 +151,50 @@ Displays a grid of image thumbnails. Each thumbnail has:
 | *Loading* | Spinner while fetching or processing image data. |
 | *Error* | Error message if image fails to load or export. |
 
+
 ---
 
-## 3. Labeling Interface.
+### 2.4. Use Cases
+
+#### 2.4.1. Use Case: Add Label Classes
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase3_add_label_classes.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 2.4.2. Use Case: Edit Label Classes
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase4_edit_label_classes.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 2.4.3. Use Case: Enter Project Page
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase5_enter_project_page.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 2.4.4. Use Case: Upload, Step-by-step
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase6_upload_step_by_step.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 2.4.5. Use Case: Upload, File list
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase7_upload_file_list.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 2.4.6. Use Case: Check Job Status
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase8_check_job_status.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 2.4.7. Use Case: Export Annotations With Labels
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase16_export_annotations_with_labels.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+
+## 3. Labeling Interface
 
 Accessed via **Open Labeling Page** from the Images section.
-
-### Use Case: Enter Object Labeling Page
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase9_Enter_object_labeling_page.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
-
-### Use Case: Enter Image View
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase10_Enter_image_view.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
-
-### Use Case: Show Patches
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase11_show_patches.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
-
-### Use Case: Navigate Embedding
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase12_Navigate_embedding.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
-
-### Use Case: Assign Labels
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase13_assign_labels.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
-
-### Use Case: Filter Embedding
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase14_filter_embedding.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
-
-### Use Case: Enter Image View From Patch
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase15_enter_image_view_from_patch.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
 
 ### 3.1. Overview
 
@@ -225,6 +204,7 @@ Displays a single image with a grid of patches (based on configured patch size).
 - **Confidence slider**: Optional for labeling confidence (0–100%)
 - **Save button**: Saves label for the patch
 
+
 ### 3.2. Controls
 
 | Control | Description |
@@ -233,6 +213,7 @@ Displays a single image with a grid of patches (based on configured patch size).
 | **Save Labels** | Saves all labels for the current image. |
 | **Export Labels** | Exports all labels as JSON. |
 | **Reset Labels** | Clears all labels for the current image. |
+
 
 ### 3.3. States
 
@@ -245,14 +226,55 @@ Displays a single image with a grid of patches (based on configured patch size).
 
 ---
 
-## 4. Settings Page.
+
+### 3.4. Use Cases
+
+#### 3.4.1. Use Case: Enter Object Labeling Page
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase9_Enter_objectlabeling_page.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 3.4.2. Use Case: Enter Image View
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase10_Enter_image_view.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 3.4.3. Use Case: Show Patches
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase11_show_patches.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 3.4.4. Use Case: Navigate Embedding
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase12_Navigate_embedding.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 3.4.5. Use Case: Assign Labels
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase13_assign_labels.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 3.4.6. Use Case: Filter Embedding
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase14_filter_embedding.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 3.4.7. Use Case: Enter Image View From Patch
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase15_enter_image_view_from_patch.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+#### 3.4.8. Use Case: Control DL Processing
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase18_control_DL_processing.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+---
+
+
+## 4. Settings Page
 
 Accessed via the gear icon in the project header.
-
-### Use Case: Enter Settings
-<div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase17_enter_settings.png" style="height: 400px; width: auto; max-width: none; display: block;">
-</div>
 
 ### 4.1. Settings
 
@@ -281,20 +303,28 @@ Accessed via the gear icon in the project header.
 
 ---
 
-## 5. Export Functionality.
+### 4.4. Use Cases
 
-### 5.1. Export All Image Labels
+#### 4.4.1. Use Case: Enter Settings
+<div style="overflow-x: auto; width: 100%;">
+  <img src="../_static/figma_mockups/Usecase17_enter_settings.png" style="height: 400px; width: auto; max-width: none; display: block;">
+</div>
+
+---
+
+
+## 5. Export Functionality
 
 Located in the Images section. Exports all labeled objects for the project.
 
-**Actions:**
+### 5.1. Actions
 
 | Action | Description |
 |---|---|
 | **Export** | Triggers export. |
 | **Cancel** | Cancels export if in progress. |
 
-**States:**
+### 5.2. States
 
 | State | Description |
 |---|---|
@@ -305,18 +335,24 @@ Located in the Images section. Exports all labeled objects for the project.
 
 ---
 
-## 6. Error Handling.
+### 5.3. Use Cases
 
-### Use Case: Control DL Processing
+#### 5.3.1. Use Case: Export All Image Labels
 <div style="overflow-x: auto; width: 100%;">
-  <img src="../_static/figma_mockups/Usecase18_control_DL_processing.png" style="height: 400px; width: auto; max-width: none; display: block;">
+  <img src="../_static/figma_mockups/Usecase16_export_annotations_with_labels.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
+
+---
+
+
+## 6. Error Handling
 
 All components display error states with:
 
 - Toast notifications (for transient errors)
 - Inline error messages (for form validation)
 - Modal error messages (for critical actions like deletion or export)
+
 
 **Error Types:**
 
@@ -326,7 +362,10 @@ All components display error states with:
 | *Network* | Failed API calls (e.g., save, export, delete). |
 | *User Action* | Confirmed user actions (e.g., deletion) failed. |
 
+
 ---
+
+
 
 ## 7. UI States.
 
@@ -372,5 +411,5 @@ All components display error states with:
 
 --- 
 
-*Document generated from Figma mockups (Sections 1–21).*
+10. *Document generated from Figma mockups (Sections 1–21).*
 ---
