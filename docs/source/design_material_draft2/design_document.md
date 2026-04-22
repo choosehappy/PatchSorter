@@ -256,7 +256,11 @@ This use case illustrates the user entering the object labeling interface for a 
 </div>
 
 #### 3.4.2. Use Case: Enter Image View
-This use case shows the user viewing a full image in the labeling interface. The image is displayed with navigation controls, and the user can zoom, pan, or select specific patches for labeling.
+```{admonition} Post-MVP Feature
+:class: note
+This feature is planned for after the MVP release.
+```
+This use case shows the user transitioning from the project overview to a detailed image view within the labeling interface. The sequence begins with the user selecting an image from the project page, which opens the image in a dedicated viewer. The interface displays the full-resolution image on the left, with navigation controls and a breadcrumb at the top for context. On the right, a panel is available for additional information or actions. Users can zoom and pan the image to inspect details, and a floating legend or label summary is overlaid for reference. The interface supports selecting and interacting with specific patches or regions within the image, preparing for further labeling or review actions.
 
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase10_Enter_image_view.png" style="height: 400px; width: auto; max-width: none; display: block;">
@@ -270,14 +274,14 @@ This use case demonstrates the visualization of image patches within the labelin
 </div>
 
 #### 3.4.4. Use Case: Navigate Embedding
-This use case shows the user navigating an embedding visualization, such as a 2D or 3D plot of patch features. The user can filter, select, or highlight groups of patches based on their embedding positions.
+This use case demonstrates how users interactively explore a patch embedding visualization. The interface displays a 2D plot where each point represents a patch, with the density and distribution of points becoming clearer as the user zooms in. The sequence of screenshots shows the embedding view transitioning from a broad, low-detail overview to a highly detailed, zoomed-in state where individual patches are distinguishable. A floating "Ground Truth Labels" legend provides color-coded reference for label classes, helping users interpret the embedding. Users can pan and zoom to focus on regions of interest, visually identify clusters or outliers, and use the legend to filter or highlight patches by label class.
 
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase12_Navigate_embedding.png" style="height: 400px; width: auto; max-width: none; display: block;">
 </div>
 
 #### 3.4.5. Use Case: Assign Labels
-This use case demonstrates the process of assigning labels to patches. The user selects a patch, chooses a label class from a dropdown, optionally adjusts the confidence slider, and saves the label. The patch's appearance updates to reflect the assigned label.
+This use case demonstrates the interactive workflow for assigning labels to image patches within the labeling interface. The sequence begins with the user viewing the patch grid and selecting (via multi-selection or bbox selection), which highlights one or more patches and opens a label selection dropdown. The user selects a label class from the dropdown, and the patch is visually updated to reflect the new label color. The density plot on the left updates in real-time to reflect new label assignments.
 
 <div style="overflow-x: auto; width: 100%;">
   <img src="../_static/figma_mockups/Usecase13_assign_labels.png" style="height: 400px; width: auto; max-width: none; display: block;">
