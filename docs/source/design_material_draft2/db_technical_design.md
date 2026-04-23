@@ -148,6 +148,18 @@ erDiagram
         TIMESTAMP event_ts
         SMALLINT label_class_id FK
     }
+
+    CONFUSION_MATRIX_LN {
+        SMALLINT grid_cell_i PK
+        SMALLINT grid_cell_j PK
+        DATE bucket_date
+        SMALLINT pred_label FK
+        SMALLINT gt_label FK
+        INT count
+        TEXT pred_version
+    }
+
+    
     SETTINGS ||--|| PROJECT : "configures"
     PROJECT ||--o{ IMAGE : "includes"
     PROJECT ||--o{ LABEL_CLASS : "defines"
@@ -155,3 +167,5 @@ erDiagram
     PATCH ||--o{ PATCH_PREDICTION : "has"
     LABEL_CLASS ||--o{ PATCH : "classifies"
     LABEL_CLASS ||--o{ PATCH_PREDICTION : "classifies"
+    CONFUSION_MATRIX_LN ||--o{ LABEL_CLASS : "references"
+```

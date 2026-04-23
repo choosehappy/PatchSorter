@@ -53,7 +53,3 @@ html_js_files = [
 html_css_files = [
     'custom.css',
 ]
-
-# Set the mermaid_output_format to SVG mode
-mermaid_output_format = 'svg'
-mermaid_d3_zoom = True
