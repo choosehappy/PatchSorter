@@ -8,7 +8,8 @@
         "baseURL": "http://localhost:1234/v1"
       },
       "models": {
-        "qwen/qwen3-vl-8b": {}
+        "qwen/qwen3-vl-8b": {},
+        "qwen/qwen3-coder-30b": {}
       }
     }
   }

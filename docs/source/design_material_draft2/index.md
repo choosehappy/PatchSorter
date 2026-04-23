@@ -13,3 +13,4 @@ Second draft of design materials for PatchSorter.
 :maxdepth: 1
 
 design_document.md
+db_technical_design.md

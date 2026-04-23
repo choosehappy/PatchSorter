@@ -20,6 +20,7 @@ extensions = [
     'sphinx.ext.viewcode',
     'sphinx_design',
     'myst_parser',
+    'sphinxcontrib.mermaid',
 ]
 
 myst_enable_extensions = [
