@@ -61,11 +61,23 @@
 | project_id    | INT       | FOREIGN KEY, NULLABLE          | Identifier for the associated project. Null if the setting applies at the application level. |
 | setting_key   | TEXT      | NOT NULL                       | Key for the setting.                            |
 | setting_value | TEXT      | NOT NULL                       | Value for the setting.                          |
+| disabled      | BOOLEAN   | DEFAULT FALSE                  | Flag indicating if the setting is disabled and should not be updated. |
+
+## Confusion Matrix LN Table
+| Column Name    | Data Type  | Constraints                     | Description                                      |
+|----------------|------------|---------------------------------|--------------------------------------------------|
+| grid_cell_i    | SMALLINT   | NOT NULL, PRIMARY KEY (composite)| Row index in the grid.                          |
+| grid_cell_j    | SMALLINT   | NOT NULL, PRIMARY KEY (composite)| Column index in the grid.                       |
+| bucket_date    | DATE       | NOT NULL                       | Date when the bucket was last updated.          |
+| pred_label     | SMALLINT   | NOT NULL, FOREIGN KEY, PRIMARY KEY (composite)| Predicted label for the bucket.                 |
+| gt_label       | SMALLINT   | NOT NULL, FOREIGN KEY, PRIMARY KEY (composite)| Ground truth label for the bucket.              |
+| count          | INT        | NOT NULL                       | Number of patches in the bucket.                |
+| pred_version   | TEXT       | NOT NULL                       | Version of the prediction.                      |
 
 ## Relationships
 
 ### Settings Table
-- **configures**: Each `Settings` entry configures one or more `Projects`.
+- **configures**: Each `Settings` entry configures a single project unless `project_id` is null, in which case it applies at the application level.
 
 ### Project Table
 - **includes**: Each `Project` includes one or more `Images`.
@@ -87,8 +99,10 @@
 erDiagram
     SETTINGS {
         SERIAL setting_id PK
+        INT project_id FK
         TEXT setting_key
         TEXT setting_value
+        BOOLEAN disabled
     }
     PROJECT {
         SERIAL project_id PK
@@ -134,11 +148,10 @@ erDiagram
         TIMESTAMP event_ts
         SMALLINT label_class_id FK
     }
-    SETTINGS ||--o{ PROJECT : "configures"
+    SETTINGS ||--|| PROJECT : "configures"
     PROJECT ||--o{ IMAGE : "includes"
     PROJECT ||--o{ LABEL_CLASS : "defines"
     IMAGE ||--o{ PATCH : "contains"
     PATCH ||--o{ PATCH_PREDICTION : "has"
     LABEL_CLASS ||--o{ PATCH : "classifies"
     LABEL_CLASS ||--o{ PATCH_PREDICTION : "classifies"
-```
