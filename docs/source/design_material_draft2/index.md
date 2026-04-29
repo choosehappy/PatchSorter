@@ -14,3 +14,4 @@ Second draft of design materials for PatchSorter.
 
 design_document.md
 db_technical_design.md
+ray_technical_design.md
