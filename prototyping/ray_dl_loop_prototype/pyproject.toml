@@ -1,0 +1,11 @@
+[project]
+name = "ray-dl-loop-prototype"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "ipywidgets>=8.1.8",
+    "numpy>=2.4.4",
+    "psycopg[binary,pool]>=3.3.3",
+    "ray[train]>=2.55.1",
+    "rich>=15.0.0",
+]
