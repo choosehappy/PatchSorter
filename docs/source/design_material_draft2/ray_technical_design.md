@@ -1,74 +1,155 @@
-# Ray Technical Design (Short Version)
+## Minimal Working Example: Ray Train Actor and Loop Initialization
+
+Below is a minimal example showing how to define a Ray Train actor class and initialize the distributed training loop using Ray Train's `TorchTrainer` (or `Trainer` for generic backends):
+
+```python
+import ray
+from ray import train
+from ray.train.torch import TorchTrainer
+from ray.air.config import ScalingConfig
+
+# (Optional) Define a custom actor for shared resources or coordination
+@ray.remote
+class TableManager:
+    def drop_old_table(self):
+        # Implement drop logic here
+        pass
+
+
+def train_pred_loop(config):
+    # ... (see main pseudocode below) ...
+    pass
+
+if __name__ == "__main__":
+    ray.init()
+
+    # (Optional) Create a shared actor if needed
+    table_manager = TableManager.remote()
+
+
+    trainer = TorchTrainer(
+        train_loop_per_worker=train_pred_loop,
+        train_loop_config={
+            "batch_size": 32,
+            "n_train_batches": 10,  # Number of batches to train per inner loop
+            "n_pred_batches": 5,    # Number of batches to predict per inner loop
+            # Add other config as needed
+        },
+        scaling_config=ScalingConfig(
+            num_workers=4,  # Set to desired number of workers
+            use_gpu=False,  # Set True if using GPUs
+        ),
+    )
+
+    result = trainer.fit()
+    print(result)
+```
+
+This example demonstrates how to:
+- Define a Ray actor for table management (if needed).
+- Set up and launch a distributed training loop with Ray Train.
+- Pass configuration and scaling parameters.
+# Ray Technical Design (Ray Train & Citus Shards)
 
 ## Overview
 
+This design describes distributed training and prediction using Ray Train with multiple DL workers per Citus node. Coordination is achieved using Ray Train’s built-in `barrier()` method, ensuring strict synchronization across all workers and correct management of prediction tables in a distributed Citus/Postgres environment.
+
 ## Patch Prediction Table Management
 - Two tables are used: `pred_patch_latest` (for writing new predictions) and `pred_patch_last` (for serving stable predictions to clients).
-- After each prediction cycle, when all workers reach the barrier, the DL_actor:
-	1. Drops the existing `pred_patch_last` table (if it exists).
-	2. Renames `pred_patch_latest` to `pred_patch_last`.
-	3. Creates a new, empty `pred_patch_latest` table for the next cycle.
-- Client queries perform a UNION of both tables to ensure they get the most recent stable predictions during transitions between cycles.
+- After each prediction cycle:
+    1. All workers finish reading/writing the old table.
+    2. A global barrier ensures all workers have completed.
+    3. The rank-0 worker (on the Ray Train world) drops the old table via the Citus coordinator.
+    4. A second barrier ensures the drop is complete before the next cycle.
+- Client queries perform a UNION of both tables to ensure they get the most recent stable predictions during transitions.
 
-## Training Approach
-- `DL_actor` receives a `train_prediction_loop` function.
-- Each training cycle, `train_prediction_loop` is called by each worker.
-- Barrier-style coordination: `DL_actor` ensures all workers finish their shard for the current cycle before any proceed to the next.
-- Guarantees each worker processes its shard exactly once per iteration.
+## Training and Prediction Loop
+
+- Each worker connects to its local Citus shard and fetches fresh train and prediction iterators for each cycle.
+- Workers alternate between N training steps and M prediction steps, repeating until the prediction iterator is exhausted.
+- After all workers finish, two barriers are used to coordinate table dropping and safe transition to the next cycle.
+
+## Coordination Logic with Ray Train
+
+- Ray Train’s `barrier()` is used for global synchronization.
+- Each worker runs the same loop; only the rank-0 worker performs the table drop.
+- This design supports multiple workers per Citus node, each operating on its local shard.
+
+## Example Pseudocode (Ray Train Barrier)
+
+```python
+from itertools import islice
+import ray.train
+from ray.train.collective import barrier
+
+def train_pred_loop(config):
+    # Setup
+    model     = ...
+    optimizer = ...
+    criterion = ...
+
+    rank       = ray.train.get_context().get_world_rank()
+    local_rank = ray.train.get_context().get_local_rank()
+    local_size = ray.train.get_context().get_local_world_size()
+
+    batch_size      = config["batch_size"]
+    n_train_batches = config["n_train_batches"]
+    n_pred_batches  = config["n_pred_batches"]
+
+    # Each worker connects to its local Citus shard
+    local_pg = get_local_pg_connection(rank)
+
+    step = 0
+    while True:
+        # Fresh iterators each cycle
+        train_iter = fetch_train_batches(local_pg, local_rank, local_size, batch_size)
+        pred_iter  = fetch_pred_batches(local_pg, local_rank, local_size, batch_size)
+
+        # Alternate train/pred until pred is exhausted
+        while True:
+            # Train on N batches
+            model.train()
+            for train_batch in islice(train_iter, n_train_batches):
+                inputs, labels = train_batch
+                optimizer.zero_grad()
+                loss = criterion(model(inputs), labels)
+                loss.backward()
+                optimizer.step()
+
+            # Predict on M batches
+            model.eval()
+            pred_batches = list(islice(pred_iter, n_pred_batches))
+            if not pred_batches:
+                break
+            with torch.no_grad():
+                for pred_batch in pred_batches:
+                    inputs = pred_batch
+                    preds  = model(inputs)
+                    write_preds_to_pg(local_pg, preds)  # write back to local shard
+
+        # All workers finished reading/writing old table
+        barrier()
+
+        if rank == 0:
+            drop_old_table(local_pg)   # coordinator connection to drop globally
+
+        # Drop confirmed, safe to start next cycle
+        barrier()
+
+        step += 1
+        ray.train.report({"step": step, "loss": loss.item()})
+```
 
 ## Data Flow
-- Workers fetch their data shard from the database using `patch_id`-based sharding.
-- After processing, results (predictions) are written to the `pred_patch_latest` table.
 
-## Barrier Coordination Design
-- The `DL_actor` maintains a set or counter to track which worker IDs have reported completion for the current cycle.
-- Each worker, after finishing its assigned shard and writing results to `pred_patch_latest`, sends a "done" signal to the `DL_actor` (e.g., via a Ray remote method).
-- When a worker signals completion, `DL_actor` adds the worker’s ID to the set.
-- If the set size equals the total number of workers, the barrier is satisfied.
-- The `DL_actor` then:
-	1. Performs the table swap: drops `pred_patch_last`, renames `pred_patch_latest` to `pred_patch_last`, and creates a new empty `pred_patch_latest`.
-	2. Notifies all workers (e.g., via Ray events, signals, or by returning from a blocking remote call) that they may proceed to the next cycle.
-	3. Clears the set/counter for the next cycle.
-- This guarantees that no worker can start the next cycle until all have finished the current one, ensuring strict synchronization and data consistency.
-
-### Example Pseudocode (Polling Barrier)
-```python
-import ray
-import time
-
-@ray.remote
-class DLActor:
-    def __init__(self, num_workers):
-        self.num_workers = num_workers
-        self.ready_workers = set()
-
-    def worker_done(self, worker_id):
-        self.ready_workers.add(worker_id)
-        if len(self.ready_workers) == self.num_workers:
-            self.swap_tables()
-            self.ready_workers.clear()  # Reset for next cycle
-
-    def barrier_satisfied(self):
-        return len(self.ready_workers) == self.num_workers
-
-    def swap_tables(self):
-        # Drop pred_patch_last, rename pred_patch_latest, create new pred_patch_latest
-        pass
-
-# Worker logic (polling pattern):
-# 1. Do work
-# 2. ray.get(dl_actor.worker_done.remote(my_id))
-# 3. Poll for barrier satisfaction:
-while not ray.get(dl_actor.barrier_satisfied.remote()):
-    time.sleep(0.1)  # Sleep to avoid busy-waiting
-# Proceed to next cycle
-```
-## Coordination Logic
-- `DL_actor` tracks worker progress per cycle.
-- Only when all workers report completion does the next cycle begin.
+- Each worker fetches its data shard from its local Citus shard using `patch_id`-based sharding.
+- Training and prediction batches are processed locally and predictions are written back to the local shard.
+- Table management (drop/rename) is coordinated globally via Ray Train barriers and the rank-0 worker.
 
 ## Schema Context
+
 - Patch and Patch Prediction tables use `patch_id` as the sharding key.
 - All distributed operations are aligned with this schema for efficient parallelism and data consistency.
-	- All prediction writes go to `pred_patch_latest`.
-	- All client reads for stable predictions are served from `pred_patch_last`.
+    - All prediction writes go to `pred_patch_latest`.
+    - All client reads for stable predictions are served from `pred_patch_last`.
