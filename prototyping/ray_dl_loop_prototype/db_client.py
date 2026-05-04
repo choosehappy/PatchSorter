@@ -193,12 +193,17 @@ class CitusHeadClient:
 		"""
 		# Step 1a: INSERT trigger function (pred_patch → CM).
 		# Deployed on the coordinator; run_command_on_workers pushes it to all workers.
+		# When a patch_id already has a prediction in pred_patch_last (prior epoch),
+		# the old CM contribution is decremented and the new one is incremented so that
+		# only the net delta is written.  to_regclass() returns NULL when pred_patch_last
+		# does not yet exist (first epoch), which falls through to the simple-insert path.
 		insert_trigger_fn_sql = f"""
 			CREATE OR REPLACE FUNCTION update_cm_shard()
 			RETURNS TRIGGER LANGUAGE plpgsql AS $body$
 			DECLARE
-				v_patch_shard  text;
-				v_pred_shardid bigint;
+				v_patch_shard      text;
+				v_pred_last_shard  text;
+				v_pred_shardid     bigint;
 			BEGIN
 				-- Extract the numeric shard ID from the current shard table name,
 				-- e.g. '{pred_patch_table}_102008' -> 102008
@@ -214,20 +219,74 @@ class CitusHeadClient:
 					WHERE shardid = v_pred_shardid
 				);
 
-				-- TG_ARGV[0] = colocated CM shard (schema-qualified).
-				EXECUTE format(
-					$sql$
-					INSERT INTO %s (shard_id, grid_cell_i, grid_cell_j, pred_label, gt_label, bucket_date, count)
-					SELECT 0, nr.grid_cell_i, nr.grid_cell_j, nr.label_class_id,
-						p.label_class_id, CURRENT_DATE, COUNT(*)
-					FROM new_rows nr
-					INNER JOIN %s p ON nr.patch_id = p.patch_id
-					GROUP BY nr.grid_cell_i, nr.grid_cell_j, nr.label_class_id, p.label_class_id
-					ON CONFLICT (shard_id, grid_cell_i, grid_cell_j, pred_label, gt_label)
-					DO UPDATE SET count = EXCLUDED.count + %s.count
-					$sql$,
-					TG_ARGV[0], v_patch_shard, TG_ARGV[0]
+				-- Resolve the colocated pred_patch_last shard (same hash-range).
+				-- to_regclass() returns NULL if the table does not yet exist,
+				-- leaving v_pred_last_shard NULL (no rows matched).
+				SELECT TG_TABLE_SCHEMA || '.' || 'pred_patch_last_' || shardid::text
+				INTO v_pred_last_shard
+				FROM pg_dist_shard
+				WHERE logicalrelid = to_regclass(TG_TABLE_SCHEMA || '.pred_patch_last')
+				AND shardminvalue = (
+					SELECT shardminvalue FROM pg_dist_shard
+					WHERE shardid = v_pred_shardid
 				);
+
+				-- TG_ARGV[0] = colocated CM shard (schema-qualified).
+				IF v_pred_last_shard IS NULL THEN
+					-- No prior prediction epoch: simple positive increment.
+					EXECUTE format(
+						$sql$
+						INSERT INTO %s (shard_id, grid_cell_i, grid_cell_j, pred_label, gt_label, bucket_date, count)
+						SELECT 0, nr.grid_cell_i, nr.grid_cell_j, nr.label_class_id,
+							p.label_class_id, CURRENT_DATE, COUNT(*)
+						FROM new_rows nr
+						INNER JOIN %s p ON nr.patch_id = p.patch_id
+						GROUP BY nr.grid_cell_i, nr.grid_cell_j, nr.label_class_id, p.label_class_id
+						ON CONFLICT (shard_id, grid_cell_i, grid_cell_j, pred_label, gt_label)
+						DO UPDATE SET count = EXCLUDED.count + %s.count
+						$sql$,
+						TG_ARGV[0], v_patch_shard, TG_ARGV[0]
+					);
+				ELSE
+					-- Decrement for superseded predictions in pred_patch_last,
+					-- increment for new predictions, net and upsert.
+					EXECUTE format(
+						$sql$
+						WITH
+						neg AS (
+							SELECT pl.grid_cell_i, pl.grid_cell_j, pl.label_class_id AS pred_label,
+								p.label_class_id AS gt_label, -COUNT(*)::bigint AS delta
+							FROM new_rows nr
+							JOIN %s pl ON pl.patch_id = nr.patch_id
+							JOIN %s p  ON p.patch_id  = nr.patch_id
+							GROUP BY pl.grid_cell_i, pl.grid_cell_j, pl.label_class_id, p.label_class_id
+						),
+						pos AS (
+							SELECT nr.grid_cell_i, nr.grid_cell_j, nr.label_class_id AS pred_label,
+								p.label_class_id AS gt_label, COUNT(*)::bigint AS delta
+							FROM new_rows nr
+							JOIN %s p ON p.patch_id = nr.patch_id
+							GROUP BY nr.grid_cell_i, nr.grid_cell_j, nr.label_class_id, p.label_class_id
+						),
+						deltas AS (
+							SELECT grid_cell_i, grid_cell_j, pred_label, gt_label,
+								SUM(delta) AS net_delta
+							FROM (SELECT * FROM neg UNION ALL SELECT * FROM pos) t
+							GROUP BY grid_cell_i, grid_cell_j, pred_label, gt_label
+							HAVING SUM(delta) <> 0
+						)
+						INSERT INTO %s (shard_id, grid_cell_i, grid_cell_j, pred_label, gt_label, bucket_date, count)
+						SELECT 0, grid_cell_i, grid_cell_j, pred_label, gt_label, CURRENT_DATE, net_delta
+						FROM deltas
+						ON CONFLICT (shard_id, grid_cell_i, grid_cell_j, pred_label, gt_label)
+						DO UPDATE SET count = EXCLUDED.count + %s.count
+						$sql$,
+						v_pred_last_shard, v_patch_shard, v_patch_shard, TG_ARGV[0], TG_ARGV[0]
+					);
+
+					-- Remove any CM rows decremented to zero.
+					EXECUTE format('DELETE FROM %s WHERE count = 0', TG_ARGV[0]);
+				END IF;
 				RETURN NULL;
 			END;
 			$body$;
