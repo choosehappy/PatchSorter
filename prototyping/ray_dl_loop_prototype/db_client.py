@@ -110,7 +110,7 @@ class CitusHeadClient:
 			"""CREATE TABLE IF NOT EXISTS patch (
 				patch_id BIGSERIAL PRIMARY KEY,
 				patch_uid INT,
-				label_class_id SMALLINT NOT NULL REFERENCES label_class(label_class_id),
+				label_class_id SMALLINT NOT NULL,
 				image_id INT NOT NULL REFERENCES image(image_id),
 				working_mag FLOAT NOT NULL,
 				patch_image BYTEA NOT NULL
@@ -122,7 +122,7 @@ class CitusHeadClient:
 				grid_cell_i SMALLINT NOT NULL,
 				grid_cell_j SMALLINT NOT NULL,
 				event_ts TIMESTAMP NOT NULL,
-				label_class_id SMALLINT NOT NULL REFERENCES label_class(label_class_id)
+				label_class_id SMALLINT NOT NULL
 			);""",
 			"""CREATE TABLE IF NOT EXISTS pred_patch_last (
 				patch_id BIGINT PRIMARY KEY,
@@ -131,7 +131,7 @@ class CitusHeadClient:
 				grid_cell_i SMALLINT NOT NULL,
 				grid_cell_j SMALLINT NOT NULL,
 				event_ts TIMESTAMP NOT NULL,
-				label_class_id SMALLINT NOT NULL REFERENCES label_class(label_class_id)
+				label_class_id SMALLINT NOT NULL
 			);""",
 			"""CREATE TABLE IF NOT EXISTS settings (
 				setting_id SERIAL PRIMARY KEY,
@@ -145,8 +145,8 @@ class CitusHeadClient:
 				grid_cell_i SMALLINT NOT NULL,
 				grid_cell_j SMALLINT NOT NULL,
 				bucket_date DATE NOT NULL,
-				pred_label SMALLINT NOT NULL REFERENCES label_class(label_class_id),
-				gt_label SMALLINT NOT NULL REFERENCES label_class(label_class_id),
+				pred_label SMALLINT NOT NULL,
+				gt_label SMALLINT NOT NULL,
 				count INT NOT NULL,
 				PRIMARY KEY (grid_cell_i, grid_cell_j, pred_label, gt_label, shard_id)
 			);""",
@@ -157,9 +157,9 @@ class CitusHeadClient:
 			"SELECT create_reference_table('label_class');",
 			"SELECT create_reference_table('settings');",
 			"SELECT create_distributed_table('patch', 'patch_id');",
-			"SELECT create_distributed_table('pred_patch_latest', 'patch_id');",
-			"SELECT create_distributed_table('pred_patch_last', 'patch_id');",
-			"SELECT create_distributed_table('confusion_matrix_ln', 'shard_id');",
+			"SELECT create_distributed_table('pred_patch_latest', 'patch_id', colocate_with => 'patch');",
+			"SELECT create_distributed_table('pred_patch_last', 'patch_id', colocate_with => 'patch');",
+			"SELECT create_distributed_table('confusion_matrix_ln', 'shard_id', colocate_with => 'pred_patch_latest');",
 		]
 		with self.get_connection() as conn:
 			with conn.cursor() as cur:
@@ -217,14 +217,14 @@ class CitusHeadClient:
 				-- TG_ARGV[0] = colocated CM shard (schema-qualified).
 				EXECUTE format(
 					$sql$
-					INSERT INTO %s (shard_id, grid_i, grid_j, pred_label, gt_label, cnt)
-					SELECT 0, nr.grid_cell_i, nr.grid_cell_j, nr.pred_label,
-						COALESCE(p.gt_label, -1), COUNT(*)
+					INSERT INTO %s (shard_id, grid_cell_i, grid_cell_j, pred_label, gt_label, bucket_date, count)
+					SELECT 0, nr.grid_cell_i, nr.grid_cell_j, nr.label_class_id,
+						p.label_class_id, CURRENT_DATE, COUNT(*)
 					FROM new_rows nr
-					LEFT JOIN %s p ON nr.id = p.id
-					GROUP BY nr.grid_cell_i, nr.grid_cell_j, nr.pred_label, p.gt_label
-					ON CONFLICT (shard_id, grid_i, grid_j, pred_label, gt_label)
-					DO UPDATE SET cnt = EXCLUDED.cnt + %s.cnt
+					INNER JOIN %s p ON nr.patch_id = p.patch_id
+					GROUP BY nr.grid_cell_i, nr.grid_cell_j, nr.label_class_id, p.label_class_id
+					ON CONFLICT (shard_id, grid_cell_i, grid_cell_j, pred_label, gt_label)
+					DO UPDATE SET count = EXCLUDED.count + %s.count
 					$sql$,
 					TG_ARGV[0], v_patch_shard, TG_ARGV[0]
 				);
@@ -257,30 +257,30 @@ class CitusHeadClient:
 				);
 
 				-- TG_ARGV[0] = colocated CM shard (schema-qualified).
-				-- Only process rows where gt_label actually changed.
+				-- Only process rows where label_class_id actually changed.
 				EXECUTE format(
 					$sql$
 					WITH changed AS (
-						SELECT o.id,
-							COALESCE(o.gt_label, -1) AS old_gt,
-							COALESCE(n.gt_label, -1) AS new_gt
+						SELECT o.patch_id,
+							o.label_class_id AS old_gt,
+							n.label_class_id AS new_gt
 						FROM old_rows o
-						JOIN new_rows n ON o.id = n.id
-						WHERE o.gt_label IS DISTINCT FROM n.gt_label
+						JOIN new_rows n ON o.patch_id = n.patch_id
+						WHERE o.label_class_id IS DISTINCT FROM n.label_class_id
 					),
 					neg AS (
-						SELECT pp.grid_cell_i, pp.grid_cell_j, pp.pred_label,
+						SELECT pp.grid_cell_i, pp.grid_cell_j, pp.label_class_id AS pred_label,
 							c.old_gt AS gt_label, -COUNT(*)::bigint AS delta
 						FROM changed c
-						JOIN %s pp ON pp.id = c.id
-						GROUP BY pp.grid_cell_i, pp.grid_cell_j, pp.pred_label, c.old_gt
+						JOIN %s pp ON pp.patch_id = c.patch_id
+						GROUP BY pp.grid_cell_i, pp.grid_cell_j, pp.label_class_id, c.old_gt
 					),
 					pos AS (
-						SELECT pp.grid_cell_i, pp.grid_cell_j, pp.pred_label,
+						SELECT pp.grid_cell_i, pp.grid_cell_j, pp.label_class_id AS pred_label,
 							c.new_gt AS gt_label, COUNT(*)::bigint AS delta
 						FROM changed c
-						JOIN %s pp ON pp.id = c.id
-						GROUP BY pp.grid_cell_i, pp.grid_cell_j, pp.pred_label, c.new_gt
+						JOIN %s pp ON pp.patch_id = c.patch_id
+						GROUP BY pp.grid_cell_i, pp.grid_cell_j, pp.label_class_id, c.new_gt
 					),
 					deltas AS (
 						SELECT grid_cell_i, grid_cell_j, pred_label, gt_label,
@@ -289,17 +289,17 @@ class CitusHeadClient:
 						GROUP BY grid_cell_i, grid_cell_j, pred_label, gt_label
 						HAVING SUM(delta) <> 0
 					)
-					INSERT INTO %s (shard_id, grid_i, grid_j, pred_label, gt_label, cnt)
-					SELECT 0, grid_cell_i, grid_cell_j, pred_label, gt_label, net_delta
+					INSERT INTO %s (shard_id, grid_cell_i, grid_cell_j, pred_label, gt_label, bucket_date, count)
+					SELECT 0, grid_cell_i, grid_cell_j, pred_label, gt_label, CURRENT_DATE, net_delta
 					FROM deltas
-					ON CONFLICT (shard_id, grid_i, grid_j, pred_label, gt_label)
-					DO UPDATE SET cnt = %s.cnt + EXCLUDED.cnt
+					ON CONFLICT (shard_id, grid_cell_i, grid_cell_j, pred_label, gt_label)
+					DO UPDATE SET count = %s.count + EXCLUDED.count
 					$sql$,
 					v_pred_shard, v_pred_shard, TG_ARGV[0], TG_ARGV[0]
 				);
 
 				-- Remove any CM rows that have been decremented to zero.
-				EXECUTE format('DELETE FROM %s WHERE cnt = 0', TG_ARGV[0]);
+				EXECUTE format('DELETE FROM %s WHERE count = 0', TG_ARGV[0]);
 
 				RETURN NULL;
 			END;
@@ -364,7 +364,7 @@ class PredPatchStore:
 			grid_cell_i SMALLINT NOT NULL,
 			grid_cell_j SMALLINT NOT NULL,
 			event_ts TIMESTAMP NOT NULL,
-			label_class_id SMALLINT NOT NULL REFERENCES label_class(label_class_id)
+			label_class_id SMALLINT NOT NULL
 		);
 	"""
 
