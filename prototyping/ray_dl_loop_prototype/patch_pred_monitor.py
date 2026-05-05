@@ -70,11 +70,28 @@ def _shard_counts(cur, table_name: str, shard_ids: list[int]) -> dict[int, int]:
     return counts
 
 
+CM_LEVELS = [8, 9, 10, 11, 12]
+# Grid dimensions at each level: 2^level cells per axis
+CM_LEVEL_GRID = {lvl: 2 ** lvl for lvl in CM_LEVELS}
+
+
 def build_display(num_workers: int, interval: float):
     with get_conn() as conn:
         with conn.cursor() as cur:
             latest_total = _table_count(cur, "pred_patch_latest")
             last_total = _table_count(cur, "pred_patch_last")
+
+            # Collect totals and shard data for all CM levels
+            cm_totals: dict[int, int | None] = {}
+            cm_shard_ids_by_level: dict[int, list[int]] = {}
+            cm_shard_counts_by_level: dict[int, dict[int, int]] = {}
+            for lvl in CM_LEVELS:
+                tbl = f"confusion_matrix_l{lvl}"
+                cm_totals[lvl] = _table_count(cur, tbl)
+                sids = _shard_ids(cur, tbl)
+                cm_shard_ids_by_level[lvl] = sids
+                cm_shard_counts_by_level[lvl] = _shard_counts(cur, tbl, sids)
+
             shard_ids = _shard_ids(cur, "pred_patch_latest")
             shard_counts = _shard_counts(cur, "pred_patch_latest", shard_ids)
 
@@ -83,18 +100,26 @@ def build_display(num_workers: int, interval: float):
             return "[dim]not yet created[/dim]"
         return str(val)
 
-    # Table 1 — summary counts
+    # Table 1 — summary counts (pred tables + one row per CM level)
     summary = Table(
         title=f"PatchSorter Prediction Monitor  (refresh every {interval}s)",
         box=box.ROUNDED,
         show_footer=False,
     )
     summary.add_column("Table", style="cyan", no_wrap=True)
+    summary.add_column("Grid Size", justify="right")
     summary.add_column("Total Rows", justify="right", style="bright_green")
-    summary.add_row("pred_patch_latest", fmt(latest_total))
-    summary.add_row("pred_patch_last", fmt(last_total))
+    summary.add_row("pred_patch_latest", "—", fmt(latest_total))
+    summary.add_row("pred_patch_last", "—", fmt(last_total))
+    for lvl in CM_LEVELS:
+        grid = CM_LEVEL_GRID[lvl]
+        summary.add_row(
+            f"confusion_matrix_l{lvl}",
+            f"{grid}×{grid}",
+            fmt(cm_totals[lvl]),
+        )
 
-    # Table 2 — shard breakdown grouped by worker
+    # Table 2 — pred_patch_latest shard breakdown grouped by worker
     worker_shards: dict[int, list[tuple[int, int]]] = {i: [] for i in range(num_workers)}
     for idx, shard_id in enumerate(shard_ids):
         worker_shards[idx % num_workers].append((shard_id, shard_counts.get(shard_id, 0)))
@@ -122,7 +147,43 @@ def build_display(num_workers: int, interval: float):
             str(worker_total),
         )
 
-    return Group(summary, shard_tbl)
+    # Tables 3-7 — one shard breakdown per CM level
+    cm_tables = []
+    for lvl in CM_LEVELS:
+        tbl_name = f"confusion_matrix_l{lvl}"
+        grid = CM_LEVEL_GRID[lvl]
+        lvl_shard_ids = cm_shard_ids_by_level[lvl]
+        lvl_shard_counts = cm_shard_counts_by_level[lvl]
+
+        cm_worker_shards: dict[int, list[tuple[int, int]]] = {i: [] for i in range(num_workers)}
+        for idx, shard_id in enumerate(lvl_shard_ids):
+            cm_worker_shards[idx % num_workers].append((shard_id, lvl_shard_counts.get(shard_id, 0)))
+
+        cm_tbl = Table(
+            title=f"{tbl_name}  [{grid}×{grid}] — Shard Breakdown ({num_workers} workers)",
+            box=box.SIMPLE_HEAD,
+        )
+        cm_tbl.add_column("Worker", style="bold yellow")
+        cm_tbl.add_column("# Shards", justify="right")
+        cm_tbl.add_column("Shard IDs")
+        cm_tbl.add_column("Row Counts", justify="right")
+        cm_tbl.add_column("Worker Total", justify="right", style="bright_green")
+
+        for worker_idx in range(num_workers):
+            shards = cm_worker_shards[worker_idx]
+            shard_id_str = ", ".join(str(s) for s, _ in shards)
+            count_str = ", ".join(str(c) for _, c in shards)
+            worker_total = sum(c for _, c in shards)
+            cm_tbl.add_row(
+                f"Worker {worker_idx}",
+                str(len(shards)),
+                shard_id_str or "[dim]—[/dim]",
+                count_str or "[dim]—[/dim]",
+                str(worker_total),
+            )
+        cm_tables.append(cm_tbl)
+
+    return Group(summary, shard_tbl, *cm_tables)
 
 
 def main():
