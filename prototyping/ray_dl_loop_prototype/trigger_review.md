@@ -77,14 +77,14 @@ Both triggers always insert `shard_id = 0`. CM rows are already physically parti
 
 ## Summary
 
-| # | Severity | Where | Issue |
-|---|----------|-------|-------|
-| 1 | **High** | UPDATE trigger | Doesn't join `pred_patch_last`; inter-epoch gt_label changes are silently dropped, making INSERT trigger's `neg` CTE decrement the wrong CM cells |
-| 2 | **Medium** | Both triggers | `DELETE WHERE count = 0` should be `<= 0` |
-| 3 | **Medium** | INSERT trigger | Consequence of #1: `neg` CTE produces phantom negative counts until #1 is fixed |
-| 4 | Medium | INSERT trigger | `v_pred_last_shard IS NULL` conflates "first epoch" with "catalog corruption" |
-| 5 | Low | Schema / both | `bucket_date` semantics don't match a time-bucketing pattern |
-| 6 | Low | Both | `shard_id = 0` hardcoded; column is inert in the current design |
+| # | Severity | Where | Status | Issue |
+|---|----------|-------|--------|-------|
+| 1 | **High** | UPDATE trigger | **Fixed** | Doesn't join `pred_patch_last`; inter-epoch gt_label changes are silently dropped, making INSERT trigger's `neg` CTE decrement the wrong CM cells |
+| 2 | **Medium** | Both triggers | **Fixed** | `DELETE WHERE count = 0` changed to `<= 0` |
+| 3 | **Medium** | INSERT trigger | **Fixed** (via #1) | Consequence of #1: `neg` CTE produces phantom negative counts until #1 is fixed |
+| 4 | Medium | Both triggers | **Fixed** | `v_pred_last_shard IS NULL` conflated "first epoch" with "catalog corruption"; explicit `RAISE EXCEPTION` guard added |
+| 5 | Low | Schema / both | **Fixed** | `bucket_date` now updated to `CURRENT_DATE` on every `ON CONFLICT DO UPDATE` — reflects last-modified date |
+| 6 | Low | Both | Won't fix | `shard_id = 0` hardcoded; required as distribution column by Citus; triggers write directly to physical shard tables so value doesn't affect routing |
 
 ---
 
