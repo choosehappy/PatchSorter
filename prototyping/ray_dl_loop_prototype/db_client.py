@@ -230,6 +230,7 @@ class CitusHeadClient:
 				v_pred_last_shard     text;
 				v_pred_last_regclass  regclass;
 				v_pred_shardid        bigint;
+				v_patch_shardid       bigint;
 				v_shardminvalue       text;
 				v_cm_shard            text;
 				v_lvl                 int;
@@ -247,6 +248,11 @@ class CitusHeadClient:
 				FROM pg_dist_shard
 				WHERE logicalrelid = '{patch_table}'::regclass
 				AND shardminvalue = v_shardminvalue;
+
+				-- Extract the stable patch shard ID to use as shard_id in CM rows.
+				-- Using the patch shard ID (not the pred shard ID) ensures ON CONFLICT
+				-- correctly matches rows written in previous cycles after a table rotation.
+				v_patch_shardid := (regexp_match(v_patch_shard, '(\\d+)$'))[1]::bigint;
 
 				-- Resolve the colocated pred_patch_last shard (same hash-range).
 				-- to_regclass() returns NULL if the table does not yet exist.
@@ -289,7 +295,7 @@ class CitusHeadClient:
 							DO UPDATE SET count = EXCLUDED.count + %s.count, bucket_date = CURRENT_DATE
 							$sql$,
 							v_cm_shard, v_patch_shard, v_cm_shard
-						) USING v_pred_shardid, v_shift;
+						) USING v_patch_shardid, v_shift;
 					ELSE
 						-- Decrement for superseded predictions, increment for new, net and upsert.
 						EXECUTE format(
@@ -333,7 +339,7 @@ class CitusHeadClient:
 							DO UPDATE SET count = EXCLUDED.count + %s.count, bucket_date = CURRENT_DATE
 							$sql$,
 							v_patch_shard, v_pred_last_shard, v_cm_shard, v_cm_shard
-						) USING v_pred_shardid, v_shift;
+						) USING v_patch_shardid, v_shift;
 
 						EXECUTE format('DELETE FROM %s WHERE count <= 0', v_cm_shard);
 					END IF;
