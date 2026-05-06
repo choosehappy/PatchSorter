@@ -2,7 +2,8 @@
 
 import psycopg
 from psycopg.rows import dict_row
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+import numpy as np
 from constants import (
     CITUS_HEAD_HOST, CITUS_HEAD_PORT, CITUS_HEAD_DB, CITUS_HEAD_USER, CITUS_HEAD_PASSWORD
 )
@@ -20,7 +21,7 @@ class CitusHeadClient:
 		self.conn_str = f"host={self.host} port={self.port} dbname={self.dbname} user={self.user} password={self.password}"
 
 	def get_connection(self):
-		return psycopg.connect(self.conn_str, autocommit=True, row_factory=dict_row)
+		return psycopg.connect(self.conn_str, autocommit=False, row_factory=dict_row)
 
 	def fetch_patches(self, limit=10) -> List[Dict[str, Any]]:
 		with self.get_connection() as conn:
@@ -40,6 +41,25 @@ class CitusHeadClient:
 					(patch_uid, label_class_id, image_id, working_mag, patch_image)
 				)
 				return cur.fetchone()['patch_id']
+
+	def bulk_insert_patches(self, records: List[tuple]) -> int:
+		"""Insert multiple patches in a single round-trip using executemany.
+
+		Each record in *records* must be a tuple of
+		(patch_uid, label_class_id, image_id, working_mag, patch_image).
+
+		Returns the number of rows inserted.
+		"""
+		with self.get_connection() as conn:
+			with conn.cursor() as cur:
+				cur.executemany(
+					"""
+					INSERT INTO patch (patch_uid, label_class_id, image_id, working_mag, patch_image)
+					VALUES (%s, %s, %s, %s, %s);
+					""",
+					records,
+				)
+				return len(records)
 
 	def fetch_patches_by_shards(self, shard_ids: List[int]) -> List[Dict[str, Any]]:
 		"""Fetch all patches from specific Citus shard tables directly."""
@@ -163,7 +183,7 @@ class CitusHeadClient:
 			"SELECT create_distributed_table('patch', 'patch_id');",
 			"SELECT create_distributed_table('pred_patch_latest', 'patch_id', colocate_with => 'patch');",
 			"SELECT create_distributed_table('pred_patch_last', 'patch_id', colocate_with => 'patch');",
-			*[f"SELECT create_distributed_table('confusion_matrix_l{lvl}', 'shard_id', colocate_with => 'pred_patch_latest');" for lvl in range(8, 13)],
+			*[f"SELECT create_distributed_table('confusion_matrix_l{lvl}', 'shard_id', colocate_with => 'patch');" for lvl in range(8, 13)],
 			*[f"CREATE INDEX IF NOT EXISTS idx_cm_l{lvl}_nonpositive ON confusion_matrix_l{lvl} (shard_id) WHERE count <= 0;" for lvl in range(8, 13)],
 		]
 		with self.get_connection() as conn:
@@ -475,11 +495,15 @@ class CitusHeadClient:
 			$body$;
 			"""
 
-		# Step 2a: Attach AFTER INSERT trigger to each pred_patch shard.
+		# Step 2a: Attach AFTER INSERT trigger to each shard of both pred_patch tables.
+		# Triggers are pre-attached to both pred_patch_latest AND pred_patch_last so
+		# that after a RENAME-based rotation the trigger survives on whichever physical
+		# shard set ends up named pred_patch_latest.
 		# No TG_ARGV needed — CM shards are resolved dynamically inside the function.
-		attach_insert_triggers_sql = """
+		def _attach_insert_triggers_sql(table: str) -> str:
+			return f"""
 			SELECT run_command_on_shards(
-				'pred_patch_latest',
+				'{table}',
 				$cmd$
 					CREATE TRIGGER trg_update_cm AFTER INSERT ON %s
 					REFERENCING NEW TABLE AS new_rows
@@ -512,13 +536,172 @@ class CitusHeadClient:
 				cur.execute(f"SELECT run_command_on_workers($outer${update_trigger_fn_sql}$outer$);")
 				print("UPDATE trigger function created on coordinator and workers.")
 
-				cur.execute(attach_insert_triggers_sql)
-				print(f"Per-shard INSERT triggers installed on {pred_patch_table} shards.")
+				cur.execute(_attach_insert_triggers_sql('pred_patch_latest'))
+				print(f"Per-shard INSERT triggers installed on pred_patch_latest shards.")
+
+				cur.execute(_attach_insert_triggers_sql('pred_patch_last'))
+				print(f"Per-shard INSERT triggers installed on pred_patch_last shards.")
 
 				cur.execute(attach_update_triggers_sql)
 				print(f"Per-shard UPDATE triggers installed on {patch_table} shards.")
 
 		print("\nAll per-shard triggers installed.")
+
+
+class ConfusionMatrixStore:
+	"""Reads aggregated patch label counts from confusion_matrix_l{level} tables.
+
+	These tables are maintained by per-shard triggers and have the schema:
+		shard_id     bigint
+		grid_cell_i  smallint
+		grid_cell_j  smallint
+		bucket_date  date
+		pred_label   smallint
+		gt_label     smallint
+		count        int
+
+	Because counts are split across Citus shards, bbox_search collapses
+	shard_id with SUM(count) GROUP BY (gt_label, pred_label, grid_cell_i, grid_cell_j).
+	"""
+
+	def __init__(self, level: int, client: "CitusHeadClient") -> None:
+		self.level = level
+		self.client = client
+		self.table_name = f"confusion_matrix_l{level}"
+
+	def bbox_search(self, bbox, label_pairs) -> np.ndarray:
+		"""Return (N, 5) int32 array: [gt_label, pred_label, grid_cell_i, grid_cell_j, count]."""
+		i_min, j_min, i_max, j_max = bbox
+		if len(label_pairs) == 0:
+			return np.empty((0, 5), dtype=np.int32)
+
+		flat_pairs = [v for gt, pred in label_pairs for v in (int(gt), int(pred))]
+		pair_placeholders = ", ".join(["(%s, %s)"] * len(label_pairs))
+		with self.client.get_connection() as conn:
+			with conn.cursor() as cur:
+				cur.execute(
+					f"""
+					SELECT gt_label, pred_label, grid_cell_i, grid_cell_j,
+					       SUM(count)::int AS patch_count
+					FROM {self.table_name}
+					WHERE grid_cell_i BETWEEN %s AND %s
+					  AND grid_cell_j BETWEEN %s AND %s
+					  AND (gt_label, pred_label) IN ({pair_placeholders})
+					GROUP BY gt_label, pred_label, grid_cell_i, grid_cell_j
+					""",
+					[i_min, i_max, j_min, j_max] + flat_pairs,
+				)
+				rows = cur.fetchall()
+		if not rows:
+			return np.empty((0, 5), dtype=np.int32)
+		return np.array([[r["gt_label"], r["pred_label"], r["grid_cell_i"], r["grid_cell_j"], r["patch_count"]] for r in rows], dtype=np.int32)
+
+	def read_region(
+		self, bbox, label_pairs, sum_over_gt: bool = True
+	) -> Tuple[np.ndarray, np.ndarray]:
+		"""Return (region, class_indices) arrays for rendering a tile.
+
+		If sum_over_gt=True  → region shape (n_pred, n_i, n_j), class_indices = pred_labels.
+		If sum_over_gt=False → region shape (n_gt,   n_i, n_j), class_indices = gt_labels.
+		"""
+		i_min, j_min, i_max, j_max = bbox
+		n_i = i_max - i_min + 1
+		n_j = j_max - j_min + 1
+
+		rows = self.bbox_search(bbox, label_pairs)
+
+		lp = np.array(label_pairs, dtype=np.int32)
+		gt_labels = np.unique(lp[:, 0])
+		pred_labels = np.unique(lp[:, 1])
+
+		gt_lookup = np.full(gt_labels.max() + 1, -1, dtype=np.int32)
+		pred_lookup = np.full(pred_labels.max() + 1, -1, dtype=np.int32)
+		gt_lookup[gt_labels] = np.arange(len(gt_labels))
+		pred_lookup[pred_labels] = np.arange(len(pred_labels))
+
+		mat = np.zeros((len(gt_labels), len(pred_labels), n_i, n_j), dtype=np.int32)
+		if len(rows) > 0:
+			mat[
+				gt_lookup[rows[:, 0]],
+				pred_lookup[rows[:, 1]],
+				rows[:, 2] - i_min,
+				rows[:, 3] - j_min,
+			] = rows[:, 4]
+
+		if sum_over_gt:
+			return mat.sum(axis=0), pred_labels
+		else:
+			return mat.sum(axis=1), gt_labels
+
+	def read_confusion_matrix(
+		self, bbox, label_pairs
+	) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+		"""Return (confusion, gt_labels, pred_labels) summed over spatial dimensions.
+
+		confusion shape: (n_gt, n_pred).
+		"""
+		i_min, j_min, i_max, j_max = bbox
+		n_i = i_max - i_min + 1
+		n_j = j_max - j_min + 1
+
+		rows = self.bbox_search(bbox, label_pairs)
+
+		lp = np.array(label_pairs, dtype=np.int32)
+		gt_labels = np.unique(lp[:, 0])
+		pred_labels = np.unique(lp[:, 1])
+
+		gt_lookup = np.full(gt_labels.max() + 1, -1, dtype=np.int32)
+		pred_lookup = np.full(pred_labels.max() + 1, -1, dtype=np.int32)
+		gt_lookup[gt_labels] = np.arange(len(gt_labels))
+		pred_lookup[pred_labels] = np.arange(len(pred_labels))
+
+		mat = np.zeros((len(gt_labels), len(pred_labels), n_i, n_j), dtype=np.int64)
+		if len(rows) > 0:
+			mat[
+				gt_lookup[rows[:, 0]],
+				pred_lookup[rows[:, 1]],
+				rows[:, 2] - i_min,
+				rows[:, 3] - j_min,
+			] = rows[:, 4]
+
+		confusion = mat.sum(axis=(2, 3))  # (n_gt, n_pred)
+		return confusion, gt_labels, pred_labels
+
+	def get_max_counts(self, bbox, label_pairs, num_classes: int) -> np.ndarray:
+		"""Return (num_classes, num_classes) array of per-cell max counts per (gt, pred) pair."""
+		i_min, j_min, i_max, j_max = bbox
+		if len(label_pairs) == 0:
+			return np.zeros((num_classes, num_classes), dtype=np.float32)
+
+		flat_pairs = [v for gt, pred in label_pairs for v in (int(gt), int(pred))]
+		pair_placeholders = ", ".join(["(%s, %s)"] * len(label_pairs))
+		with self.client.get_connection() as conn:
+			with conn.cursor() as cur:
+				cur.execute(
+					f"""
+					SELECT gt_label, pred_label, MAX(cell_sum) AS max_count
+					FROM (
+						SELECT gt_label, pred_label, grid_cell_i, grid_cell_j,
+						       SUM(count) AS cell_sum
+						FROM {self.table_name}
+						WHERE gt_label IS NOT NULL
+						  AND grid_cell_i BETWEEN %s AND %s
+						  AND grid_cell_j BETWEEN %s AND %s
+						  AND (gt_label, pred_label) IN ({pair_placeholders})
+						GROUP BY gt_label, pred_label, grid_cell_i, grid_cell_j
+					) sub
+					GROUP BY gt_label, pred_label
+					""",
+					[i_min, i_max, j_min, j_max] + flat_pairs,
+				)
+				rows = cur.fetchall()
+
+		mat = np.zeros((num_classes, num_classes), dtype=np.float32)
+		for row in rows:
+			gt, pred, count = row["gt_label"], row["pred_label"], row["max_count"]
+			if 0 <= gt < num_classes and 0 <= pred < num_classes:
+				mat[gt, pred] = count
+		return mat
 
 
 class PredPatchStore:
@@ -541,39 +724,25 @@ class PredPatchStore:
 
 	def rotate_tables(self) -> None:
 		"""
-		Drop pred_patch_last, promote pred_patch_latest -> pred_patch_last,
-		and create a fresh empty pred_patch_latest.
+		Rotate pred_patch_latest → pred_patch_last via a 3-way rename.
 
-		The per-shard INSERT trigger is re-attached to the new pred_patch_latest shards
-		because CREATE TABLE produces a trigger-free table; the old trigger travelled
-		with the renamed pred_patch_last and cannot be inherited.
+		No rows are copied and no tables are created or dropped. Triggers are not
+		registered or destroyed here — they travel with their physical shard objects.
 
-		All six DDL steps run inside a single transaction (autocommit=False).
-		psycopg3's connection context manager commits on clean exit and rolls back
-		on any exception, making the rotation atomic and eliminating the race
-		windows where concurrent trigger invocations could see a partially-rotated
-		state and produce hard errors or silent CM corruption.
+		Steps:
+		  1. TRUNCATE pred_patch_last        (free stale data; this shard set becomes new pred_patch_latest)
+		  2. RENAME pred_patch_last  → pred_patch_tmp
+		  3. RENAME pred_patch_latest → pred_patch_last   (current cycle's predictions become "last")
+		  4. RENAME pred_patch_tmp   → pred_patch_latest  (empty recycled shards become the new "latest")
+
+		All four statements execute inside a single atomic transaction.
 		"""
-		# Re-attach trigger to the new pred_patch_latest shards.
-		attach_trigger_sql = """
-			SELECT run_command_on_shards(
-				'pred_patch_latest',
-				$cmd$
-					CREATE TRIGGER trg_update_cm AFTER INSERT ON %s
-					REFERENCING NEW TABLE AS new_rows
-					FOR EACH STATEMENT
-					EXECUTE FUNCTION update_cm_shard()
-				$cmd$
-			);
-			"""
-
-		with psycopg.connect(self.client.conn_str, autocommit=False, row_factory=dict_row) as conn:
+		with psycopg.connect(self.client.conn_str, row_factory=dict_row) as conn:
 			with conn.cursor() as cur:
-				cur.execute("DROP TABLE IF EXISTS pred_patch_last CASCADE;")
+				cur.execute("TRUNCATE TABLE pred_patch_last;")
+				cur.execute("ALTER TABLE pred_patch_last RENAME TO pred_patch_tmp;")
 				cur.execute("ALTER TABLE pred_patch_latest RENAME TO pred_patch_last;")
-				cur.execute("SELECT run_command_on_shards('pred_patch_last', 'DROP TRIGGER IF EXISTS trg_update_cm ON %s');")
-				cur.execute(self._CREATE_PRED_PATCH_LATEST_SQL)
-				cur.execute("SELECT create_distributed_table('pred_patch_latest', 'patch_id');")
-				cur.execute(attach_trigger_sql)
+				cur.execute("ALTER TABLE pred_patch_tmp RENAME TO pred_patch_latest;")
+			# commits atomically on clean exit
 
 
