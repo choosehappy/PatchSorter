@@ -184,7 +184,7 @@ class CitusHeadClient:
 			"SELECT create_distributed_table('pred_patch_latest', 'patch_id', colocate_with => 'patch');",
 			"SELECT create_distributed_table('pred_patch_last', 'patch_id', colocate_with => 'patch');",
 			*[f"SELECT create_distributed_table('confusion_matrix_l{lvl}', 'shard_id', colocate_with => 'patch');" for lvl in range(8, 13)],
-			*[f"CREATE INDEX IF NOT EXISTS idx_cm_l{lvl}_nonpositive ON confusion_matrix_l{lvl} (shard_id) WHERE count <= 0;" for lvl in range(8, 13)],
+			*[f"CREATE INDEX IF NOT EXISTS idx_cm_l{lvl}_nonpositive ON confusion_matrix_l{lvl} (count) WHERE count <= 0;" for lvl in range(8, 13)],
 		]
 		with self.get_connection() as conn:
 			with conn.cursor() as cur:
@@ -222,6 +222,12 @@ class CitusHeadClient:
 		# Loops over l8..l12 inside the trigger body.  For each level the colocated
 		# CM shard is resolved dynamically from pg_dist_shard using v_shardminvalue.
 		# The bit-shift (12 - level) maps l12 grid_cell_i/j down to coarser levels.
+		#
+		# Key optimisation: SET LOCAL enable_nestloop = off at entry forces the planner
+		# to use hash joins for all joins in this trigger invocation.  This prevents the
+		# catastrophic nested-loop plans that arise because the planner cannot estimate
+		# the cardinality of transition table (new_rows) references inside EXECUTE blocks.
+		# No DDL (CREATE/DROP TEMP TABLE) is used — Citus blocks DDL in shard triggers.
 		insert_trigger_fn_sql = f"""
 			CREATE OR REPLACE FUNCTION update_cm_shard()
 			RETURNS TRIGGER LANGUAGE plpgsql AS $body$
@@ -236,6 +242,10 @@ class CitusHeadClient:
 				v_lvl                 int;
 				v_shift               int;
 			BEGIN
+				-- Disable nested loops for this transaction so the planner is forced to
+				-- use hash joins even though it cannot estimate new_rows cardinality.
+				SET LOCAL enable_nestloop = off;
+
 				-- Extract the numeric shard ID from the current shard table name,
 				-- e.g. '{pred_patch_table}_102008' -> 102008
 				v_pred_shardid := (regexp_match(TG_TABLE_NAME, '(\\d+)$'))[1]::bigint;
@@ -280,6 +290,7 @@ class CitusHeadClient:
 
 					IF v_pred_last_shard IS NULL THEN
 						-- No prior prediction epoch: simple positive increment.
+						-- Plain JOIN (no LATERAL) against the patch shard.
 						EXECUTE format(
 							$sql$
 							INSERT INTO %s (shard_id, grid_cell_i, grid_cell_j, pred_label, gt_label, bucket_date, count)
@@ -287,9 +298,11 @@ class CitusHeadClient:
 								(nr.grid_cell_i >> $2)::smallint,
 								(nr.grid_cell_j >> $2)::smallint,
 								nr.label_class_id,
-								p.label_class_id, CURRENT_DATE, COUNT(*)
+								p.label_class_id,
+								CURRENT_DATE,
+								COUNT(*)
 							FROM new_rows nr
-							INNER JOIN %s p ON nr.patch_id = p.patch_id
+							JOIN %s p ON p.patch_id = nr.patch_id
 							GROUP BY (nr.grid_cell_i >> $2), (nr.grid_cell_j >> $2), nr.label_class_id, p.label_class_id
 							ON CONFLICT (shard_id, grid_cell_i, grid_cell_j, pred_label, gt_label)
 							DO UPDATE SET count = EXCLUDED.count + %s.count, bucket_date = CURRENT_DATE
@@ -298,6 +311,8 @@ class CitusHeadClient:
 						) USING v_patch_shardid, v_shift;
 					ELSE
 						-- Decrement for superseded predictions, increment for new, net and upsert.
+						-- gt is MATERIALIZED so the patch join executes once; neg and pos both
+						-- reference new_rows which gets hash-joined (nestloop is disabled).
 						EXECUTE format(
 							$sql$
 							WITH
@@ -310,7 +325,8 @@ class CitusHeadClient:
 								SELECT (pl.grid_cell_i >> $2)::smallint AS grid_cell_i,
 									(pl.grid_cell_j >> $2)::smallint AS grid_cell_j,
 									pl.label_class_id AS pred_label,
-									g.gt_label, -COUNT(*)::bigint AS delta
+									g.gt_label,
+									-COUNT(*)::bigint AS delta
 								FROM new_rows nr
 								JOIN %s pl ON pl.patch_id = nr.patch_id
 								JOIN gt g ON g.patch_id = nr.patch_id
@@ -320,7 +336,8 @@ class CitusHeadClient:
 								SELECT (nr.grid_cell_i >> $2)::smallint AS grid_cell_i,
 									(nr.grid_cell_j >> $2)::smallint AS grid_cell_j,
 									nr.label_class_id AS pred_label,
-									g.gt_label, COUNT(*)::bigint AS delta
+									g.gt_label,
+									COUNT(*)::bigint AS delta
 								FROM new_rows nr
 								JOIN gt g ON g.patch_id = nr.patch_id
 								GROUP BY (nr.grid_cell_i >> $2), (nr.grid_cell_j >> $2), nr.label_class_id, g.gt_label
@@ -341,6 +358,7 @@ class CitusHeadClient:
 							v_patch_shard, v_pred_last_shard, v_cm_shard, v_cm_shard
 						) USING v_patch_shardid, v_shift;
 
+						-- Only purge non-positive rows when decrements were possible.
 						EXECUTE format('DELETE FROM %s WHERE count <= 0', v_cm_shard);
 					END IF;
 				END LOOP;
@@ -353,6 +371,10 @@ class CitusHeadClient:
 		# Step 1b: UPDATE trigger function (patch gt_label change → all CM levels).
 		# Same looping strategy — resolves all 5 CM shards and applies bit-shifted deltas.
 		# Both pred_patch_latest and pred_patch_last are searched (UNION ALL duplicate-free).
+		#
+		# Key optimisation: SET LOCAL enable_nestloop = off at entry forces hash joins.
+		# The changed CTE is MATERIALIZED so old_rows/new_rows are scanned once and reused.
+		# No DDL (CREATE/DROP TEMP TABLE) — Citus blocks DDL in shard trigger functions.
 		update_trigger_fn_sql = f"""
 			CREATE OR REPLACE FUNCTION update_cm_on_patch_update()
 			RETURNS TRIGGER LANGUAGE plpgsql AS $body$
@@ -366,6 +388,10 @@ class CitusHeadClient:
 				v_lvl                 int;
 				v_shift               int;
 			BEGIN
+				-- Disable nested loops for this transaction so the planner is forced to
+				-- use hash joins even though it cannot estimate transition table cardinality.
+				SET LOCAL enable_nestloop = off;
+
 				v_patch_shardid := (regexp_match(TG_TABLE_NAME, '(\\d+)$'))[1]::bigint;
 
 				SELECT shardminvalue INTO v_shardminvalue FROM pg_dist_shard WHERE shardid = v_patch_shardid;
@@ -397,6 +423,8 @@ class CitusHeadClient:
 					AND shardminvalue = v_shardminvalue;
 
 					IF v_pred_last_shard IS NULL THEN
+						-- changed is MATERIALIZED so old_rows/new_rows are scanned once.
+						-- enable_nestloop=off ensures hash joins against the pred shard.
 						EXECUTE format(
 							$sql$
 							WITH changed AS MATERIALIZED (

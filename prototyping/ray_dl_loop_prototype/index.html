@@ -657,5 +657,17 @@
     // ---- Initialize ----
     buildMatrix();
     applyFilter("all");
+
+    setInterval(() => {  
+      overlayLayer.reset();  
+      var map = overlayLayer.map();  
+      var bounds = map.bounds(undefined, null);  
+      var zoom = overlayLayer._options.tileRounding(map.zoom());  
+        
+      // Call _getTiles with onlyIfChanged=false  
+      var tiles = overlayLayer._getTiles(zoom, bounds, true, false);  
+        
+      map.draw();  
+    }, 5000);
   </script>
 </body></html>
