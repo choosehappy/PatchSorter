@@ -12,8 +12,11 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
-    "noEmit": true,
     "jsx": "react-jsx",
+
+    "composite": true, // Added for project references
+    "noEmit": false, // Adjusted to allow emitting files
+    "emitDeclarationOnly": true,
 
     /* Linting */
     "noUnusedLocals": true,

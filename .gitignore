@@ -10,3 +10,5 @@ __pycache__/
 *.pyd
 *.log
 prototyping/data/
+node_modules/
+_version.py
