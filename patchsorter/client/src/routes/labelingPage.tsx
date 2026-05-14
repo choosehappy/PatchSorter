@@ -2,8 +2,7 @@ import { useState, useCallback } from 'react'
 import './labelingPage.css'
 import Viewport, { type MapBounds } from '../components/viewport'
 import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatrix'
-
-const TILE_SERVER = ''
+import { getConfusionMatrixConfusionMatrixGet } from '../api_client'
 
 const CLASS_LABELS = [
     'Unlabeled',
@@ -72,29 +71,32 @@ export default function LabelingPage() {
     // ---- Confusion matrix fetch ----
 
     const fetchConfusionMatrix = useCallback(async (bounds: MapBounds) => {
-        let url = `${TILE_SERVER}/confusion_matrix`
-            + `?x_min=${bounds.left}&y_min=${bounds.top}`
-            + `&x_max=${bounds.right}&y_max=${bounds.bottom}`
-
-        // We read the latest filter state inline to avoid stale closure issues.
-        // The actual selectedCells / filterBy values are captured from component state
-        // at call time via the closure on each render that re-creates this callback.
         setSelectedCells(currentCells => {
             setFilterBy(currentFilter => {
-                if (currentFilter !== 'all' || currentCells.size < NUM_CLASSES * NUM_CLASSES) {
-                    const pairs = Array.from(currentCells)
-                    if (pairs.length > 0 && pairs.length < NUM_CLASSES * NUM_CLASSES) {
-                        pairs.forEach(pair => { url += `&lp=${pair}` })
+                const pairs = Array.from(currentCells)
+                const lp = (currentFilter !== 'all' || currentCells.size < NUM_CLASSES * NUM_CLASSES)
+                    && pairs.length > 0 && pairs.length < NUM_CLASSES * NUM_CLASSES
+                    ? pairs
+                    : undefined
+
+                getConfusionMatrixConfusionMatrixGet({
+                    query: {
+                        x_min: bounds.left,
+                        y_min: bounds.top,
+                        x_max: bounds.right,
+                        y_max: bounds.bottom,
+                        lp,
                     }
-                }
-                // Side-effect fetch (safe — no setState in async path, we use setConfusionData separately)
-                fetch(url)
-                    .then(r => r.ok ? r.json() : Promise.reject(r.status))
-                    .then((data: ConfusionData) => setConfusionData(data))
+                })
+                    .then(({ data, error }) => {
+                        if (data) setConfusionData(data)
+                        else console.error('Error fetching confusion matrix:', error)
+                    })
                     .catch(err => console.error('Error fetching confusion matrix:', err))
-                return currentFilter  // no change
+
+                return currentFilter
             })
-            return currentCells  // no change
+            return currentCells
         })
     }, [])
 
