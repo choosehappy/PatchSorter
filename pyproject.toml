@@ -1,9 +1,39 @@
+[build-system]
+requires = ["setuptools >= 64", "setuptools_scm >= 8", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "patchsorter"
-version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.136.1",
+    "matplotlib>=3.10.9",
+    "numpy>=2.4.4",
+    "pillow>=12.2.0",
+    "psycopg>=3.3.4",
+    "uvicorn>=0.47.0",
 ]
+dynamic = ["version"]  # ← version comes from setuptools_scm
+
+# ----------------------------------------------------------------------------------
+[project.scripts]
+patchsorter = "patchsorter.__main__:main"
+
+
+# ----------------------------------------------------------------------------------
+[tool.setuptools]
+packages = ["patchsorter"]
+
+
+# ----------------------------------------------------------------------------------
+[tool.setuptools_scm]
+write_to = "patchsorter/_version.py"
+version_scheme = "post-release"
+local_scheme = "node-and-date"
+
+# ----------------------------------------------------------------------------------
+[tool.distutils.egg_info]
+egg_base = "../"
+

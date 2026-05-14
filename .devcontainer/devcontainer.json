@@ -3,18 +3,14 @@
 {
 	"name": "Existing Docker Compose",
 	"dockerComposeFile": [
-		"../prototyping/docker-compose.yaml"
+		"../deployment/docker-compose.yaml",
+		"../deployment/docker-compose.dev.yaml"
 	],
 	"service": "ps",
 	"workspaceFolder": "/opt/PatchSorter",
 	
-	"forwardPorts": [],
+	"forwardPorts": [5000, 5173, 8265, 6006],
 	"updateRemoteUserUID": false,
-
-	// Mount local directory ~/emory_ts to /workspace/emory_ts in the container
-	"mounts": [
-		"source=${localEnv:HOME}/emory_ts,target=/workspace/emory_ts,type=bind"
-	],
 
 	// Add VS Code extensions
 	"customizations": {
@@ -32,6 +28,6 @@
 		  "ms-ossdata.vscode-pgsql"]
 		}
 	},
-	"postCreateCommand": ""
+	"postCreateCommand": "uv pip install -e ."
 
 }

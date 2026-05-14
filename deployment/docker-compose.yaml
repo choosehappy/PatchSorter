@@ -1,0 +1,10 @@
+services:
+  db:
+    image: citusdata/citus:14.0
+    container_name: citus_single
+    environment:
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+
+  
