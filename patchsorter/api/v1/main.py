@@ -1,8 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from patchsorter.api.v1.routes import router
-
+from .routes import router
 
 def create_app() -> FastAPI:
     app = FastAPI(title="PatchSorter Tile Server", version="1.0.0")
@@ -14,7 +13,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.include_router(router)
+    app.include_router(router, prefix="/agg")
 
     return app
 
