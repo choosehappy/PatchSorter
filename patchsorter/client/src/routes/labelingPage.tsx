@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import './labelingPage.css'
 import Viewport, { type MapBounds } from '../components/viewport'
 import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatrix'
@@ -42,9 +43,15 @@ export default function LabelingPage() {
     const [colorBy, setColorBy] = useState<string>('gt')
     const [filterBy, setFilterBy] = useState<string>('all')
     const [selectedCells, setSelectedCells] = useState<Set<string>>(makeAllCells)
-    const [confusionData, setConfusionData] = useState<ConfusionData | null>(null)
+    const [bounds, setBounds] = useState<MapBounds | null>(null)
     const [zoomInfo, setZoomInfo] = useState<string>('')
     const [worldInfo, setWorldInfo] = useState<WorldInfo | null>(null)
+    const [refreshTick, setRefreshTick] = useState(0)
+
+    useEffect(() => {
+        const interval = setInterval(() => setRefreshTick(t => t + 1), 5000)
+        return () => clearInterval(interval)
+    }, [])
 
     useEffect(() => {
         infoAggInfoGet()
@@ -54,6 +61,32 @@ export default function LabelingPage() {
             })
             .catch(err => console.error('Error fetching world info:', err))
     }, [])
+
+    const lp = useMemo(() => {
+        const pairs = Array.from(selectedCells).sort()
+        if ((filterBy !== 'all' || selectedCells.size < NUM_CLASSES * NUM_CLASSES)
+            && pairs.length > 0 && pairs.length < NUM_CLASSES * NUM_CLASSES)
+            return pairs
+        return undefined
+    }, [selectedCells, filterBy])
+
+    const { data: confusionData = null } = useQuery<ConfusionData | null>({
+        queryKey: ['confusionMatrix', bounds, lp, refreshTick],
+        queryFn: () => getConfusionMatrixAggConfusionMatrixGet({
+            query: {
+                x_min: bounds!.left,
+                y_min: bounds!.top,
+                x_max: bounds!.right,
+                y_max: bounds!.bottom,
+                lp,
+            }
+        }).then(({ data, error }) => {
+            if (error) throw error
+            return data ?? null
+        }),
+        enabled: bounds !== null,
+        staleTime: Infinity,
+    })
 
     // ---- Selection helpers ----
 
@@ -81,38 +114,6 @@ export default function LabelingPage() {
         const cells = makeAllCells()
         return { cells, filter: 'all' }
     }
-
-    // ---- Confusion matrix fetch ----
-
-    const fetchConfusionMatrix = useCallback(async (bounds: MapBounds) => {
-        setSelectedCells(currentCells => {
-            setFilterBy(currentFilter => {
-                const pairs = Array.from(currentCells)
-                const lp = (currentFilter !== 'all' || currentCells.size < NUM_CLASSES * NUM_CLASSES)
-                    && pairs.length > 0 && pairs.length < NUM_CLASSES * NUM_CLASSES
-                    ? pairs
-                    : undefined
-
-                getConfusionMatrixAggConfusionMatrixGet({
-                    query: {
-                        x_min: bounds.left,
-                        y_min: bounds.top,
-                        x_max: bounds.right,
-                        y_max: bounds.bottom,
-                        lp,
-                    }
-                })
-                    .then(({ data, error }) => {
-                        if (data) setConfusionData(data)
-                        else console.error('Error fetching confusion matrix:', error)
-                    })
-                    .catch(err => console.error('Error fetching confusion matrix:', err))
-
-                return currentFilter
-            })
-            return currentCells
-        })
-    }, [])
 
     // ---- Event handlers ----
 
@@ -177,7 +178,8 @@ export default function LabelingPage() {
                 selectedCells={selectedCells}
                 numClasses={NUM_CLASSES}
                 worldInfo={worldInfo}
-                onBoundsChange={fetchConfusionMatrix}
+                refreshTick={refreshTick}
+                onBoundsChange={setBounds}
                 onZoomChange={handleZoomChange}
             />
 

@@ -21,6 +21,7 @@ interface ViewportProps {
     selectedCells: Set<string>
     numClasses: number
     worldInfo: WorldInfo | null
+    refreshTick: number
     onBoundsChange: (bounds: MapBounds) => void
     onZoomChange: (osmZoom: number, level: number) => void
 }
@@ -31,6 +32,7 @@ export default function Viewport({
     selectedCells,
     numClasses,
     worldInfo,
+    refreshTick,
     onBoundsChange,
     onZoomChange,
 }: ViewportProps) {
@@ -101,7 +103,6 @@ export default function Viewport({
         )
         params.map.zoom = 0
         params.map.minZoom = 0
-        params.map.background = { color: 'white' }
         params.map.max = maxOsmZoom
         params.map.center = { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 }
         paramsRef.current = params
@@ -111,6 +112,7 @@ export default function Viewport({
 
         params.layer.url = (x: number, y: number, z: number) => buildTileUrl(x, y, z)
         params.layer.nearestPixel = true
+        params.layer.background = { r: 1, g: 1, b: 1, a: 1 }
         params.layer.maxLevel = maxOsmZoom
         overlayLayerRef.current = map.createLayer('osm', params.layer)
 
@@ -121,7 +123,7 @@ export default function Viewport({
         })
         map.geoTrigger(geo.event.zoom)
 
-        // Pan / zoom idle → notify parent to re-fetch confusion matrix
+        // Pan / zoom idle → notify parent to update bounds for confusion matrix query
         let idleTimeout: ReturnType<typeof setTimeout> | null = null
         function onMapIdle() {
             if (idleTimeout) clearTimeout(idleTimeout)
@@ -130,24 +132,24 @@ export default function Viewport({
             }, 200)
         }
         map.geoOn(geo.event.pan, onMapIdle)
-        map.geoOn(geo.event.zoom, onMapIdle)
+        // map.geoOn(geo.event.zoom, onMapIdle)
 
-        // Auto-refresh tile cache every 5 s via URL invalidation.
-        // Update the URL function in-place (new timestamp → bypasses browser cache)
-        // then reset the tile cache, avoiding the flash of a full layer rebuild.
-        const interval = setInterval(() => {
-            if (!overlayLayerRef.current) return
-            cacheKeyRef.current = Date.now()
-            overlayLayerRef.current.url((x: number, y: number, z: number) => buildTileUrl(x, y, z))
-            onBoundsChange(map.bounds())
-        }, 5000)
+        // Set initial bounds so the confusion matrix query starts immediately
+        onBoundsChange(map.bounds())
 
         return () => {
-            clearInterval(interval)
             map.exit()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    // Refresh tile cache on every tick driven by the parent timer
+    useEffect(() => {
+        if (!overlayLayerRef.current) return
+        cacheKeyRef.current = Date.now()
+        overlayLayerRef.current.url((x: number, y: number, z: number) => buildTileUrl(x, y, z))
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [refreshTick])
 
     // Rebuild layer (force tile cache invalidation) when filter/colour state changes
     useEffect(() => {
