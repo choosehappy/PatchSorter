@@ -43,6 +43,7 @@ export default function LabelingPage() {
     const [colorBy, setColorBy] = useState<string>('gt')
     const [filterBy, setFilterBy] = useState<string>('all')
     const [selectedCells, setSelectedCells] = useState<Set<string>>(makeAllCells)
+    const [cmPinned, setCmPinned] = useState<boolean>(true)
     const [bounds, setBounds] = useState<MapBounds | null>(null)
     const [zoomInfo, setZoomInfo] = useState<string>('')
     const [worldInfo, setWorldInfo] = useState<WorldInfo | null>(null)
@@ -208,15 +209,26 @@ export default function LabelingPage() {
                     </div>
                 </div>
 
-                <ConfusionMatrix
-                    confusionData={confusionData}
-                    selectedCells={selectedCells}
-                    colorBy={colorBy}
-                    classLabels={CLASS_LABELS}
-                    classColors={CLASS_COLORS}
-                    onCellClick={handleCellClick}
-                    onHeaderClick={handleHeaderClick}
-                />
+                <div className={`cm-wrapper${cmPinned ? ' pinned' : ''}`}>
+                    <button
+                        className={`cm-pin-btn${cmPinned ? ' active' : ''}`}
+                        onClick={() => setCmPinned(p => !p)}
+                        title={cmPinned ? 'Unpin (show on hover only)' : 'Pin (always show)'}
+                    >
+                        {cmPinned ? '📌' : '📍'}
+                    </button>
+                    <div className="cm-content">
+                        <ConfusionMatrix
+                            confusionData={confusionData}
+                            selectedCells={selectedCells}
+                            colorBy={colorBy}
+                            classLabels={CLASS_LABELS}
+                            classColors={CLASS_COLORS}
+                            onCellClick={handleCellClick}
+                            onHeaderClick={handleHeaderClick}
+                        />
+                    </div>
+                </div>
 
                 <div id="zoom-info">{zoomInfo}</div>
             </div>
