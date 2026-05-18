@@ -101,6 +101,7 @@ export default function Viewport({
         )
         params.map.zoom = 0
         params.map.minZoom = 0
+        params.map.background = { color: 'white' }
         params.map.max = maxOsmZoom
         params.map.center = { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 }
         paramsRef.current = params
@@ -138,8 +139,7 @@ export default function Viewport({
             if (!overlayLayerRef.current) return
             cacheKeyRef.current = Date.now()
             overlayLayerRef.current.url((x: number, y: number, z: number) => buildTileUrl(x, y, z))
-            overlayLayerRef.current.reset()
-            overlayLayerRef.current.map().draw()
+            onBoundsChange(map.bounds())
         }, 5000)
 
         return () => {
