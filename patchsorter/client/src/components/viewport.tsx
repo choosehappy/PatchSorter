@@ -46,6 +46,8 @@ export default function Viewport({
     const tileStateRef = useRef({ colorBy, filterBy, selectedCells, numClasses })
     tileStateRef.current = { colorBy, filterBy, selectedCells, numClasses }
 
+    const cacheKeyRef = useRef(Date.now())
+
     function buildTileUrl(x: number, y: number, z: number): string {
         const { colorBy, filterBy, selectedCells, numClasses } = tileStateRef.current
         const sumOver = colorBy !== 'gt' ? 'gt' : 'pred'
@@ -61,6 +63,7 @@ export default function Viewport({
             vp_y_min: bounds.top,
             vp_x_max: bounds.right,
             vp_y_max: bounds.bottom,
+            _t: cacheKeyRef.current,
         }
 
         if (filterBy !== 'all' || selectedCells.size < numClasses * numClasses) {
@@ -128,15 +131,15 @@ export default function Viewport({
         map.geoOn(geo.event.pan, onMapIdle)
         map.geoOn(geo.event.zoom, onMapIdle)
 
-        // Auto-refresh tile cache every 5 s
+        // Auto-refresh tile cache every 5 s via URL invalidation.
+        // Update the URL function in-place (new timestamp → bypasses browser cache)
+        // then reset the tile cache, avoiding the flash of a full layer rebuild.
         const interval = setInterval(() => {
             if (!overlayLayerRef.current) return
+            cacheKeyRef.current = Date.now()
+            overlayLayerRef.current.url((x: number, y: number, z: number) => buildTileUrl(x, y, z))
             overlayLayerRef.current.reset()
-            const m = overlayLayerRef.current.map()
-            const b = m.bounds(undefined, null)
-            const zoom = overlayLayerRef.current._options.tileRounding(m.zoom())
-            overlayLayerRef.current._getTiles(zoom, b, true, false)
-            m.draw()
+            overlayLayerRef.current.map().draw()
         }, 5000)
 
         return () => {
