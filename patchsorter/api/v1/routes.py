@@ -10,7 +10,7 @@ from fastapi.responses import Response
 from patchsorter.db.constants import (
     CITUS_HEAD_HOST, CITUS_HEAD_PORT, CITUS_HEAD_DB, CITUS_HEAD_USER, CITUS_HEAD_PASSWORD
 )
-from patchsorter.db.db_client import CitusHeadClient, ConfusionMatrixStore
+from patchsorter.db.db_client import CitusHeadClient
 from patchsorter.api.v1.models import WorldInfo, ConfusionMatrixResponse
 from patchsorter.api.v1.utils import (
     colors,
@@ -27,6 +27,7 @@ from patchsorter.api.v1.utils import (
     _make_dist_image,
     _empty_tile,
 )
+from patchsorter.db.stores.confusion_matrix import ConfusionMatrixStore
 
 
 class SumOver(str, Enum):
