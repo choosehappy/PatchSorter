@@ -184,8 +184,8 @@ export default function LabelingPage() {
                 onZoomChange={handleZoomChange}
             />
 
-            {/* Controls overlay */}
-            <div id="controls">
+            {/* Left controls overlay: reset, color by, filter by */}
+            <div id="controls-left">
                 <div className="header">
                     <button onClick={handleReset}>Reset</button>
                 </div>
@@ -209,14 +209,20 @@ export default function LabelingPage() {
                     </div>
                 </div>
 
+                <div id="zoom-info">{zoomInfo}</div>
+            </div>
+
+            {/* Right controls overlay: pin + confusion matrix */}
+            <div id="controls-right">
                 <div className={`cm-wrapper${cmPinned ? ' pinned' : ''}`}>
-                    <button
-                        className={`cm-pin-btn${cmPinned ? ' active' : ''}`}
-                        onClick={() => setCmPinned(p => !p)}
-                        title={cmPinned ? 'Unpin (show on hover only)' : 'Pin (always show)'}
-                    >
-                        {cmPinned ? '📌' : '📍'}
-                    </button>
+                    <label className="cm-pin-label">
+                        <input
+                            type="checkbox"
+                            checked={cmPinned}
+                            onChange={e => setCmPinned(e.target.checked)}
+                        />
+                        Pin Confusion Matrix
+                    </label>
                     <div className="cm-content">
                         <ConfusionMatrix
                             confusionData={confusionData}
@@ -229,8 +235,6 @@ export default function LabelingPage() {
                         />
                     </div>
                 </div>
-
-                <div id="zoom-info">{zoomInfo}</div>
             </div>
         </div>
     )
