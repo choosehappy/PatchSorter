@@ -184,13 +184,13 @@ export default function LabelingPage() {
                 onZoomChange={handleZoomChange}
             />
 
-            {/* Left controls overlay: reset, color by, filter by */}
-            <div id="controls-left">
-                <div className="header">
-                    <button onClick={handleReset}>Reset</button>
-                </div>
+            {/* OSM zoom info in bottom left */}
+            <div id="zoom-info-floating">{zoomInfo}</div>
 
-                <div className="control-row">
+            {/* Left controls overlay: reset, color by, filter by (flattened) */}
+            <div id="controls-left">
+                <div className="control-row flattened">
+                    <button onClick={handleReset} style={{ alignSelf: 'end', height: 32, marginRight: 8 }}>Reset</button>
                     <div className="control-group">
                         <label>Color scatter plot by</label>
                         <select value={colorBy} onChange={e => setColorBy(e.target.value)}>
@@ -208,8 +208,6 @@ export default function LabelingPage() {
                         </select>
                     </div>
                 </div>
-
-                <div id="zoom-info">{zoomInfo}</div>
             </div>
 
             {/* Right controls overlay: pin + confusion matrix */}
