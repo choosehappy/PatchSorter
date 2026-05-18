@@ -33,6 +33,11 @@ export type HttpValidationError = {
 };
 
 /**
+ * SumOver
+ */
+export type SumOver = 'gt' | 'pred';
+
+/**
  * ValidationError
  */
 export type ValidationError = {
@@ -80,23 +85,23 @@ export type WorldInfo = {
     max_level: number;
 };
 
-export type InfoInfoGetData = {
+export type InfoAggInfoGetData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/info';
+    url: '/agg/info';
 };
 
-export type InfoInfoGetResponses = {
+export type InfoAggInfoGetResponses = {
     /**
      * Successful Response
      */
     200: WorldInfo;
 };
 
-export type InfoInfoGetResponse = InfoInfoGetResponses[keyof InfoInfoGetResponses];
+export type InfoAggInfoGetResponse = InfoAggInfoGetResponses[keyof InfoAggInfoGetResponses];
 
-export type ServeTileTilesZxyPngGetData = {
+export type ServeTileAggTilesZxyPngGetData = {
     body?: never;
     path: {
         /**
@@ -113,10 +118,7 @@ export type ServeTileTilesZxyPngGetData = {
         y: number;
     };
     query?: {
-        /**
-         * Sum Over
-         */
-        sum_over?: string;
+        sum_over?: SumOver;
         /**
          * Lp
          */
@@ -138,26 +140,26 @@ export type ServeTileTilesZxyPngGetData = {
          */
         vp_y_max?: number | null;
     };
-    url: '/tiles/{z}/{x}/{y}.png';
+    url: '/agg/tiles/{z}/{x}/{y}.png';
 };
 
-export type ServeTileTilesZxyPngGetErrors = {
+export type ServeTileAggTilesZxyPngGetErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type ServeTileTilesZxyPngGetError = ServeTileTilesZxyPngGetErrors[keyof ServeTileTilesZxyPngGetErrors];
+export type ServeTileAggTilesZxyPngGetError = ServeTileAggTilesZxyPngGetErrors[keyof ServeTileAggTilesZxyPngGetErrors];
 
-export type ServeTileTilesZxyPngGetResponses = {
+export type ServeTileAggTilesZxyPngGetResponses = {
     /**
      * Successful Response
      */
     200: unknown;
 };
 
-export type GetConfusionMatrixConfusionMatrixGetData = {
+export type GetConfusionMatrixAggConfusionMatrixGetData = {
     body?: never;
     path?: never;
     query: {
@@ -182,23 +184,23 @@ export type GetConfusionMatrixConfusionMatrixGetData = {
          */
         lp?: Array<string> | null;
     };
-    url: '/confusion_matrix';
+    url: '/agg/confusion_matrix';
 };
 
-export type GetConfusionMatrixConfusionMatrixGetErrors = {
+export type GetConfusionMatrixAggConfusionMatrixGetErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type GetConfusionMatrixConfusionMatrixGetError = GetConfusionMatrixConfusionMatrixGetErrors[keyof GetConfusionMatrixConfusionMatrixGetErrors];
+export type GetConfusionMatrixAggConfusionMatrixGetError = GetConfusionMatrixAggConfusionMatrixGetErrors[keyof GetConfusionMatrixAggConfusionMatrixGetErrors];
 
-export type GetConfusionMatrixConfusionMatrixGetResponses = {
+export type GetConfusionMatrixAggConfusionMatrixGetResponses = {
     /**
      * Successful Response
      */
     200: ConfusionMatrixResponse;
 };
 
-export type GetConfusionMatrixConfusionMatrixGetResponse = GetConfusionMatrixConfusionMatrixGetResponses[keyof GetConfusionMatrixConfusionMatrixGetResponses];
+export type GetConfusionMatrixAggConfusionMatrixGetResponse = GetConfusionMatrixAggConfusionMatrixGetResponses[keyof GetConfusionMatrixAggConfusionMatrixGetResponses];

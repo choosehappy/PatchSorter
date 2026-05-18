@@ -11,12 +11,12 @@ from patchsorter.db.constants import (
 
 class CitusHeadClient:
 	"""SDK for interacting with the Citus/Postgres node (single-node setup)."""
-	def __init__(self, host=None, port=None, dbname=None, user=None, password=None):
-		self.host = host or CITUS_HEAD_HOST
-		self.port = port or CITUS_HEAD_PORT
-		self.dbname = dbname or CITUS_HEAD_DB
-		self.user = user or CITUS_HEAD_USER
-		self.password = password or CITUS_HEAD_PASSWORD
+	def __init__(self, host=CITUS_HEAD_HOST, port=CITUS_HEAD_PORT, dbname=CITUS_HEAD_DB, user=CITUS_HEAD_USER, password=CITUS_HEAD_PASSWORD):
+		self.host = host
+		self.port = port
+		self.dbname = dbname
+		self.user = user
+		self.password = password
 		self.conn_str = f"host={self.host} port={self.port} dbname={self.dbname} user={self.user} password={self.password}"
 
 	def get_connection(self):

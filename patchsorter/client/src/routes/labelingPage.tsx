@@ -1,8 +1,10 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import './labelingPage.css'
 import Viewport, { type MapBounds } from '../components/viewport'
 import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatrix'
-import { getConfusionMatrixConfusionMatrixGet } from '../api_client'
+import { getConfusionMatrixAggConfusionMatrixGet, infoAggInfoGet, type WorldInfo } from '../api_client'
+
+
 
 const CLASS_LABELS = [
     'Unlabeled',
@@ -34,12 +36,24 @@ function makeAllCells(): Set<string> {
     return s
 }
 
+
+
 export default function LabelingPage() {
     const [colorBy, setColorBy] = useState<string>('gt')
     const [filterBy, setFilterBy] = useState<string>('all')
     const [selectedCells, setSelectedCells] = useState<Set<string>>(makeAllCells)
     const [confusionData, setConfusionData] = useState<ConfusionData | null>(null)
     const [zoomInfo, setZoomInfo] = useState<string>('')
+    const [worldInfo, setWorldInfo] = useState<WorldInfo | null>(null)
+
+    useEffect(() => {
+        infoAggInfoGet()
+            .then(({ data, error }) => {
+                if (data) setWorldInfo(data)
+                else console.error('Error fetching world info:', error)
+            })
+            .catch(err => console.error('Error fetching world info:', err))
+    }, [])
 
     // ---- Selection helpers ----
 
@@ -79,7 +93,7 @@ export default function LabelingPage() {
                     ? pairs
                     : undefined
 
-                getConfusionMatrixConfusionMatrixGet({
+                getConfusionMatrixAggConfusionMatrixGet({
                     query: {
                         x_min: bounds.left,
                         y_min: bounds.top,
@@ -162,6 +176,7 @@ export default function LabelingPage() {
                 filterBy={filterBy}
                 selectedCells={selectedCells}
                 numClasses={NUM_CLASSES}
+                worldInfo={worldInfo}
                 onBoundsChange={fetchConfusionMatrix}
                 onZoomChange={handleZoomChange}
             />

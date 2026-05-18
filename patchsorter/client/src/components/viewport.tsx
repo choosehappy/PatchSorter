@@ -1,13 +1,12 @@
 import { useEffect, useRef } from 'react'
+import { client } from '../api_client/client.gen'
+import { type ServeTileAggTilesZxyPngGetData, type WorldInfo } from '../api_client'
 
 // GeoJS loaded via CDN in index.html
 declare const geo: any
 
-const TILE_SERVER = ''         // relative URL — same origin as the page
-const OSM_ZOOM_OFFSET = 8
-const MAX_LEVEL = 12
-const MAX_OSM_ZOOM = MAX_LEVEL - OSM_ZOOM_OFFSET   // 4
-const WORLD_SIZE = 4096
+
+import { WORLD_SIZE } from '../constants'
 
 export interface MapBounds {
     left: number
@@ -21,6 +20,7 @@ interface ViewportProps {
     filterBy: string
     selectedCells: Set<string>
     numClasses: number
+    worldInfo: WorldInfo | null
     onBoundsChange: (bounds: MapBounds) => void
     onZoomChange: (osmZoom: number, level: number) => void
 }
@@ -30,9 +30,12 @@ export default function Viewport({
     filterBy,
     selectedCells,
     numClasses,
+    worldInfo,
     onBoundsChange,
     onZoomChange,
 }: ViewportProps) {
+    const osmZoomOffset = worldInfo?.osm_zoom_offset ?? 8
+    const maxOsmZoom = (worldInfo?.max_level ?? 12) - osmZoomOffset
     const mapDivRef = useRef<HTMLDivElement>(null)
     const mapRef = useRef<any>(null)
     const overlayLayerRef = useRef<any>(null)
@@ -46,19 +49,34 @@ export default function Viewport({
     function buildTileUrl(x: number, y: number, z: number): string {
         const { colorBy, filterBy, selectedCells, numClasses } = tileStateRef.current
         const sumOver = colorBy !== 'gt' ? 'gt' : 'pred'
-        let url = `${TILE_SERVER}/tiles/${z}/${x}/${y}.png?sum_over=${sumOver}`
-
         const bounds = mapRef.current.bounds()
-        url += `&vp_x_min=${bounds.left}&vp_y_min=${bounds.top}`
-            + `&vp_x_max=${bounds.right}&vp_y_max=${bounds.bottom}`
+
+        // TypeScript will complain if this is no longer true due to changes in the API.
+        const tile_url = '/agg/tiles/{z}/{x}/{y}.png' satisfies ServeTileAggTilesZxyPngGetData['url']
+
+        // Build query object without undefined properties
+        const query: Record<string, any> = {
+            sum_over: sumOver,
+            vp_x_min: bounds.left,
+            vp_y_min: bounds.top,
+            vp_x_max: bounds.right,
+            vp_y_max: bounds.bottom,
+        }
 
         if (filterBy !== 'all' || selectedCells.size < numClasses * numClasses) {
             const pairs = Array.from(selectedCells)
             if (pairs.length > 0 && pairs.length < numClasses * numClasses) {
-                pairs.forEach(pair => { url += `&lp=${pair}` })
+                query.lp = pairs
             }
         }
-        return url
+
+        const options = {
+            path: { z, x, y },
+            query,
+            url: tile_url
+        } as ServeTileAggTilesZxyPngGetData
+
+        return client.buildUrl(options)
     }
 
     function rebuildLayer() {
@@ -80,7 +98,7 @@ export default function Viewport({
         )
         params.map.zoom = 0
         params.map.minZoom = 0
-        params.map.max = MAX_OSM_ZOOM
+        params.map.max = maxOsmZoom
         params.map.center = { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 }
         paramsRef.current = params
 
@@ -89,13 +107,13 @@ export default function Viewport({
 
         params.layer.url = (x: number, y: number, z: number) => buildTileUrl(x, y, z)
         params.layer.nearestPixel = true
-        params.layer.maxLevel = MAX_OSM_ZOOM
+        params.layer.maxLevel = maxOsmZoom
         overlayLayerRef.current = map.createLayer('osm', params.layer)
 
         // Zoom info callback
         map.geoOn(geo.event.zoom, () => {
             const z = Math.round(map.zoom())
-            onZoomChange(z, z + OSM_ZOOM_OFFSET)
+            onZoomChange(z, z + osmZoomOffset)
         })
         map.geoTrigger(geo.event.zoom)
 

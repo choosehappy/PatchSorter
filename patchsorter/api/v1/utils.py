@@ -176,7 +176,7 @@ def _make_dist_image(
 
 
 def _empty_tile() -> Response:
-    img = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
+    img = Image.new("RGBA", (256, 256), (255, 255, 255, 255))
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return Response(content=buf.getvalue(), media_type="image/png")

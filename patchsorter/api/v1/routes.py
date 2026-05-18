@@ -1,4 +1,5 @@
 from typing import List, Optional
+from enum import Enum
 
 import numpy as np
 from PIL import Image
@@ -6,6 +7,9 @@ import io
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import Response
 
+from patchsorter.db.constants import (
+    CITUS_HEAD_HOST, CITUS_HEAD_PORT, CITUS_HEAD_DB, CITUS_HEAD_USER, CITUS_HEAD_PASSWORD
+)
 from patchsorter.db.db_client import CitusHeadClient, ConfusionMatrixStore
 from patchsorter.api.v1.models import WorldInfo, ConfusionMatrixResponse
 from patchsorter.api.v1.utils import (
@@ -23,6 +27,11 @@ from patchsorter.api.v1.utils import (
     _make_dist_image,
     _empty_tile,
 )
+
+
+class SumOver(str, Enum):
+    gt = "gt"
+    pred = "pred"
 
 
 _db_client = CitusHeadClient()
@@ -50,7 +59,7 @@ def serve_tile(
     z: int,
     x: int,
     y: int,
-    sum_over: str = Query(default="gt", pattern="^(gt|pred)$"),
+    sum_over: SumOver = Query(default=SumOver.gt),
     lp: Optional[List[str]] = Query(default=None),
     vp_x_min: Optional[float] = Query(default=None),
     vp_y_min: Optional[float] = Query(default=None),
@@ -68,19 +77,15 @@ def serve_tile(
 
     i_min, j_min, i_max, j_max, *_ = _osm_tile_to_bbox(z, x, y, level)
 
-    if i_max <= i_min or j_max <= j_min:
+    if i_max < i_min or j_max < j_min:
         return _empty_tile()
 
     bbox = (i_min, j_min, i_max, j_max)
 
-    try:
-        store = ConfusionMatrixStore(level=level, client=_db_client)
-        result, class_indices = store.read_region(
-            bbox=bbox, label_pairs=label_pairs, sum_over_gt=sum_over_gt
-        )
-    except Exception as e:
-        print(f"DB error for tile z={z} x={x} y={y}: {e}")
-        return _empty_tile()
+    store = ConfusionMatrixStore(level=level, client=_db_client)
+    result, class_indices = store.read_region(
+        bbox=bbox, label_pairs=label_pairs, sum_over_gt=sum_over_gt
+    )
 
     rgb = _make_dist_image(result, colors=colors, class_indices=class_indices)
     # Transpose: make_dist_image outputs (n_i*2, n_j*2, 3); swap so rows=j, cols=i.
