@@ -1,5 +1,5 @@
 from patchsorter.db.db_client import CitusHeadClient
-
+from psycopg.rows import dict_row
 
 import numpy as np
 
@@ -37,7 +37,7 @@ class ConfusionMatrixStore:
 		flat_pairs = [v for gt, pred in label_pairs for v in (int(gt), int(pred))]
 		pair_placeholders = ", ".join(["(%s, %s)"] * len(label_pairs))
 		with self.client.get_connection() as conn:
-			with conn.cursor() as cur:
+			with conn.cursor(row_factory=dict_row) as cur:
 				cur.execute(
 					f"""
 					SELECT gt_label, pred_label, grid_cell_i, grid_cell_j,
@@ -135,7 +135,7 @@ class ConfusionMatrixStore:
 		flat_pairs = [v for gt, pred in label_pairs for v in (int(gt), int(pred))]
 		pair_placeholders = ", ".join(["(%s, %s)"] * len(label_pairs))
 		with self.client.get_connection() as conn:
-			with conn.cursor() as cur:
+			with conn.cursor(row_factory=dict_row) as cur:
 				cur.execute(
 					f"""
 					SELECT gt_label, pred_label, MAX(cell_sum) AS max_count

@@ -1,10 +1,6 @@
 from patchsorter.db.db_client import CitusHeadClient
 
 
-import psycopg
-from psycopg.rows import dict_row
-
-
 class PredPatchStore:
 	"""Manages the pred_patch_latest and pred_patch_last tables."""
 
@@ -38,7 +34,7 @@ class PredPatchStore:
 
 		All four statements execute inside a single atomic transaction.
 		"""
-		with psycopg.connect(self.client.conn_str, row_factory=dict_row) as conn:
+		with self.client.get_connection() as conn:
 			with conn.cursor() as cur:
 				cur.execute("TRUNCATE TABLE pred_patch_last;")
 				cur.execute("ALTER TABLE pred_patch_last RENAME TO pred_patch_tmp;")

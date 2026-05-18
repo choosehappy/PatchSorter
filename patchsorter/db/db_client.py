@@ -1,6 +1,7 @@
 
-import psycopg
 from psycopg.rows import dict_row
+from sqlalchemy import create_engine
+from sqlalchemy.engine import URL
 from typing import Any, Dict, List, Optional
 from patchsorter.db.constants import (
     CITUS_HEAD_HOST, CITUS_HEAD_PORT, CITUS_HEAD_DB, CITUS_HEAD_USER, CITUS_HEAD_PASSWORD
@@ -11,25 +12,35 @@ from patchsorter.db.constants import (
 class CitusHeadClient:
 	"""SDK for interacting with the Citus/Postgres node (single-node setup)."""
 	def __init__(self, host=CITUS_HEAD_HOST, port=CITUS_HEAD_PORT, dbname=CITUS_HEAD_DB, user=CITUS_HEAD_USER, password=CITUS_HEAD_PASSWORD):
-		self.host = host
-		self.port = port
-		self.dbname = dbname
-		self.user = user
-		self.password = password
-		self.conn_str = f"host={self.host} port={self.port} dbname={self.dbname} user={self.user} password={self.password}"
+		self.engine = create_engine(
+			URL.create(
+				drivername="postgresql+psycopg",
+				username=user,
+				password=password,
+				host=host,
+				port=port,
+				database=dbname,
+			),
+			pool_size=10,
+		)
 
 	def get_connection(self):
-		return psycopg.connect(self.conn_str, autocommit=False, row_factory=dict_row)
+		"""Raw psycopg connection for Citus DDL, triggers, shard ops."""
+		return self.engine.raw_connection()
+
+	def get_sa_connection(self):
+		"""SQLAlchemy Core connection for normal queries."""
+		return self.engine.connect()
 
 	def fetch_patches(self, limit=10) -> List[Dict[str, Any]]:
 		with self.get_connection() as conn:
-			with conn.cursor() as cur:
+			with conn.cursor(row_factory=dict_row) as cur:
 				cur.execute("SELECT * FROM patch LIMIT %s;", (limit,))
 				return cur.fetchall()
 
 	def insert_patch(self, patch_uid: int, label_class_id: int, image_id: int, working_mag: float, patch_image: bytes) -> int:
 		with self.get_connection() as conn:
-			with conn.cursor() as cur:
+			with conn.cursor(row_factory=dict_row) as cur:
 				cur.execute(
 					"""
 					INSERT INTO patch (patch_uid, label_class_id, image_id, working_mag, patch_image)
@@ -49,7 +60,7 @@ class CitusHeadClient:
 		Returns the number of rows inserted.
 		"""
 		with self.get_connection() as conn:
-			with conn.cursor() as cur:
+			with conn.cursor(row_factory=dict_row) as cur:
 				cur.executemany(
 					"""
 					INSERT INTO patch (patch_uid, label_class_id, image_id, working_mag, patch_image)
@@ -63,7 +74,7 @@ class CitusHeadClient:
 		"""Fetch all patches from specific Citus shard tables directly."""
 		rows = []
 		with self.get_connection() as conn:
-			with conn.cursor() as cur:
+			with conn.cursor(row_factory=dict_row) as cur:
 				for shard_id in shard_ids:
 					cur.execute(f"SELECT * FROM public.patch_{shard_id};")
 					rows.extend(cur.fetchall())
@@ -72,7 +83,7 @@ class CitusHeadClient:
 	# Optionally, keep this for Citus introspection, but not required for single-node
 	def get_worker_nodes(self) -> List[Dict[str, Any]]:
 		with self.get_connection() as conn:
-			with conn.cursor() as cur:
+			with conn.cursor(row_factory=dict_row) as cur:
 				cur.execute("SELECT * FROM citus_get_active_worker_nodes();")
 				return cur.fetchall()
 
