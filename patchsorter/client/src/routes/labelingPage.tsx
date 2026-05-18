@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import './labelingPage.css'
 import Viewport, { type MapBounds } from '../components/viewport'
 import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatrix'
+import RefreshTimer from '../components/refreshTimer'
 import { getConfusionMatrixAggConfusionMatrixGet, infoAggInfoGet, type WorldInfo } from '../api_client'
 
 
@@ -48,11 +49,7 @@ export default function LabelingPage() {
     const [zoomInfo, setZoomInfo] = useState<string>('')
     const [worldInfo, setWorldInfo] = useState<WorldInfo | null>(null)
     const [refreshTick, setRefreshTick] = useState(0)
-
-    useEffect(() => {
-        const interval = setInterval(() => setRefreshTick(t => t + 1), 5000)
-        return () => clearInterval(interval)
-    }, [])
+    const [refreshIntervalMs, setRefreshIntervalMs] = useState<number | null>(5000)
 
     useEffect(() => {
         infoAggInfoGet()
@@ -207,6 +204,11 @@ export default function LabelingPage() {
                             <option value="custom">Custom</option>
                         </select>
                     </div>
+                    <RefreshTimer
+                        intervalMs={refreshIntervalMs}
+                        onIntervalChange={setRefreshIntervalMs}
+                        onTick={() => setRefreshTick(t => t + 1)}
+                    />
                 </div>
             </div>
 

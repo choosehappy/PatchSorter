@@ -241,6 +241,18 @@
 
 #zoom-info { margin-top: 8px; font-size: 10px; color: #999; }
 
+/* ---- Refresh Timer ---- */
+.refresh-timer-inner {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.refresh-circle {
+    flex-shrink: 0;
+    display: block;
+}
+
 #zoom-info-floating {
     position: absolute;
     left: 10px;
