@@ -2,7 +2,10 @@
 # Database Table Schema (Citus Distributed)
 
 
-## Patch Table (Distributed)
+## project{project_id}_patch Table (Distributed)
+
+> **One unique table per project.** Each project has its own table named `project{project_id}_patch` where `{project_id}` is the integer ID of the project (e.g., `project1_patch`, `project2_patch`).
+
 | Column Name    | Data Type  | Constraints                     | Description                                      |
 |----------------|------------|---------------------------------|--------------------------------------------------|
 | patch_id       | BIGINT     | PRIMARY KEY, SHARD KEY          | Unique identifier for the patch.                 |
@@ -19,7 +22,9 @@
 
 Two tables are used for patch predictions:
 
-### pred_patch_latest (Distributed)
+> **One unique pair of tables per project.** Each project has its own prediction tables named `project{project_id}_pred_patch_latest` and `project{project_id}_pred_patch_last` where `{project_id}` is the integer ID of the project (e.g., `project1_pred_patch_latest`, `project1_pred_patch_last`).
+
+### project{project_id}_pred_patch_latest (Distributed)
 | Column Name    | Data Type | Constraints                     | Description                                      |
 |----------------|-----------|---------------------------------|--------------------------------------------------|
 | patch_id       | BIGINT    | PRIMARY KEY, SHARD KEY          | Unique identifier for the prediction (matches Patch table). |
@@ -30,11 +35,11 @@ Two tables are used for patch predictions:
 | event_ts       | TIMESTAMP | NOT NULL                        | Timestamp when the prediction was added.         |
 | label_class_id | SMALLINT  | NOT NULL, FOREIGN KEY           | Predicted label class for the patch.             |
 
-### pred_patch_last (Distributed)
+### project{project_id}_pred_patch_last (Distributed)
 
-Same schema as `pred_patch_latest`.
+Same schema as `project{project_id}_pred_patch_latest`.
 
-- **Citus:** Both tables are distributed by `patch_id` and co-located with `patch`.
+- **Citus:** Both tables are distributed by `patch_id` and co-located with `project{project_id}_patch`.
 
 ## Image Table
 | Column Name       | Data Type  | Constraints                     | Description                                      |
@@ -79,7 +84,10 @@ Same schema as `pred_patch_latest`.
 | disabled      | BOOLEAN   | DEFAULT FALSE                  | Flag indicating if the setting is disabled and should not be updated. |
 
 
-## Confusion Matrix LN Table (Distributed Aggregation Table)
+## project{project_id}_confusion_matrix_ln Table (Distributed Aggregation Table)
+
+> **One unique table per project.** Each project has its own confusion matrix table named `project{project_id}_confusion_matrix_ln` where `{project_id}` is the integer ID of the project (e.g., `project1_confusion_matrix_ln`, `project2_confusion_matrix_ln`).
+
 | Column Name    | Data Type  | Constraints                     | Description                                      |
 |----------------|------------|---------------------------------|--------------------------------------------------|
 | shard_id       | BIGINT     | SHARD KEY, NOT NULL             | Shard identifier for co-location.                |
@@ -105,20 +113,20 @@ Same schema as `pred_patch_latest`.
 ### Image Table
 - **contains**: Each `Image` contains one or more `Patches`.
 
-### Patch Table (Distributed)
-- **has**: Each `Patch` has one or more predictions in both `pred_patch_latest` and `pred_patch_last` tables (all co-located on `patch_id`).
+### project{project_id}_patch Table (Distributed)
+- **has**: Each `Patch` has one or more predictions in both `project{project_id}_pred_patch_latest` and `project{project_id}_pred_patch_last` tables (all co-located on `patch_id`).
 
 ### Label Class Table
 - **classifies**: Each `Label Class` classifies one or more `Patches`.
-- **classifies**: Each `Label Class` classifies one or more predictions in both `pred_patch_latest` and `pred_patch_last` tables.
+- **classifies**: Each `Label Class` classifies one or more predictions in both `project{project_id}_pred_patch_latest` and `project{project_id}_pred_patch_last` tables.
 
-### Confusion Matrix LN Table (Distributed)
+### project{project_id}_confusion_matrix_ln Table (Distributed)
 - **aggregates**: Each row aggregates patch-level data for a given shard, co-located with the relevant patches and predictions.
 
 
 ## Citus Distribution Notes
 
-- All distributed tables (`patch`, `pred_patch_latest`, `pred_patch_last`, and `confusion_matrix_ln`) are sharded and co-located using the same distribution column (`patch_id` for patch/prediction tables, `shard_id` for aggregation).
+- All distributed tables (`project{project_id}_patch`, `project{project_id}_pred_patch_latest`, `project{project_id}_pred_patch_last`, and `project{project_id}_confusion_matrix_ln`) are sharded and co-located using the same distribution column (`patch_id` for patch/prediction tables, `shard_id` for aggregation). Each project has its own set of these tables.
 - The `shard_id` in the aggregation table should be derived from `patch_id` (e.g., using the same hash function or mapping) to ensure co-location.
 - Co-location ensures efficient distributed joins and aggregations.
 
@@ -160,7 +168,7 @@ erDiagram
         TEXT color_code
         TIMESTAMP event_ts
     }
-    PATCH {
+    projectN_patch {
         SERIAL patch_id PK
         INT patch_uid
         SMALLINT label_class_id FK
@@ -168,7 +176,7 @@ erDiagram
         FLOAT working_mag
         BYTEA patch_image
     }
-    PRED_PATCH_LATEST {
+    projectN_pred_patch_latest {
         SERIAL patch_id PK
         FLOAT embed_x
         FLOAT embed_y
@@ -177,7 +185,7 @@ erDiagram
         TIMESTAMP event_ts
         SMALLINT label_class_id FK
     }
-    PRED_PATCH_LAST {
+    projectN_pred_patch_last {
         SERIAL patch_id PK
         FLOAT embed_x
         FLOAT embed_y
@@ -186,7 +194,7 @@ erDiagram
         TIMESTAMP event_ts
         SMALLINT label_class_id FK
     }
-    CONFUSION_MATRIX_LN {
+    projectN_confusion_matrix_ln {
         SMALLINT grid_cell_i PK
         SMALLINT grid_cell_j PK
         DATE bucket_date
@@ -198,11 +206,11 @@ erDiagram
     SETTINGS ||--|| PROJECT : "configures"
     PROJECT ||--o{ IMAGE : "includes"
     PROJECT ||--o{ LABEL_CLASS : "defines"
-    IMAGE ||--o{ PATCH : "contains"
-    PATCH ||--o{ PRED_PATCH_LATEST : "has"
-    PATCH ||--o{ PRED_PATCH_LAST : "has"
-    LABEL_CLASS ||--o{ PATCH : "classifies"
-    LABEL_CLASS ||--o{ PRED_PATCH_LATEST : "classifies"
-    LABEL_CLASS ||--o{ PRED_PATCH_LAST : "classifies"
-    CONFUSION_MATRIX_LN ||--o{ LABEL_CLASS : "references"
+    IMAGE ||--o{ projectN_patch : "contains"
+    projectN_patch ||--o{ projectN_pred_patch_latest : "has"
+    projectN_patch ||--o{ projectN_pred_patch_last : "has"
+    LABEL_CLASS ||--o{ projectN_patch : "classifies"
+    LABEL_CLASS ||--o{ projectN_pred_patch_latest : "classifies"
+    LABEL_CLASS ||--o{ projectN_pred_patch_last : "classifies"
+    projectN_confusion_matrix_ln ||--o{ LABEL_CLASS : "references"
 ```
