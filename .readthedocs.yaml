@@ -7,7 +7,15 @@ build:
 
 python:
   install:
+    - method: pip
+      path: .          # ← installs your package from setup.py/pyproject.toml
     - requirements: docs/requirements.txt
 
 sphinx:
   configuration: docs/source/conf.py
+
+
+autodoc_mock_imports = [
+    "torch", "ray", "numpy", "pandas", "pillow",
+    "sqlalchemy", "psycopg", "tensorboardx", "pyarrow"
+]
