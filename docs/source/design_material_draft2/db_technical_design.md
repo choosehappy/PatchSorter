@@ -88,6 +88,16 @@ Same schema as `project{project_id}_pred_patch_latest`.
 | disabled      | BOOLEAN   | DEFAULT FALSE                  | Flag indicating if the setting is disabled and should not be updated. |
 
 
+## Log Table
+| Column Name | Data Type | Constraints                | Description                                          |
+|-------------|-----------|----------------------------|------------------------------------------------------|
+| id          | INTEGER   | PRIMARY KEY, AUTOINCREMENT | Internal unique identifier for the log entry.        |
+| name        | TEXT      | NOT NULL                   | Name or source associated with the log entry.        |
+| timestamp   | DATETIME  | NOT NULL                   | Timestamp when the log entry was recorded.           |
+| level       | ENUM      | NOT NULL, DEFAULT 'INFO'   | Severity level of the log entry (e.g. INFO, WARNING, ERROR). |
+| message     | TEXT      | NOT NULL, DEFAULT ''       | Log message content.                                 |
+
+
 ## project{project_id}_confusion_matrix_ln Table (Distributed Aggregation Table)
 
 > **One unique table per project.** Each project has its own confusion matrix table named `project{project_id}_confusion_matrix_ln` where `{project_id}` is the integer ID of the project (e.g., `project1_confusion_matrix_ln`, `project2_confusion_matrix_ln`).
@@ -127,12 +137,51 @@ Same schema as `project{project_id}_pred_patch_latest`.
 ### project{project_id}_confusion_matrix_ln Table (Distributed)
 - **aggregates**: Each row aggregates patch-level data for a given shard, co-located with the relevant patches and predictions.
 
+### Log Table
+- **records**: Each `Log` entry records an application-level event. Not associated with any project.
+
 
 ## Citus Distribution Notes
 
 - All distributed tables (`project{project_id}_patch`, `project{project_id}_pred_patch_latest`, `project{project_id}_pred_patch_last`, and `project{project_id}_confusion_matrix_ln`) are sharded and co-located using the same distribution column (`patch_id` for patch/prediction tables, `shard_id` for aggregation). Each project has its own set of these tables.
 - The `shard_id` in the aggregation table should be derived from `patch_id` (e.g., using the same hash function or mapping) to ensure co-location.
 - Co-location ensures efficient distributed joins and aggregations.
+
+## Deletion Protocols
+
+### Deleting an Annotation (Label) Class
+
+The "Unlabeled" class (`label_class_id = 1`) is a reserved default and **cannot be deleted**.
+
+1. **Reset patch ground truth labels.** `UPDATE projectN_patch SET label_class_id = 1 WHERE label_class_id = $deleted_id` across all shards.
+2. **Reset prediction labels.** `UPDATE projectN_pred_patch_latest SET label_class_id = 1 WHERE label_class_id = $deleted_id` and the same for `projectN_pred_patch_last`.
+3. **Reset confusion matrix references.** `UPDATE projectN_confusion_matrix_ln SET pred_label = 1 WHERE pred_label = $deleted_id` and the same for `gt_label`.
+4. **Delete the label class row.** `DELETE FROM label_class WHERE label_class_id = $deleted_id`.
+
+Steps 1–3 must complete successfully before step 4 is executed. All steps should be wrapped in a single transaction where possible.
+
+### Deleting an Image
+
+1. **Reset patch ground truth labels to "Unlabeled".** `UPDATE projectN_patch SET label_class_id = 1 WHERE image_id = $deleted_image_id`.
+2. **Delete predictions for the image's patches.** `DELETE FROM projectN_pred_patch_latest WHERE patch_id IN (SELECT patch_id FROM projectN_patch WHERE image_id = $deleted_image_id)` and the same for `projectN_pred_patch_last`.
+3. **Delete the patches.** `DELETE FROM projectN_patch WHERE image_id = $deleted_image_id`.
+4. **Delete the image row.** `DELETE FROM image WHERE image_id = $deleted_image_id`.
+
+Steps 1–3 must complete before step 4. All steps should be wrapped in a single transaction.
+
+### Deleting a Project
+
+Deleting a project removes all associated data. This is a destructive, irreversible operation.
+
+1. **Drop the project's distributed tables.** `DROP TABLE projectN_patch, projectN_pred_patch_latest, projectN_pred_patch_last, projectN_confusion_matrix_ln CASCADE`. Dropping these tables implicitly removes all patches, predictions, and aggregations.
+2. **Delete label classes.** `DELETE FROM label_class WHERE project_id = $deleted_project_id`.
+3. **Delete images.** `DELETE FROM image WHERE project_id = $deleted_project_id`.
+4. **Delete settings.** `DELETE FROM settings WHERE project_id = $deleted_project_id`.
+5. **Delete the project row.** `DELETE FROM project WHERE project_id = $deleted_project_id`.
+
+Steps 1–4 must complete before step 5.
+
+---
 
 ## Entity-Relationship Diagram (Citus Focus)
 
@@ -209,6 +258,13 @@ erDiagram
         SMALLINT pred_label FK
         SMALLINT gt_label FK
         INT count
+    }
+    LOG {
+        INTEGER id PK
+        TEXT name
+        DATETIME timestamp
+        ENUM level
+        TEXT message
     }
 
     SETTINGS ||--|| PROJECT : "configures"
