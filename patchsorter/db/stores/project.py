@@ -12,7 +12,7 @@ class ProjectStore:
 
     Args:
         session: An active SQLAlchemy session provided by
-            :class:`~patchsorter.db.unit_of_work.CitusHeadUnitOfWork`.
+            :meth:`~patchsorter.db.db_client.CitusHeadClient.get_session`.
     """
 
     def __init__(self, session: Session) -> None:
@@ -98,7 +98,7 @@ class ProjectStore:
             project_id: The integer project ID.  Used as the ``{N}`` suffix in
                 all table names.
             raw_conn: A raw psycopg connection obtained from
-                :meth:`~patchsorter.db.unit_of_work.CitusHeadUnitOfWork.raw_connection`.
+                :meth:`~patchsorter.db.db_client.CitusHeadClient.get_connection`.
                 The caller's context manager commits the connection on success.
         """
         n = project_id
@@ -184,7 +184,7 @@ class ProjectStore:
         Args:
             project_id: The integer ID of the project to delete.
             raw_conn: A raw psycopg connection obtained from
-                :meth:`~patchsorter.db.unit_of_work.CitusHeadUnitOfWork.raw_connection`.
+                :meth:`~patchsorter.db.db_client.CitusHeadClient.get_connection`.
 
         Warning:
             This is a destructive and irreversible operation.

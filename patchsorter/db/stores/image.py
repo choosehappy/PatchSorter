@@ -13,7 +13,7 @@ class ImageStore:
 
     Args:
         session: An active SQLAlchemy session provided by
-            :class:`~patchsorter.db.unit_of_work.CitusHeadUnitOfWork`.
+            :meth:`~patchsorter.db.db_client.CitusHeadClient.get_session`.
     """
 
     def __init__(self, session: Session) -> None:

@@ -10,8 +10,7 @@ lifecycle from one another.
 patchsorter/db/
 ├── __init__.py            ← re-exports all public symbols
 ├── constants.py           ← env-var connection config (head + worker)
-├── db_client.py           ← CitusHeadClient, CitusWorkerClient
-├── unit_of_work.py        ← CitusHeadUnitOfWork, CitusWorkerUnitOfWork, FastAPI deps
+├── db_client.py           ← CitusHeadClient, CitusWorkerClient, FastAPI providers
 └── stores/
     ├── __init__.py        ← re-exports all store classes
     ├── confusion_matrix.py
@@ -28,26 +27,38 @@ patchsorter/db/
 
 ## Layer Responsibilities
 
-### `CitusHeadClient` / `CitusWorkerClient` — Connection & DDL
+### `CitusHeadClient` / `CitusWorkerClient` — Connection & Session
 
-`CitusHeadClient` owns the SQLAlchemy engine and the sessionmaker:
+`CitusHeadClient` owns the SQLAlchemy engine, the sessionmaker, and the
+session lifecycle:
 
 ```python
 self.engine = create_engine(dsn)
 self.session_factory = sessionmaker(bind=self.engine)
 ```
 
-It exposes **DDL-only** methods:
+Use `get_session()` to run store operations:
+
+```python
+client = get_client()
+with client.get_session() as session:
+    projects = ProjectStore(session)
+    return projects.list_all()
+# → session.commit() on clean exit, session.rollback() on exception
+```
+
+It also exposes **DDL** methods:
 
 | Method | Purpose |
 |--------|---------|
+| `get_session()` | Context manager yielding an ORM `Session`; commits/rolls back automatically |
 | `get_connection()` | Returns a raw psycopg connection for DDL |
 | `setup_schema()` | Creates the 5 reference tables and registers Citus reference table replication |
 | `setup_triggers(project_id)` | Creates project-scoped PL/pgSQL trigger functions and binds them to the CM tables |
 | `drop_all_tables()` | Drops only the 5 reference tables (per-project tables managed by `ProjectStore`) |
 
 `CitusWorkerClient` is a thin subclass that reads worker-specific env vars
-(`CITUS_WORKER_HOST`, etc.) by default.
+(`CITUS_WORKER_HOST`, etc.) by default and inherits `get_session()`.
 
 ### Stores — Per-Table Data Access
 
@@ -71,81 +82,67 @@ prevent SQL injection.  Results are returned as plain `dict` objects (via
 `.mappings().all()`).
 
 **DDL methods** (table creation, deletion, rename) accept a `raw_conn`
-argument obtained from the Unit of Work's `raw_connection()` context manager
-so they can execute outside the session transaction.
+argument obtained from `client.get_connection()` so they can execute outside
+the session transaction.
 
 ---
 
-## Unit of Work Pattern
+## Session Lifecycle
 
-Both UoW classes act as context managers:
+`get_session()` on either client class is a context manager that handles the
+full session lifecycle:
 
 ```python
-with CitusHeadUnitOfWork(client, project_id=1) as uow:
-    project = uow.projects.get_by_uid(uid)
-    uow.patches.bulk_insert(records)
-# → session.commit() called automatically on clean exit
-# → session.rollback() called on exception
+client = get_client()
+with client.get_session() as session:
+    projects = ProjectStore(session)
+    patches = PatchStore(project_id, session)
+    project = projects.get_by_uid(uid)
+    patches.bulk_insert(records)
+# → session.commit() on clean exit, session.rollback() on exception
 ```
 
-On `__enter__`:
-- A new `Session` is created from `client.session_factory()`.
-- All store instances are created with that session.
-
-On `__exit__`:
-- `session.commit()` on success, `session.rollback()` on exception, then
-  `session.close()`.
-
-### DDL Escape Hatch — `raw_connection()`
+### DDL Escape Hatch — `get_connection()`
 
 Operations that cannot run inside a transaction (e.g. `ALTER TABLE … RENAME`,
-`DROP TABLE`) use the `raw_connection()` context manager:
+`DROP TABLE`) use `get_connection()` directly:
 
 ```python
-with uow.raw_connection() as conn:
-    uow.pred_patches.rotate_tables(conn)
-    # → conn.commit() on success, conn.rollback() on exception
+with client.get_connection() as conn:
+    store.rotate_tables(conn)
+    conn.commit()
 ```
 
-### `CitusHeadUnitOfWork` vs `CitusWorkerUnitOfWork`
+### Head vs Worker client
 
-| Feature | `CitusHeadUnitOfWork` | `CitusWorkerUnitOfWork` |
-|---------|----------------------|------------------------|
-| Reference stores | ✅ `projects`, `images`, `label_classes`, `settings`, `logs` | ❌ |
-| Per-project stores | ✅ when `project_id` supplied | ✅ always (required) |
+| Feature | `CitusHeadClient` | `CitusWorkerClient` |
+|---------|------------------|---------------------|
+| Reference stores | ✅ `ProjectStore`, `ImageStore`, `LabelClassStore`, `SettingsStore`, `LogStore` | read-only replicas |
+| Per-project stores | ✅ | ✅ |
 | Suitable for | API routes, application logic | Direct shard reads, worker batch ops |
 
 ---
 
 ## FastAPI Dependency Injection
 
-Three `Annotated` type aliases integrate cleanly with FastAPI's `Depends()`:
+`get_client()` and `get_worker_client()` are plain callables usable with
+FastAPI's `Depends()`.  Routes open a session inline:
 
 ```python
-HeadUOW    = Annotated[CitusHeadUnitOfWork,   Depends(get_head_uow)]
-ProjectUOW = Annotated[CitusHeadUnitOfWork,   Depends(get_project_uow)]
-WorkerUOW  = Annotated[CitusWorkerUnitOfWork, Depends(get_worker_uow)]
-```
+from fastapi import Depends
+from patchsorter.db.db_client import CitusHeadClient, get_client
 
-### Usage examples
-
-```python
-from patchsorter.db import HeadUOW, ProjectUOW, WorkerUOW
-
-# Reference-only route (no project context)
+# Reference-only route
 @router.get("/projects")
-async def list_projects(uow: HeadUOW):
-    return uow.projects.list_all()
+def list_projects(client: CitusHeadClient = Depends(get_client)):
+    with client.get_session() as session:
+        return ProjectStore(session).list_all()
 
 # Project-scoped route — project_id comes from URL path
 @router.get("/projects/{project_id}/patches")
-async def list_patches(project_id: int, uow: ProjectUOW):
-    return uow.patches.fetch(limit=100)
-
-# Worker shard route
-@router.get("/worker/projects/{project_id}/shards")
-async def read_shard(project_id: int, uow: WorkerUOW):
-    return uow.patches.fetch_by_shards([102008, 102009])
+def list_patches(project_id: int, client: CitusHeadClient = Depends(get_client)):
+    with client.get_session() as session:
+        return PatchStore(project_id, session).fetch(limit=100)
 ```
 
 ### Singleton clients
@@ -154,8 +151,8 @@ async def read_shard(project_id: int, uow: WorkerUOW):
 process on first call.  Substitute a custom instance at startup for testing:
 
 ```python
-from patchsorter.db import unit_of_work
-unit_of_work._head_client = CitusHeadClient(dsn="postgresql://test-host/test_db")
+import patchsorter.db.db_client as db_client
+db_client._head_client = CitusHeadClient(host="test-host", dbname="test_db")
 ```
 
 ---
@@ -220,7 +217,7 @@ extensions = [
 Then include the module in an `.rst` or `.md` page:
 
 ```rst
-.. autoclass:: patchsorter.db.unit_of_work.CitusHeadUnitOfWork
+.. automodule:: patchsorter.db.db_client
    :members:
 
 .. automodule:: patchsorter.db.stores

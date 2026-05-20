@@ -1,8 +1,10 @@
 
+from contextlib import contextmanager
+from typing import Any, Dict, Generator, List, Optional
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.engine import URL
-from typing import Any, Dict, List
 
 from patchsorter.db.constants import (
     CITUS_HEAD_HOST,
@@ -60,6 +62,30 @@ class CitusHeadClient:
             pool_size=10,
         )
         self.session_factory = sessionmaker(bind=self.engine)
+
+    @contextmanager
+    def get_session(self) -> Generator[Session, None, None]:
+        """Context manager that yields a SQLAlchemy session for ORM queries.
+
+        Commits the session on clean exit, rolls back on exception, and always
+        closes the session.  Pass the yielded session to store constructors::
+
+            with client.get_session() as session:
+                projects = ProjectStore(session)
+                return projects.list_all()
+
+        Yields:
+            An active :class:`sqlalchemy.orm.Session`.
+        """
+        session: Session = self.session_factory()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     def get_connection(self):
         """Return a raw psycopg connection from the engine pool.
@@ -588,9 +614,8 @@ class CitusWorkerClient(CitusHeadClient):
     """Connection factory for direct shard-level access on a Citus worker node.
 
     Subclasses :class:`CitusHeadClient` with worker-specific default connection
-    parameters.  Use this client with
-    :class:`~patchsorter.db.unit_of_work.CitusWorkerUnitOfWork` to query shard
-    tables directly on the worker without routing through the coordinator.
+    parameters.  Use :meth:`~CitusHeadClient.get_session` to obtain a session
+    and pass it to store constructors for shard-local batch operations.
 
     Note:
         Reference tables (``project``, ``image``, ``label_class``, etc.) are
@@ -622,4 +647,40 @@ class CitusWorkerClient(CitusHeadClient):
             user=user,
             password=password,
         )
+
+
+# --------------------------------------------------------------------------- #
+# Singleton clients (override at application startup if needed)               #
+# --------------------------------------------------------------------------- #
+
+_head_client: Optional[CitusHeadClient] = None
+_worker_client: Optional[CitusWorkerClient] = None
+
+
+def get_client() -> CitusHeadClient:
+    """Return the application-global :class:`CitusHeadClient`.
+
+    The client is created on first call using environment-variable defaults.
+    Override ``_head_client`` before the first request to supply a custom
+    instance (e.g. in tests).
+
+    Returns:
+        The shared :class:`CitusHeadClient`.
+    """
+    global _head_client
+    if _head_client is None:
+        _head_client = CitusHeadClient()
+    return _head_client
+
+
+def get_worker_client() -> CitusWorkerClient:
+    """Return the application-global :class:`CitusWorkerClient`.
+
+    Returns:
+        The shared :class:`CitusWorkerClient`.
+    """
+    global _worker_client
+    if _worker_client is None:
+        _worker_client = CitusWorkerClient()
+    return _worker_client
 

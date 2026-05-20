@@ -16,8 +16,8 @@ class PatchStore:
         project_id: Integer ID of the project.  Used to construct the
             project-scoped table name.
         session: An active SQLAlchemy session provided by
-            :class:`~patchsorter.db.unit_of_work.CitusHeadUnitOfWork` or
-            :class:`~patchsorter.db.unit_of_work.CitusWorkerUnitOfWork`.
+            :meth:`~patchsorter.db.db_client.CitusHeadClient.get_session` or
+            :meth:`~patchsorter.db.db_client.CitusWorkerClient.get_session`.
     """
 
     def __init__(self, project_id: int, session: Session) -> None:
@@ -139,7 +139,7 @@ class PatchStore:
 
         This bypasses the coordinator routing and reads directly from the
         named shard objects.  Useful when running on a worker node via
-        :class:`~patchsorter.db.unit_of_work.CitusWorkerUnitOfWork`.
+        :meth:`~patchsorter.db.db_client.CitusWorkerClient.get_session`.
 
         Args:
             shard_ids: List of numeric Citus shard IDs to query.

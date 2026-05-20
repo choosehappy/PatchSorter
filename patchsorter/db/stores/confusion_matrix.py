@@ -25,8 +25,8 @@ class ConfusionMatrixStore:
         level: Hierarchical grid level to query.  Must be in the range 8–12
             inclusive.
         session: An active SQLAlchemy session provided by
-            :class:`~patchsorter.db.unit_of_work.CitusHeadUnitOfWork` or
-            :class:`~patchsorter.db.unit_of_work.CitusWorkerUnitOfWork`.
+            :meth:`~patchsorter.db.db_client.CitusHeadClient.get_session` or
+            :meth:`~patchsorter.db.db_client.CitusWorkerClient.get_session`.
 
     Raises:
         ValueError: If *level* is outside the valid range 8–12.

@@ -13,8 +13,8 @@ class PredPatchStore:
         project_id: Integer ID of the project.  Used to construct the
             project-scoped table names.
         session: An active SQLAlchemy session provided by
-            :class:`~patchsorter.db.unit_of_work.CitusHeadUnitOfWork` or
-            :class:`~patchsorter.db.unit_of_work.CitusWorkerUnitOfWork`.
+            :meth:`~patchsorter.db.db_client.CitusHeadClient.get_session` or
+            :meth:`~patchsorter.db.db_client.CitusWorkerClient.get_session`.
     """
 
     def __init__(self, project_id: int, session: Session) -> None:
@@ -47,7 +47,7 @@ class PredPatchStore:
 
         Args:
             raw_conn: A raw psycopg connection obtained from
-                :meth:`~patchsorter.db.unit_of_work.CitusHeadUnitOfWork.raw_connection`.
+                :meth:`~patchsorter.db.db_client.CitusHeadClient.get_connection`.
                 The caller's context manager commits on success.
         """
         n = self.project_id

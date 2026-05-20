@@ -7,10 +7,7 @@ import io
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import Response
 
-from patchsorter.db.constants import (
-    CITUS_HEAD_HOST, CITUS_HEAD_PORT, CITUS_HEAD_DB, CITUS_HEAD_USER, CITUS_HEAD_PASSWORD
-)
-from patchsorter.db.db_client import CitusHeadClient
+from patchsorter.db.db_client import CitusHeadClient, get_client
 from patchsorter.api.v1.models import WorldInfo, ConfusionMatrixResponse
 from patchsorter.api.v1.utils import (
     colors,
@@ -35,8 +32,6 @@ class SumOver(str, Enum):
     pred = "pred"
 
 
-_db_client = CitusHeadClient()
-
 router = APIRouter()
 
 
@@ -55,8 +50,9 @@ def info() -> WorldInfo:
     )
 
 
-@router.get("/tiles/{z}/{x}/{y}.png")
+@router.get("/projects/{project_id}/tiles/{z}/{x}/{y}.png")
 def serve_tile(
+    project_id: int,
     z: int,
     x: int,
     y: int,
@@ -83,10 +79,12 @@ def serve_tile(
 
     bbox = (i_min, j_min, i_max, j_max)
 
-    store = ConfusionMatrixStore(level=level, client=_db_client)
-    result, class_indices = store.read_region(
-        bbox=bbox, label_pairs=label_pairs, sum_over_gt=sum_over_gt
-    )
+    client = get_client()
+    with client.get_session() as session:
+        store = ConfusionMatrixStore(project_id, level, session)
+        result, class_indices = store.read_region(
+            bbox=bbox, label_pairs=label_pairs, sum_over_gt=sum_over_gt
+        )
 
     rgb = _make_dist_image(result, colors=colors, class_indices=class_indices)
     # Transpose: make_dist_image outputs (n_i*2, n_j*2, 3); swap so rows=j, cols=i.
@@ -98,8 +96,9 @@ def serve_tile(
     return Response(content=buf.getvalue(), media_type="image/png")
 
 
-@router.get("/confusion_matrix", response_model=ConfusionMatrixResponse)
+@router.get("/projects/{project_id}/confusion_matrix", response_model=ConfusionMatrixResponse)
 def get_confusion_matrix(
+    project_id: int,
     x_min: float = Query(...),
     y_min: float = Query(...),
     x_max: float = Query(...),
@@ -122,10 +121,12 @@ def get_confusion_matrix(
     bbox = (i_min, j_min, i_max, j_max)
 
     try:
-        store = ConfusionMatrixStore(level=coarsest_level, client=_db_client)
-        confusion, gt_labels, pred_labels = store.read_confusion_matrix(
-            bbox=bbox, label_pairs=label_pairs
-        )
+        client = get_client()
+        with client.get_session() as session:
+            store = ConfusionMatrixStore(project_id, coarsest_level, session)
+            confusion, gt_labels, pred_labels = store.read_confusion_matrix(
+                bbox=bbox, label_pairs=label_pairs
+            )
     except Exception as e:
         print(f"DB error for confusion matrix: {e}")
         raise HTTPException(status_code=500, detail=str(e))
