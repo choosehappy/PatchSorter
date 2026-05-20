@@ -1,8 +1,9 @@
 /* ---- Layout ---- */
 .labeling-page {
     position: relative;
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
     overflow: hidden;
     background: #fff;
 }
