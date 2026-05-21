@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { GetConfusionMatrixAggConfusionMatrixGetData, GetConfusionMatrixAggConfusionMatrixGetErrors, GetConfusionMatrixAggConfusionMatrixGetResponses, InfoAggInfoGetData, InfoAggInfoGetResponses, ServeTileAggTilesZxyPngGetData, ServeTileAggTilesZxyPngGetErrors, ServeTileAggTilesZxyPngGetResponses } from './types.gen';
+import type { GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetData, GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetErrors, GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetResponses, InfoAggInfoGetData, InfoAggInfoGetResponses, ServeTileAggProjectsProjectIdTilesZxyPngGetData, ServeTileAggProjectsProjectIdTilesZxyPngGetErrors, ServeTileAggProjectsProjectIdTilesZxyPngGetResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -26,9 +26,9 @@ export const infoAggInfoGet = <ThrowOnError extends boolean = false>(options?: O
 /**
  * Serve Tile
  */
-export const serveTileAggTilesZXYPngGet = <ThrowOnError extends boolean = false>(options: Options<ServeTileAggTilesZxyPngGetData, ThrowOnError>) => (options.client ?? client).get<ServeTileAggTilesZxyPngGetResponses, ServeTileAggTilesZxyPngGetErrors, ThrowOnError>({ url: '/agg/tiles/{z}/{x}/{y}.png', ...options });
+export const serveTileAggProjectsProjectIdTilesZXYPngGet = <ThrowOnError extends boolean = false>(options: Options<ServeTileAggProjectsProjectIdTilesZxyPngGetData, ThrowOnError>) => (options.client ?? client).get<ServeTileAggProjectsProjectIdTilesZxyPngGetResponses, ServeTileAggProjectsProjectIdTilesZxyPngGetErrors, ThrowOnError>({ url: '/agg/projects/{project_id}/tiles/{z}/{x}/{y}.png', ...options });
 
 /**
  * Get Confusion Matrix
  */
-export const getConfusionMatrixAggConfusionMatrixGet = <ThrowOnError extends boolean = false>(options: Options<GetConfusionMatrixAggConfusionMatrixGetData, ThrowOnError>) => (options.client ?? client).get<GetConfusionMatrixAggConfusionMatrixGetResponses, GetConfusionMatrixAggConfusionMatrixGetErrors, ThrowOnError>({ url: '/agg/confusion_matrix', ...options });
+export const getConfusionMatrixAggProjectsProjectIdConfusionMatrixGet = <ThrowOnError extends boolean = false>(options: Options<GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetData, ThrowOnError>) => (options.client ?? client).get<GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetResponses, GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetErrors, ThrowOnError>({ url: '/agg/projects/{project_id}/confusion_matrix', ...options });

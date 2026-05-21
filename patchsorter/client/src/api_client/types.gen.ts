@@ -101,9 +101,13 @@ export type InfoAggInfoGetResponses = {
 
 export type InfoAggInfoGetResponse = InfoAggInfoGetResponses[keyof InfoAggInfoGetResponses];
 
-export type ServeTileAggTilesZxyPngGetData = {
+export type ServeTileAggProjectsProjectIdTilesZxyPngGetData = {
     body?: never;
     path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
         /**
          * Z
          */
@@ -140,28 +144,33 @@ export type ServeTileAggTilesZxyPngGetData = {
          */
         vp_y_max?: number | null;
     };
-    url: '/agg/tiles/{z}/{x}/{y}.png';
+    url: '/agg/projects/{project_id}/tiles/{z}/{x}/{y}.png';
 };
 
-export type ServeTileAggTilesZxyPngGetErrors = {
+export type ServeTileAggProjectsProjectIdTilesZxyPngGetErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type ServeTileAggTilesZxyPngGetError = ServeTileAggTilesZxyPngGetErrors[keyof ServeTileAggTilesZxyPngGetErrors];
+export type ServeTileAggProjectsProjectIdTilesZxyPngGetError = ServeTileAggProjectsProjectIdTilesZxyPngGetErrors[keyof ServeTileAggProjectsProjectIdTilesZxyPngGetErrors];
 
-export type ServeTileAggTilesZxyPngGetResponses = {
+export type ServeTileAggProjectsProjectIdTilesZxyPngGetResponses = {
     /**
      * Successful Response
      */
     200: unknown;
 };
 
-export type GetConfusionMatrixAggConfusionMatrixGetData = {
+export type GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetData = {
     body?: never;
-    path?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+    };
     query: {
         /**
          * X Min
@@ -184,23 +193,23 @@ export type GetConfusionMatrixAggConfusionMatrixGetData = {
          */
         lp?: Array<string> | null;
     };
-    url: '/agg/confusion_matrix';
+    url: '/agg/projects/{project_id}/confusion_matrix';
 };
 
-export type GetConfusionMatrixAggConfusionMatrixGetErrors = {
+export type GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type GetConfusionMatrixAggConfusionMatrixGetError = GetConfusionMatrixAggConfusionMatrixGetErrors[keyof GetConfusionMatrixAggConfusionMatrixGetErrors];
+export type GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetError = GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetErrors[keyof GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetErrors];
 
-export type GetConfusionMatrixAggConfusionMatrixGetResponses = {
+export type GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetResponses = {
     /**
      * Successful Response
      */
     200: ConfusionMatrixResponse;
 };
 
-export type GetConfusionMatrixAggConfusionMatrixGetResponse = GetConfusionMatrixAggConfusionMatrixGetResponses[keyof GetConfusionMatrixAggConfusionMatrixGetResponses];
+export type GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetResponse = GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetResponses[keyof GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetResponses];

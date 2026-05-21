@@ -12,7 +12,7 @@ const router = createBrowserRouter([
         path: '/',
         element: <Root />,
         children: [
-            { path: '/', element: <LabelingPage /> },
+            { path: '/project/:projectId/labeler', element: <LabelingPage /> },
         ],
     },
 ])

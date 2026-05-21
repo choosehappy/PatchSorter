@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import './labelingPage.css'
 import Viewport, { type MapBounds } from '../components/viewport'
 import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatrix'
 import RefreshTimer from '../components/refreshTimer'
-import { getConfusionMatrixAggConfusionMatrixGet, infoAggInfoGet, type WorldInfo } from '../api_client'
+import { getConfusionMatrixAggProjectsProjectIdConfusionMatrixGet, infoAggInfoGet, type WorldInfo } from '../api_client'
 
 
 
@@ -41,6 +42,8 @@ function makeAllCells(): Set<string> {
 
 
 export default function LabelingPage() {
+    const { projectId: projectIdParam } = useParams<{ projectId: string }>()
+    const projectId = Number(projectIdParam)
     const [colorBy, setColorBy] = useState<string>('gt')
     const [filterBy, setFilterBy] = useState<string>('all')
     const [selectedCells, setSelectedCells] = useState<Set<string>>(makeAllCells)
@@ -70,7 +73,8 @@ export default function LabelingPage() {
 
     const { data: confusionData = null } = useQuery<ConfusionData | null>({
         queryKey: ['confusionMatrix', bounds, lp, refreshTick],
-        queryFn: () => getConfusionMatrixAggConfusionMatrixGet({
+        queryFn: () => getConfusionMatrixAggProjectsProjectIdConfusionMatrixGet({
+            path: { project_id: projectId },
             query: {
                 x_min: bounds!.left,
                 y_min: bounds!.top,
@@ -171,6 +175,7 @@ export default function LabelingPage() {
         <div className="labeling-page">
             {/* Full-screen tile map */}
             <Viewport
+                projectId={projectId}
                 colorBy={colorBy}
                 filterBy={filterBy}
                 selectedCells={selectedCells}
