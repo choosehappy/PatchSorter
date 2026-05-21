@@ -25,8 +25,8 @@ If `input` is a URL, confirm the backend is running first.
 cd patchsorter/client && npm run openapi-ts
 
 # Review what changed
-git diff --stat src/client
-git diff src/client
+git diff --stat src/api_client
+git diff src/api_client
 ```
 
 Note every renamed type, removed field, and changed method signature.
@@ -44,7 +44,7 @@ Work through errors file by file:
 - **Response shape change** → update destructuring
 - **Removed endpoint** → replace or remove the call
 
-Never edit files inside the generated output directory — put custom logic in wrappers outside it.
+Never edit files inside the generated output directory (`src/api_client`) — put custom logic in wrappers outside it.
 
 ## 4 — Verify
 
