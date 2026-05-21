@@ -142,7 +142,7 @@ class CitusHeadClient:
 
         Creates the following tables (idempotent — uses ``IF NOT EXISTS``):
 
-        - ``project`` — one row per project, with a UUID external identifier.
+        - ``project`` — one row per project.
         - ``image`` — one row per whole-slide image.
         - ``label_class`` — annotation classes per project.
         - ``settings`` — key/value configuration at application or project level.
@@ -165,13 +165,11 @@ class CitusHeadClient:
         schema_statements = [
             """CREATE TABLE IF NOT EXISTS project (
                 project_id   SERIAL    PRIMARY KEY,
-                project_uid  UUID      NOT NULL UNIQUE DEFAULT gen_random_uuid(),
                 project_name TEXT      NOT NULL,
                 description  TEXT
             );""",
             """CREATE TABLE IF NOT EXISTS image (
                 image_id          SERIAL    PRIMARY KEY,
-                image_uid         UUID      NOT NULL UNIQUE DEFAULT gen_random_uuid(),
                 project_id        INT       NOT NULL REFERENCES project(project_id),
                 name              TEXT      NOT NULL,
                 image_path        TEXT      NOT NULL,
@@ -188,7 +186,6 @@ class CitusHeadClient:
             );""",
             """CREATE TABLE IF NOT EXISTS label_class (
                 label_class_id  SERIAL    PRIMARY KEY,
-                label_class_uid UUID      NOT NULL UNIQUE DEFAULT gen_random_uuid(),
                 project_id      INT       NOT NULL REFERENCES project(project_id),
                 name            TEXT      NOT NULL,
                 color_code      TEXT,
@@ -197,7 +194,6 @@ class CitusHeadClient:
             );""",
             """CREATE TABLE IF NOT EXISTS settings (
                 setting_id    SERIAL  PRIMARY KEY,
-                setting_uid   UUID    NOT NULL UNIQUE DEFAULT gen_random_uuid(),
                 project_id    INT     REFERENCES project(project_id),
                 setting_key   TEXT    NOT NULL,
                 setting_value TEXT    NOT NULL,

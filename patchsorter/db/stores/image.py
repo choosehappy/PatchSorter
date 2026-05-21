@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -35,8 +34,6 @@ class ImageStore:
         train_test_split: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Insert a new image record and return the created row.
-
-        A UUID is generated automatically by the database.
 
         Args:
             project_id: Foreign key to the owning project.
@@ -87,21 +84,6 @@ class ImageStore:
             },
         ).mappings().one()
         return dict(row)
-
-    def get_by_uid(self, image_uid: uuid.UUID) -> Optional[Dict[str, Any]]:
-        """Fetch an image by its external UUID.
-
-        Args:
-            image_uid: The external UUID of the image.
-
-        Returns:
-            A dict with all image columns, or ``None`` if not found.
-        """
-        row = self._session.execute(
-            text("SELECT * FROM image WHERE image_uid = :uid"),
-            {"uid": str(image_uid)},
-        ).mappings().one_or_none()
-        return dict(row) if row else None
 
     def list_by_project(self, project_id: int) -> List[Dict[str, Any]]:
         """Return all images belonging to a project ordered by ``image_id``.

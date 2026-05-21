@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
@@ -25,44 +24,25 @@ class ProjectStore:
     def create(self, name: str, description: Optional[str] = None) -> Dict[str, Any]:
         """Insert a new project and return the created row.
 
-        A UUID is generated automatically by the database.
-
         Args:
             name: Human-readable project name.  Must be unique across all
                 projects.
             description: Optional longer description of the project.
 
         Returns:
-            A dict with ``project_id``, ``project_uid``, ``project_name``,
-            and ``description``.
+            A dict with ``project_id``, ``project_name``, and ``description``.
         """
         row = self._session.execute(
             text(
                 """
                 INSERT INTO project (project_name, description)
                 VALUES (:name, :description)
-                RETURNING project_id, project_uid, project_name, description
+                RETURNING project_id, project_name, description
                 """
             ),
             {"name": name, "description": description},
         ).mappings().one()
         return dict(row)
-
-    def get_by_uid(self, project_uid: uuid.UUID) -> Optional[Dict[str, Any]]:
-        """Fetch a project by its external UUID.
-
-        Args:
-            project_uid: The external UUID of the project as a
-                :class:`uuid.UUID` instance or a UUID string.
-
-        Returns:
-            A dict with all project columns, or ``None`` if not found.
-        """
-        row = self._session.execute(
-            text("SELECT * FROM project WHERE project_uid = :uid"),
-            {"uid": str(project_uid)},
-        ).mappings().one_or_none()
-        return dict(row) if row else None
 
     def list_all(self) -> List[Dict[str, Any]]:
         """Return all projects ordered by ``project_id`` ascending.

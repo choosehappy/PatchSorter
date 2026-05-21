@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -30,7 +29,7 @@ class LabelClassStore:
     ) -> Dict[str, Any]:
         """Insert a new label class and return the created row.
 
-        A UUID and the current timestamp are assigned automatically.
+        The current timestamp is assigned automatically.
 
         Args:
             project_id: Foreign key to the owning project.
@@ -52,21 +51,6 @@ class LabelClassStore:
             {"project_id": project_id, "name": name, "color_code": color_code},
         ).mappings().one()
         return dict(row)
-
-    def get_by_uid(self, label_class_uid: uuid.UUID) -> Optional[Dict[str, Any]]:
-        """Fetch a label class by its external UUID.
-
-        Args:
-            label_class_uid: The external UUID of the label class.
-
-        Returns:
-            A dict with all label-class columns, or ``None`` if not found.
-        """
-        row = self._session.execute(
-            text("SELECT * FROM label_class WHERE label_class_uid = :uid"),
-            {"uid": str(label_class_uid)},
-        ).mappings().one_or_none()
-        return dict(row) if row else None
 
     def list_by_project(self, project_id: int) -> List[Dict[str, Any]]:
         """Return all label classes for a project ordered by ``label_class_id``.
