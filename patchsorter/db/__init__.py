@@ -24,7 +24,7 @@ FastAPI dependency providers:
 - :func:`~patchsorter.db.db_client.get_worker_client`
 """
 
-from patchsorter.db import stores
+from patchsorter.db import head_client
 from patchsorter.db.db_client import (
     CitusHeadClient,
     CitusWorkerClient,
@@ -33,7 +33,7 @@ from patchsorter.db.db_client import (
 )
 
 __all__ = [
-    "stores",
+    "head_client",
     "CitusHeadClient",
     "CitusWorkerClient",
     "get_client",

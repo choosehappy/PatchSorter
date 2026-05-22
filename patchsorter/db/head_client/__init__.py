@@ -16,14 +16,14 @@ Exports:
 - :class:`SettingsStore` — ``settings``
 """
 
-from patchsorter.db.stores.confusion_matrix import ConfusionMatrixStore
-from patchsorter.db.stores.image import ImageStore
-from patchsorter.db.stores.label_class import LabelClassStore
-from patchsorter.db.stores.log import LogStore
-from patchsorter.db.stores.patch import PatchStore
-from patchsorter.db.stores.pred_patch import PredPatchStore
-from patchsorter.db.stores.project import ProjectStore
-from patchsorter.db.stores.settings import SettingsStore
+from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
+from patchsorter.db.head_client.image import ImageStore
+from patchsorter.db.head_client.label_class import LabelClassStore
+from patchsorter.db.head_client.log import LogStore
+from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.pred_patch import PredPatchStore
+from patchsorter.db.head_client.project import ProjectStore
+from patchsorter.db.head_client.settings import SettingsStore
 
 __all__ = [
     "ConfusionMatrixStore",

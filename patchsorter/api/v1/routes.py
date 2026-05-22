@@ -24,7 +24,7 @@ from patchsorter.api.v1.utils import (
     _make_dist_image,
     _empty_tile,
 )
-from patchsorter.db.stores.confusion_matrix import ConfusionMatrixStore
+from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 
 
 class SumOver(str, Enum):
