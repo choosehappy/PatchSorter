@@ -45,7 +45,6 @@ Same schema as `project{project_id}_pred_patch_latest`.
 | Column Name       | Data Type  | Constraints                     | Description                                      |
 |-------------------|------------|---------------------------------|--------------------------------------------------|
 | image_id          | SERIAL     | PRIMARY KEY, INDEXED            | Internal unique identifier for the image.        |
-| image_uid         | UUID       | NOT NULL, UNIQUE, INDEXED       | External unique identifier used when interacting with users. |
 | project_id        | INT        | NOT NULL, FOREIGN KEY          | Identifier for the associated project.          |
 | name              | TEXT       | NOT NULL, UNIQUE WITHIN PROJECT| Name of the image.                              |
 | image_path        | TEXT       | NOT NULL                       | File path or URI of the image.                  |
@@ -63,7 +62,6 @@ Same schema as `project{project_id}_pred_patch_latest`.
 | Column Name   | Data Type | Constraints                     | Description                                              |
 |---------------|-----------|----------------------------------|----------------------------------------------------------|
 | project_id    | SERIAL    | PRIMARY KEY, INDEXED            | Internal unique identifier for the project.             |
-| project_uid   | UUID      | NOT NULL, UNIQUE, INDEXED       | External unique identifier used when interacting with users. |
 | project_name  | TEXT      | NOT NULL                        |                                                          |
 | description   | TEXT      |                                 |                                                          |
 
@@ -71,7 +69,6 @@ Same schema as `project{project_id}_pred_patch_latest`.
 | Column Name      | Data Type  | Constraints                     | Description                                      |
 |------------------|------------|---------------------------------|--------------------------------------------------|
 | label_class_id   | SERIAL     | PRIMARY KEY, INDEXED            | Internal unique identifier for the label class.  |
-| label_class_uid  | UUID       | NOT NULL, UNIQUE, INDEXED       | External unique identifier used when interacting with users. |
 | project_id       | INT        | NOT NULL, FOREIGN KEY          | Identifier for the associated project.          |
 | name           | TEXT       | NOT NULL, UNIQUE WITHIN PROJECT| Name of the label class.                        |
 | color_code     | TEXT       |                                 | Color associated with the label class.          |
@@ -81,7 +78,6 @@ Same schema as `project{project_id}_pred_patch_latest`.
 | Column Name   | Data Type | Constraints                     | Description                                      |
 |---------------|-----------|---------------------------------|--------------------------------------------------|
 | setting_id    | SERIAL    | PRIMARY KEY, INDEXED            | Internal unique identifier for the setting.      |
-| setting_uid   | UUID      | NOT NULL, UNIQUE, INDEXED       | External unique identifier used when interacting with users. |
 | project_id    | INT       | FOREIGN KEY, NULLABLE          | Identifier for the associated project. Null if the setting applies at the application level. |
 | setting_key   | TEXT      | NOT NULL                       | Key for the setting.                            |
 | setting_value | TEXT      | NOT NULL                       | Value for the setting.                          |
@@ -189,7 +185,6 @@ Steps 1–4 must complete before step 5.
 erDiagram
     SETTINGS {
         SERIAL setting_id PK
-        UUID setting_uid UK
         INT project_id FK
         TEXT setting_key
         TEXT setting_value
@@ -197,13 +192,11 @@ erDiagram
     }
     PROJECT {
         SERIAL project_id PK
-        UUID project_uid UK
         TEXT project_name
         TEXT description
     }
     IMAGE {
         SERIAL image_id PK
-        UUID image_uid UK
         INT project_id FK
         TEXT name
         TEXT image_path
@@ -219,7 +212,6 @@ erDiagram
     }
     LABEL_CLASS {
         SERIAL label_class_id PK
-        UUID label_class_uid UK
         INT project_id FK
         TEXT name
         TEXT color_code

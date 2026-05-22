@@ -97,7 +97,7 @@ client = get_client()
 with client.get_session() as session:
     projects = ProjectStore(session)
     patches = PatchStore(project_id, session)
-    project = projects.get_by_uid(uid)
+    # Use `project_id` from URL or context when operating on per-project tables
     patches.bulk_insert(records)
 # → session.commit() on clean exit, session.rollback() on exception
 ```
@@ -192,12 +192,12 @@ by right-shifting `grid_cell_i` and `grid_cell_j` by one additional bit.
 
 Five reference tables are Citus *reference tables* (replicated to all workers):
 
-| Table | Primary key | UUID column |
+| Table | Primary key | External UID |
 |-------|-------------|-------------|
-| `project` | `project_id` (serial) | `project_uid` |
-| `image` | `image_id` (serial) | `image_uid` |
-| `label_class` | `label_class_id` (serial) | `label_class_uid` |
-| `settings` | `setting_id` (serial) | `setting_uid` |
+| `project` | `project_id` (serial) | — |
+| `image` | `image_id` (serial) | — |
+| `label_class` | `label_class_id` (serial) | — |
+| `settings` | `setting_id` (serial) | — |
 | `log` | `log_id` (serial) | — |
 
 ---
