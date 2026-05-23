@@ -61,7 +61,8 @@ class ProjectStore:
     # Per-project DDL                                                      #
     # ------------------------------------------------------------------ #
 
-    def create_project_tables(self, project_id: int, raw_conn) -> None:
+    @staticmethod
+    def create_project_tables(project_id: int, raw_conn) -> None:
         """Create and distribute the per-project tables for *project_id*.
 
         Creates (idempotent — ``IF NOT EXISTS``):
