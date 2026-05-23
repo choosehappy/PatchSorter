@@ -14,8 +14,9 @@ class LabelClassStore:
     """Data-access methods for the ``label_class`` reference table.
 
     Args:
-        session: An active SQLAlchemy session provided by
-            :meth:`~patchsorter.db.db_client.CitusHeadClient.get_session`.
+        session: An active SQLAlchemy Session provided by the application's
+            session factory (SessionManager) — typically injected via FastAPI
+            dependency injection.
     """
 
     def __init__(self, session: Session) -> None:

@@ -1,39 +1,23 @@
 Database Module
 ===============
 
+Database Client
+---------------
 .. automodule:: patchsorter.db
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. Constants
-.. ---------
+Head Client
+-----------
+.. automodule:: patchsorter.db.head_client
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
-.. .. automodule:: patchsorter.db.constants
-..    :members:
-..    :undoc-members:
-..    :show-inheritance:
-
-.. Database Client
-.. ---------------
-
-.. .. automodule:: patchsorter.db.db_client
-..    :members:
-..    :undoc-members:
-..    :show-inheritance:
-
-.. Unit of Work
-.. ------------
-
-.. .. automodule:: patchsorter.db.unit_of_work
-..    :members:
-..    :undoc-members:
-..    :show-inheritance:
-
-Stores
-------
-
-.. automodule:: patchsorter.db.stores
+Worker Client
+-------------
+.. automodule:: patchsorter.db.worker_client
    :members:
    :undoc-members:
    :show-inheritance:

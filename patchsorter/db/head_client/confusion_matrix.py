@@ -24,9 +24,9 @@ class ConfusionMatrixStore:
             project-scoped table name ``project{N}_confusion_matrix_l{level}``.
         level: Hierarchical grid level to query.  Must be in the range 8–12
             inclusive.
-        session: An active SQLAlchemy session provided by
-            :meth:`~patchsorter.db.db_client.CitusHeadClient.get_session` or
-            :meth:`~patchsorter.db.db_client.CitusWorkerClient.get_session`.
+        session: An active SQLAlchemy Session provided by the application's
+            session factory (SessionManager) — typically injected via FastAPI
+            dependency injection.
 
     Raises:
         ValueError: If *level* is outside the valid range 8–12.

@@ -1,7 +1,6 @@
 
 # Database Table Schema (Citus Distributed)
 
-
 ## project{project_id}_patch Table (Distributed)
 
 > **One unique table per project.** Each project has its own table named `project{project_id}_patch` where `{project_id}` is the integer ID of the project (e.g., `project1_patch`, `project2_patch`).

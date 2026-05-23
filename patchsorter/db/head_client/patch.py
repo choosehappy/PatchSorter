@@ -15,9 +15,9 @@ class PatchStore:
     Args:
         project_id: Integer ID of the project.  Used to construct the
             project-scoped table name.
-        session: An active SQLAlchemy session provided by
-            :meth:`~patchsorter.db.db_client.CitusHeadClient.get_session` or
-            :meth:`~patchsorter.db.db_client.CitusWorkerClient.get_session`.
+        session: An active SQLAlchemy Session provided by the application's
+            session factory (SessionManager) — typically injected via FastAPI
+            dependency injection.
     """
 
     def __init__(self, project_id: int, session: Session) -> None:

@@ -10,8 +10,9 @@ class ProjectStore:
     """Data-access methods for the ``project`` reference table.
 
     Args:
-        session: An active SQLAlchemy session provided by
-            :meth:`~patchsorter.db.db_client.CitusHeadClient.get_session`.
+        session: An active SQLAlchemy Session provided by the application's
+            session factory (SessionManager) — typically injected via FastAPI
+            dependency injection.
     """
 
     def __init__(self, session: Session) -> None:
@@ -77,9 +78,9 @@ class ProjectStore:
         Args:
             project_id: The integer project ID.  Used as the ``{N}`` suffix in
                 all table names.
-            raw_conn: A raw psycopg connection obtained from
-                :meth:`~patchsorter.db.db_client.CitusHeadClient.get_connection`.
-                The caller's context manager commits the connection on success.
+            raw_conn: A raw psycopg connection obtained from the application's
+                session factory (SessionManager.get_connection). The caller's
+                context manager commits the connection on success.
         """
         n = project_id
         ddl = [
