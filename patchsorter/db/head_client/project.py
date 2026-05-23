@@ -123,6 +123,10 @@ class ProjectStore:
                 );"""
                 for lvl in range(8, 13)
             ],
+            *[
+                f"CREATE INDEX IF NOT EXISTS idx_cm_p{n}_l{lvl}_nonpositive ON project{n}_confusion_matrix_l{lvl} (count) WHERE count <= 0;"
+                for lvl in range(8, 13)
+            ],
         ]
         distribution = [
             f"SELECT create_distributed_table('project{n}_patch', 'patch_id');",
@@ -130,10 +134,6 @@ class ProjectStore:
             f"SELECT create_distributed_table('project{n}_pred_patch_last', 'patch_id', colocate_with => 'project{n}_patch');",
             *[
                 f"SELECT create_distributed_table('project{n}_confusion_matrix_l{lvl}', 'shard_id', colocate_with => 'project{n}_patch');"
-                for lvl in range(8, 13)
-            ],
-            *[
-                f"CREATE INDEX IF NOT EXISTS idx_cm_p{n}_l{lvl}_nonpositive ON project{n}_confusion_matrix_l{lvl} (count) WHERE count <= 0;"
                 for lvl in range(8, 13)
             ],
         ]
