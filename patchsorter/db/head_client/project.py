@@ -147,7 +147,7 @@ class ProjectStore:
                 except Exception as exc:
                     print(f"Distribution command failed (may already be distributed): {exc}")
 
-    def delete(self, project_id: int, raw_conn) -> None:
+    def delete(self, project_id: int) -> None:
         """Delete a project and all its associated data.
 
         Follows the Project Deletion Protocol:
@@ -160,13 +160,11 @@ class ProjectStore:
         4. Delete all ``settings`` rows for this project.
         5. Delete the ``project`` row.
 
-        All five steps execute inside a single atomic transaction on
-        *raw_conn*.
+        All five steps execute inside a single atomic transaction managed by
+        the session.
 
         Args:
             project_id: The integer ID of the project to delete.
-            raw_conn: A raw psycopg connection obtained from
-                :meth:`~patchsorter.db.db_client.CitusHeadClient.get_connection`.
 
         Warning:
             This is a destructive and irreversible operation.
@@ -175,8 +173,8 @@ class ProjectStore:
         cm_tables = ", ".join(
             f"project{n}_confusion_matrix_l{lvl}" for lvl in range(8, 13)
         )
-        with raw_conn.cursor() as cur:
-            cur.execute(
+        self._session.execute(
+            text(
                 f"""
                 DROP TABLE IF EXISTS
                     project{n}_patch,
@@ -186,15 +184,20 @@ class ProjectStore:
                 CASCADE;
                 """
             )
-            cur.execute(
-                "DELETE FROM label_class WHERE project_id = %s;", (project_id,)
-            )
-            cur.execute(
-                "DELETE FROM image WHERE project_id = %s;", (project_id,)
-            )
-            cur.execute(
-                "DELETE FROM settings WHERE project_id = %s;", (project_id,)
-            )
-            cur.execute(
-                "DELETE FROM project WHERE project_id = %s;", (project_id,)
-            )
+        )
+        self._session.execute(
+            text("DELETE FROM label_class WHERE project_id = :project_id"),
+            {"project_id": project_id},
+        )
+        self._session.execute(
+            text("DELETE FROM image WHERE project_id = :project_id"),
+            {"project_id": project_id},
+        )
+        self._session.execute(
+            text("DELETE FROM settings WHERE project_id = :project_id"),
+            {"project_id": project_id},
+        )
+        self._session.execute(
+            text("DELETE FROM project WHERE project_id = :project_id"),
+            {"project_id": project_id},
+        )
