@@ -16,6 +16,14 @@ Exports:
 - :class:`SettingsStore` — ``settings``
 """
 
+from patchsorter.db.constants import (
+    CITUS_HEAD_HOST,
+    CITUS_HEAD_PORT,
+    CITUS_HEAD_DB,
+    CITUS_HEAD_USER,
+    CITUS_HEAD_PASSWORD,
+)
+from patchsorter.db.utils import SessionManager
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 from patchsorter.db.head_client.image import ImageStore
 from patchsorter.db.head_client.label_class import LabelClassStore
@@ -34,4 +42,17 @@ __all__ = [
     "PredPatchStore",
     "ProjectStore",
     "SettingsStore",
+    "get_client",
 ]
+
+
+# Convenience factory to obtain a SessionManager configured for the head (coordinator)
+def get_client() -> SessionManager:
+    """Return a `SessionManager` configured for the head node using repo constants."""
+    return SessionManager(
+        host=CITUS_HEAD_HOST,
+        port=CITUS_HEAD_PORT,
+        dbname=CITUS_HEAD_DB,
+        user=CITUS_HEAD_USER,
+        password=CITUS_HEAD_PASSWORD,
+    )

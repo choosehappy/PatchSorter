@@ -7,7 +7,7 @@ import io
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import Response
 
-from patchsorter.db.db_client import CitusHeadClient, get_client
+from patchsorter.db.head_client import get_client as get_head_client
 from patchsorter.api.v1.models import WorldInfo, ConfusionMatrixResponse
 from patchsorter.api.v1.utils import (
     colors,
@@ -79,7 +79,7 @@ def serve_tile(
 
     bbox = (i_min, j_min, i_max, j_max)
 
-    client = get_client()
+    client = get_head_client()
     with client.get_session() as session:
         store = ConfusionMatrixStore(project_id, level, session)
         result, class_indices = store.read_region(
@@ -121,7 +121,7 @@ def get_confusion_matrix(
     bbox = (i_min, j_min, i_max, j_max)
 
     try:
-        client = get_client()
+        client = get_head_client()
         with client.get_session() as session:
             store = ConfusionMatrixStore(project_id, coarsest_level, session)
             confusion, gt_labels, pred_labels = store.read_confusion_matrix(

@@ -15,6 +15,9 @@ def create_app() -> FastAPI:
 
     app.include_router(router, prefix="/agg")
 
+    # Global session managers are lazily constructed by the package getters
+    # (get_head_session_manager / get_worker_session_manager) when needed.
+
     return app
 
 
