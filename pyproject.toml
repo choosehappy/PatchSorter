@@ -17,6 +17,7 @@ dependencies = [
     "ray[train]>=2.55.1",
     "torch>=2.12.0",
     "uvicorn>=0.47.0",
+    "pytest>=9.0.3",
 ]
 dynamic = ["version"]  # ← version comes from setuptools_scm
 
