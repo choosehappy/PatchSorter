@@ -99,7 +99,7 @@ class ProjectStore:
                 embed_y        FLOAT     NOT NULL,
                 grid_cell_i    SMALLINT  NOT NULL,
                 grid_cell_j    SMALLINT  NOT NULL,
-                event_ts       TIMESTAMP NOT NULL,
+                event_ts       TIMESTAMP NOT NULL DEFAULT NOW(),
                 label_class_id SMALLINT  NOT NULL REFERENCES label_class(label_class_id)
             );""",
             f"""CREATE TABLE IF NOT EXISTS project{n}_pred_patch_last (
@@ -108,7 +108,7 @@ class ProjectStore:
                 embed_y        FLOAT     NOT NULL,
                 grid_cell_i    SMALLINT  NOT NULL,
                 grid_cell_j    SMALLINT  NOT NULL,
-                event_ts       TIMESTAMP NOT NULL,
+                event_ts       TIMESTAMP NOT NULL DEFAULT NOW(),
                 label_class_id SMALLINT  NOT NULL REFERENCES label_class(label_class_id)
             );""",
             *[

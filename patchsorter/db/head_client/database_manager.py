@@ -45,7 +45,7 @@ class DatabaseManager:
                 project_id        INT       NOT NULL REFERENCES project(project_id),
                 name              TEXT      NOT NULL,
                 image_path        TEXT      NOT NULL,
-                upload_ts         TIMESTAMP NOT NULL,
+                upload_ts         TIMESTAMP NOT NULL DEFAULT NOW(),
                 base_mag          FLOAT     NOT NULL,
                 base_width        INT       NOT NULL,
                 base_height       INT       NOT NULL,
@@ -58,12 +58,15 @@ class DatabaseManager:
             );""",
             """CREATE TABLE IF NOT EXISTS label_class (
                 label_class_id  SERIAL    PRIMARY KEY,
-                project_id      INT       NOT NULL REFERENCES project(project_id),
+                project_id      INT       REFERENCES project(project_id),
                 name            TEXT      NOT NULL,
                 color_code      TEXT,
-                event_ts        TIMESTAMP NOT NULL,
+                event_ts        TIMESTAMP NOT NULL DEFAULT NOW(),
                 UNIQUE(project_id, name)
             );""",
+            """INSERT INTO label_class (project_id, name, color_code)
+            SELECT NULL, 'unassigned', NULL
+            WHERE NOT EXISTS (SELECT 1 FROM label_class WHERE label_class_id = 1);""",
             """CREATE TABLE IF NOT EXISTS settings (
                 setting_id    SERIAL  PRIMARY KEY,
                 project_id    INT     REFERENCES project(project_id),

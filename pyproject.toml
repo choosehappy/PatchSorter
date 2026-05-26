@@ -20,6 +20,9 @@ dependencies = [
 ]
 dynamic = ["version"]  # ← version comes from setuptools_scm
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
 # ----------------------------------------------------------------------------------
 [project.scripts]
 patchsorter = "patchsorter.__main__:main"
@@ -39,4 +42,9 @@ local_scheme = "node-and-date"
 # ----------------------------------------------------------------------------------
 [tool.distutils.egg_info]
 egg_base = "../"
+
+# ----------------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["patchsorter/tests"]
+pythonpath = ["."]
 

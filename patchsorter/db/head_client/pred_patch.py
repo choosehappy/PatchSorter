@@ -1,23 +1,27 @@
+"""Deprecated: prediction methods have been merged into PatchStore.
+
+Import :class:`~patchsorter.db.head_client.patch.PatchStore` instead.
+"""
 from __future__ import annotations
 
+import warnings
+
+from patchsorter.db.head_client.patch import PatchStore as _PatchStore
 from sqlalchemy.orm import Session
 
 
-class PredPatchStore:
-    """Data-access methods for a project's prediction tables.
+class PredPatchStore(_PatchStore):
+    """Deprecated alias for :class:`~patchsorter.db.head_client.patch.PatchStore`.
 
-    Manages ``project{N}_pred_patch_latest`` and ``project{N}_pred_patch_last``,
-    which store the two most recent prediction epochs for the project.
-
-    Args:
-        project_id: Integer ID of the project.  Used to construct the
-            project-scoped table names.
-        session: An active SQLAlchemy Session provided by the application's
-            session factory (SessionManager) — typically injected via FastAPI
-            dependency injection.
+    Prediction methods (``upsert_predictions``, ``fetch_predictions``,
+    ``delete_predictions``) are now part of ``PatchStore``.  This class will
+    be removed in a future release.
     """
 
     def __init__(self, project_id: int, session: Session) -> None:
-        self.project_id = project_id
-        self._session = session
-        self.table_name = f"project{project_id}_pred_patch_latest"
+        warnings.warn(
+            "PredPatchStore is deprecated; use PatchStore instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(project_id, session)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
@@ -44,8 +43,8 @@ class LabelClassStore:
         row = self._session.execute(
             text(
                 """
-                INSERT INTO label_class (project_id, name, color_code, event_ts)
-                VALUES (:project_id, :name, :color_code, NOW())
+                INSERT INTO label_class (project_id, name, color_code)
+                VALUES (:project_id, :name, :color_code)
                 RETURNING *
                 """
             ),

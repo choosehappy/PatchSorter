@@ -178,3 +178,64 @@ class PatchStore:
             ),
             {"patch_id": patch_id, "label_class_id": label_class_id},
         )
+
+    # ------------------------------------------------------------------ #
+    # Prediction methods (project{N}_pred_patch_latest / _last)           #
+    # ------------------------------------------------------------------ #
+
+    @property
+    def pred_table_latest(self) -> str:
+        return f"project{self.project_id}_pred_patch_latest"
+
+    @property
+    def pred_table_last(self) -> str:
+        return f"project{self.project_id}_pred_patch_last"
+
+    def upsert_predictions(self, records: List[tuple]) -> int:
+        """Upsert prediction rows into ``project{N}_pred_patch_latest``.
+
+        Each element of *records* must be a tuple of::
+
+            (patch_id, embed_x, embed_y, grid_cell_i, grid_cell_j, label_class_id)
+
+        Existing rows with the same ``patch_id`` are overwritten.  ``event_ts``
+        is set to ``NOW()`` by the database on every insert/update.
+
+        Args:
+            records: List of 6-tuples describing the predictions to upsert.
+
+        Returns:
+            The number of rows upserted (equal to ``len(records)``).
+        """
+        if not records:
+            return 0
+        placeholders = ", ".join(
+            f"(:patch_id_{i}, :embed_x_{i}, :embed_y_{i}, :grid_cell_i_{i}, :grid_cell_j_{i}, :label_class_id_{i})"
+            for i in range(len(records))
+        )
+        params: Dict[str, Any] = {}
+        for i, (pid, ex, ey, gi, gj, lc) in enumerate(records):
+            params[f"patch_id_{i}"] = pid
+            params[f"embed_x_{i}"] = ex
+            params[f"embed_y_{i}"] = ey
+            params[f"grid_cell_i_{i}"] = gi
+            params[f"grid_cell_j_{i}"] = gj
+            params[f"label_class_id_{i}"] = lc
+        self._session.execute(
+            text(
+                f"""
+                INSERT INTO {self.pred_table_latest}
+                    (patch_id, embed_x, embed_y, grid_cell_i, grid_cell_j, label_class_id)
+                VALUES {placeholders}
+                ON CONFLICT (patch_id) DO UPDATE SET
+                    embed_x        = EXCLUDED.embed_x,
+                    embed_y        = EXCLUDED.embed_y,
+                    grid_cell_i    = EXCLUDED.grid_cell_i,
+                    grid_cell_j    = EXCLUDED.grid_cell_j,
+                    label_class_id = EXCLUDED.label_class_id,
+                    event_ts       = NOW()
+                """
+            ),
+            params,
+        )
+        return len(records)

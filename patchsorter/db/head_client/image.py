@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
@@ -24,7 +23,6 @@ class ImageStore:
         project_id: int,
         name: str,
         image_path: str,
-        upload_ts: datetime,
         base_mag: float,
         base_width: int,
         base_height: int,
@@ -41,7 +39,6 @@ class ImageStore:
             name: Display name for the image.  Must be unique within the
                 project.
             image_path: File path or URI of the whole-slide image on disk.
-            upload_ts: Timestamp when the image was uploaded.
             base_mag: Base magnification level of the scanner (e.g. ``20.0``).
             base_width: Width of the image at base magnification in pixels.
             base_height: Height of the image at base magnification in pixels.
@@ -58,11 +55,11 @@ class ImageStore:
             text(
                 """
                 INSERT INTO image (
-                    project_id, name, image_path, upload_ts,
+                    project_id, name, image_path,
                     base_mag, base_width, base_height, deepzoom_tilesize,
                     embedding_x, embedding_y, group_id, train_test_split
                 ) VALUES (
-                    :project_id, :name, :image_path, :upload_ts,
+                    :project_id, :name, :image_path,
                     :base_mag, :base_width, :base_height, :deepzoom_tilesize,
                     :embedding_x, :embedding_y, :group_id, :train_test_split
                 )
@@ -73,7 +70,6 @@ class ImageStore:
                 "project_id": project_id,
                 "name": name,
                 "image_path": image_path,
-                "upload_ts": upload_ts,
                 "base_mag": base_mag,
                 "base_width": base_width,
                 "base_height": base_height,
