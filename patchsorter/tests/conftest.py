@@ -140,13 +140,18 @@ def test_db() -> Generator[SessionManager, None, None]:
 def _project1_tables(test_db: SessionManager) -> None:
     """Create the ``project1_*`` distributed tables once for the whole session.
 
-    The DDL is committed immediately.  Individual tests roll back only the
-    rows they insert; the table structures remain for the duration of the
-    session.
+    Each DDL statement commits immediately (autocommit=True) so that Citus
+    shard-creation and table-rewriting inside ``create_distributed_table``
+    cannot be inadvertently rolled back by the connection pool returning the
+    connection.
     """
-    with test_db.get_connection() as raw_conn:
+    p = _citus_params()
+    test_dsn = (
+        f"host={p['host']} port={p['port']} dbname={p['test_db']} "
+        f"user={p['user']} password={p['password']}"
+    )
+    with psycopg.connect(test_dsn, autocommit=True) as raw_conn:
         ProjectStore.create_project_tables(1, raw_conn)
-        raw_conn.commit()
 
 
 # ---------------------------------------------------------------------------
