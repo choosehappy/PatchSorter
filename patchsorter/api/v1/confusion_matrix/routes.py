@@ -8,8 +8,8 @@ from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import Response
 
 from patchsorter.db.head_client import get_client as get_head_client
-from patchsorter.api.v1.models import WorldInfo, ConfusionMatrixResponse
-from patchsorter.api.v1.utils import (
+from patchsorter.api.v1.confusion_matrix.models import WorldInfo, ConfusionMatrixResponse
+from patchsorter.api.v1.confusion_matrix.utils import (
     colors,
     all_pairs,
     MAX_LEVEL,

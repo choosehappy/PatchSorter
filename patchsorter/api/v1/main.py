@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import router
+from .confusion_matrix.routes import router
 
 def create_app() -> FastAPI:
     app = FastAPI(title="PatchSorter Tile Server", version="1.0.0")
