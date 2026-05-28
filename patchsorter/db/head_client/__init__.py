@@ -27,19 +27,33 @@ from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 from patchsorter.db.head_client.image import ImageStore
 from patchsorter.db.head_client.label_class import LabelClassStore
 from patchsorter.db.head_client.log import LogStore
+from patchsorter.db.head_client.models import (
+    Base, Image, LabelClass, Log, Project, Setting,
+    all_project_models, confusion_matrix_model, patch_model, pred_patch_model,
+)
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.project import ProjectStore
 from patchsorter.db.head_client.settings import SettingsStore
 
 __all__ = [
+    "Base",
     "ConfusionMatrixStore",
+    "Image",
     "ImageStore",
+    "LabelClass",
     "LabelClassStore",
+    "Log",
     "LogStore",
     "PatchStore",
+    "Project",
     "ProjectStore",
+    "Setting",
     "SettingsStore",
+    "all_project_models",
+    "confusion_matrix_model",
     "get_client",
+    "patch_model",
+    "pred_patch_model",
 ]
 
 

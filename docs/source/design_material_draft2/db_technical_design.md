@@ -79,13 +79,59 @@ Same schema as `project{project_id}_pred_patch_latest`.
 | event_ts       | TIMESTAMP  | NOT NULL                       | Timestamp when the label class was created or last updated. |
 
 ## Settings Table
-| Column Name   | Data Type | Constraints                     | Description                                      |
-|---------------|-----------|---------------------------------|--------------------------------------------------|
-| setting_id    | SERIAL    | PRIMARY KEY, INDEXED            | Internal unique identifier for the setting.      |
-| project_id    | INT       | FOREIGN KEY, NULLABLE          | Identifier for the associated project. Null if the setting applies at the application level. |
-| setting_key   | TEXT      | NOT NULL                       | Key for the setting.                            |
-| setting_value | TEXT      | NOT NULL                       | Value for the setting.                          |
-| disabled      | BOOLEAN   | DEFAULT FALSE                  | Flag indicating if the setting is disabled and should not be updated. |
+| Column Name    | Data Type | Constraints                                           | Description                                      |
+|----------------|-----------|-------------------------------------------------------|--------------------------------------------------|
+| setting_id     | SERIAL    | PRIMARY KEY, INDEXED                                  | Internal unique identifier for the setting.      |
+| project_id     | INT       | FOREIGN KEY, NULLABLE                                 | Identifier for the associated project. Null if the setting applies at the application level. |
+| setting_key    | TEXT      | NOT NULL                                              | Key for the setting.                            |
+| setting_value  | TEXT      | NOT NULL                                              | Current value for the setting.                  |
+| default_value  | TEXT      | NOT NULL                                              | Default value used when the setting is reset.   |
+| setting_type   | TEXT      | NOT NULL, CHECK IN ('enum','string','boolean','integer') | Data type of the setting value. Values are defined by `SettingType` in `patchsorter/config/constants.py`. |
+| allowed_values | TEXT      | NULLABLE, REQUIRED when setting_type = 'enum'        | Allowed values for enum settings.               |
+| disabled       | BOOLEAN   | NOT NULL, DEFAULT FALSE                               | When true, the setting is read-only and cannot be updated after the initial insert. |
+
+Constraints:
+- `UNIQUE (project_id, setting_key)` — one row per setting per scope.
+- `CHECK (setting_type != 'enum' OR allowed_values IS NOT NULL)` — enum settings must declare their allowed values.
+
+Default values for all settings are seeded from `patchsorter/config/settings_defaults.toml`.  Each entry in that file carries a `scope` field (`"application"` or `"project"`) that determines whether the setting is stored with `project_id = NULL` (application-level) or per project.
+
+
+## Code Conventions
+
+### Table Name Helpers (`patchsorter/db/head_client/table_names.py`)
+
+All per-project table names are constructed via three helper functions — the single source of truth for naming conventions:
+
+| Function | Returns |
+|---|---|
+| `patch_table(project_id)` | `project{N}_patch` |
+| `pred_patch_table(project_id, suffix)` | `project{N}_pred_patch_{suffix}` |
+| `confusion_matrix_table(project_id, level)` | `project{N}_confusion_matrix_l{level}` |
+
+All stores, ORM model factories, and schema management code import from this module rather than constructing names ad hoc.
+
+### Constants (`patchsorter/config/constants.py`)
+
+Shared `StrEnum` types used throughout the codebase:
+
+| Enum | Members | Used for |
+|---|---|---|
+| `PredPatchSuffix` | `LATEST = "latest"`, `LAST = "last"` | Selecting between the two pred-patch tables |
+| `SettingType` | `ENUM`, `STRING`, `BOOLEAN`, `INTEGER` | Typing the `setting_type` column; drives CHECK constraint generation in the ORM model |
+
+### ORM Models (`patchsorter/db/head_client/models.py`)
+
+All reference tables (`project`, `image`, `label_class`, `settings`, `log`) are defined as SQLAlchemy ORM classes extending `Base`.  Per-project distributed tables are created on demand via factory functions:
+
+| Factory | Model class name | Table |
+|---|---|---|
+| `patch_model(project_id)` | `Patch{N}` | `project{N}_patch` |
+| `pred_patch_model(project_id, suffix)` | `PredPatch{Latest\|Last}{N}` | `project{N}_pred_patch_{suffix}` |
+| `confusion_matrix_model(project_id, level)` | `ConfusionMatrix{N}L{level}` | `project{N}_confusion_matrix_l{level}` |
+| `all_project_models(project_id)` | — | All seven per-project tables |
+
+Factory results are cached per `(project_id[, level])` to prevent duplicate mapper registrations in `Base.metadata`.
 
 
 ## Log Table
@@ -188,10 +234,13 @@ Steps 1–4 must complete before step 5.
 ```{mermaid}
 erDiagram
     SETTINGS {
-        SERIAL setting_id PK
-        INT project_id FK
-        TEXT setting_key
-        TEXT setting_value
+        SERIAL  setting_id PK
+        INT     project_id FK
+        TEXT    setting_key
+        TEXT    setting_value
+        TEXT    default_value
+        TEXT    setting_type
+        TEXT    allowed_values
         BOOLEAN disabled
     }
     PROJECT {

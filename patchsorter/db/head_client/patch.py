@@ -5,6 +5,10 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from patchsorter.db.head_client.table_names import patch_table, pred_patch_table
+
+from patchsorter.config.constants import PredPatchSuffix
+
 
 class PatchStore:
     """Data-access methods for a project's ``project{N}_patch`` distributed table.
@@ -23,7 +27,21 @@ class PatchStore:
     def __init__(self, project_id: int, session: Session) -> None:
         self.project_id = project_id
         self._session = session
-        self.table_name = f"project{project_id}_patch"
+        self.table_name = self.build_table_name(project_id)
+
+    @staticmethod
+    def build_table_name(project_id: int) -> str:
+        return patch_table(project_id)
+
+    @staticmethod
+    def build_pred_table_name(project_id: int, suffix: str) -> str:
+        """Return the pred_patch table name for the given project and suffix.
+
+        Args:
+            project_id: Integer project ID.
+            suffix: Either ``'latest'`` or ``'last'``.
+        """
+        return pred_patch_table(project_id, suffix)
 
     def insert(
         self,
@@ -231,11 +249,11 @@ class PatchStore:
 
     @property
     def pred_table_latest(self) -> str:
-        return f"project{self.project_id}_pred_patch_latest"
+        return self.build_pred_table_name(self.project_id, PredPatchSuffix.LATEST)
 
     @property
     def pred_table_last(self) -> str:
-        return f"project{self.project_id}_pred_patch_last"
+        return self.build_pred_table_name(self.project_id, PredPatchSuffix.LAST)
 
     def upsert_predictions(self, records: List[tuple]) -> int:
         """Insert prediction rows into ``project{N}_pred_patch_latest`` via COPY.
