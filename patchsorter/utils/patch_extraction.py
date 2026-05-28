@@ -39,21 +39,24 @@ def _extract_patch_region(
     cy_base: float,
     scale: float,
     patch_size: int,
-    working_mag: float,
+    magnification: float,
 ) -> bytes:
     """Extract a square patch centred on a base-magnification pixel coordinate.
 
     The crop region is computed in base-pixel units, then the tile source
-    rescales the result to *working_mag* magnification.
+    rescales the result to the given *magnification*.
 
     Args:
         ts: An open ``large_image`` tile source.
         cx_base: X pixel coordinate of the patch centre at base magnification.
         cy_base: Y pixel coordinate of the patch centre at base magnification.
-        scale: Ratio ``working_mag / base_mag``.  Used to convert the desired
-            *patch_size* (at *working_mag*) back to base-pixel dimensions.
-        patch_size: Desired output patch size in pixels at *working_mag*.
-        working_mag: Magnification level at which to extract the patch.
+        scale: Ratio ``1 / downsample_factor``.  Used to convert the desired
+            *patch_size* (at extraction magnification) back to base-pixel
+            dimensions.
+        patch_size: Desired output patch size in pixels at extraction
+            magnification.
+        magnification: Magnification level at which to extract the patch
+            (``base_mag / downsample_factor``).
 
     Returns:
         PNG-encoded bytes of the extracted patch.
@@ -67,7 +70,7 @@ def _extract_patch_region(
             "bottom": cy_base + half,
             "units": "base_pixels",
         },
-        scale={"magnification": working_mag},
+        scale={"magnification": magnification},
         format=large_image.tilesource.TILE_FORMAT_PIL,
     )
     buf = io.BytesIO()
@@ -84,7 +87,7 @@ def _makepatch_geojson(
     session: Session,
     *,
     patch_size: int = 256,
-    working_mag: float = 20.0,
+    downsample_factor: float = 2.0,
     batch_size: int = 1000,
 ) -> int:
     """Extract patches from a whole-slide image centred on GeoJSON polygon geometries.
@@ -112,10 +115,11 @@ def _makepatch_geojson(
         label_class_id: Ground-truth label class applied to every inserted
             patch.
         session: Active SQLAlchemy ``Session`` used for database access.
-        patch_size: Edge length (in pixels at *working_mag*) of the extracted
-            square patches.  Defaults to ``256``.
-        working_mag: Magnification level at which patches are extracted.
-            Defaults to ``20.0``.
+        patch_size: Edge length (in pixels at extraction magnification) of the
+            extracted square patches.  Defaults to ``256``.
+        downsample_factor: Factor (>1) at which patches are downsampled from
+            the base magnification.  For example, ``2.0`` means patches are
+            extracted at half the base magnification.  Defaults to ``2.0``.
         batch_size: Number of patches to accumulate before flushing to the
             database.  Defaults to ``1000``.
 
@@ -131,7 +135,8 @@ def _makepatch_geojson(
     ts = large_image.open(image_filepath)
     metadata = ts.getMetadata()
     base_mag: float = metadata["magnification"]
-    scale = working_mag / base_mag
+    scale = 1.0 / downsample_factor
+    magnification = base_mag / downsample_factor
 
     store = PatchStore(project_id, session)
     total = 0
@@ -171,8 +176,8 @@ def _makepatch_geojson(
                     f"{geom.GetGeometryName()}. Only Polygon geometry is supported."
                 )
 
-            patch_bytes = _extract_patch_region(ts, cx, cy, scale, patch_size, working_mag)
-            batch.append((uid, label_class_id, image_id, working_mag, cx, cy, polygon_wkt, patch_bytes))
+            patch_bytes = _extract_patch_region(ts, cx, cy, scale, patch_size, magnification)
+            batch.append((uid, label_class_id, image_id, downsample_factor, cx, cy, polygon_wkt, patch_bytes))
 
             if len(batch) >= batch_size:
                 store.copy_insert(batch)

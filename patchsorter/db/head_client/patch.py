@@ -48,7 +48,7 @@ class PatchStore:
         patch_uid: int,
         label_class_id: int,
         image_id: int,
-        working_mag: float,
+        downsample_factor: float,
         patch_image: bytes,
         centroid_x: Optional[float] = None,
         centroid_y: Optional[float] = None,
@@ -60,7 +60,8 @@ class PatchStore:
             patch_uid: External integer identifier for the patch.
             label_class_id: Ground-truth label class for the patch.
             image_id: Foreign key to the parent image.
-            working_mag: Magnification level at which the patch was extracted.
+            downsample_factor: Factor (>1) at which the patch was downsampled
+                from the base magnification of the underlying image.
             patch_image: Raw image bytes (JPEG/PNG/etc.).
             centroid_x: Optional X pixel coordinate of the patch centroid at
                 base magnification.
@@ -76,8 +77,8 @@ class PatchStore:
             text(
                 f"""
                 INSERT INTO {self.table_name}
-                    (patch_uid, label_class_id, image_id, working_mag, centroid_x, centroid_y, polygon, patch_image)
-                VALUES (:patch_uid, :label_class_id, :image_id, :working_mag, :centroid_x, :centroid_y,
+                    (patch_uid, label_class_id, image_id, downsample_factor, centroid_x, centroid_y, polygon, patch_image)
+                VALUES (:patch_uid, :label_class_id, :image_id, :downsample_factor, :centroid_x, :centroid_y,
                         ST_GeomFromText(:polygon),
                         :patch_image)
                 RETURNING patch_id
@@ -87,7 +88,7 @@ class PatchStore:
                 "patch_uid": patch_uid,
                 "label_class_id": label_class_id,
                 "image_id": image_id,
-                "working_mag": working_mag,
+                "downsample_factor": downsample_factor,
                 "centroid_x": centroid_x,
                 "centroid_y": centroid_y,
                 "polygon": polygon,
@@ -101,7 +102,7 @@ class PatchStore:
 
         Each element of *records* must be a tuple of::
 
-            (patch_uid, label_class_id, image_id, working_mag, centroid_x, centroid_y, polygon_wkt_or_none, patch_image)
+            (patch_uid, label_class_id, image_id, downsample_factor, centroid_x, centroid_y, polygon_wkt_or_none, patch_image)
 
         Args:
             records: List of 8-tuples describing the patches to insert.
@@ -113,18 +114,18 @@ class PatchStore:
             return 0
         placeholders = ", ".join(
             [
-                f"(:patch_uid_{i}, :label_class_id_{i}, :image_id_{i}, :working_mag_{i}, :centroid_x_{i}, :centroid_y_{i}, "
+                f"(:patch_uid_{i}, :label_class_id_{i}, :image_id_{i}, :downsample_factor_{i}, :centroid_x_{i}, :centroid_y_{i}, "
                 f"ST_GeomFromText(:polygon_{i}), "
                 f":patch_image_{i})"
                 for i in range(len(records))
             ]
         )
         params: Dict[str, Any] = {}
-        for i, (pu, lc, im, wm, cx, cy, poly, pi) in enumerate(records):
+        for i, (pu, lc, im, df, cx, cy, poly, pi) in enumerate(records):
             params[f"patch_uid_{i}"] = pu
             params[f"label_class_id_{i}"] = lc
             params[f"image_id_{i}"] = im
-            params[f"working_mag_{i}"] = wm
+            params[f"downsample_factor_{i}"] = df
             params[f"centroid_x_{i}"] = cx
             params[f"centroid_y_{i}"] = cy
             params[f"polygon_{i}"] = poly
@@ -134,7 +135,7 @@ class PatchStore:
             text(
                 f"""
                 INSERT INTO {self.table_name}
-                    (patch_uid, label_class_id, image_id, working_mag, centroid_x, centroid_y, polygon, patch_image)
+                    (patch_uid, label_class_id, image_id, downsample_factor, centroid_x, centroid_y, polygon, patch_image)
                 VALUES {placeholders}
                 """
             ),
@@ -151,7 +152,7 @@ class PatchStore:
 
         Each element of *records* must be a tuple of::
 
-            (patch_uid, label_class_id, image_id, working_mag, centroid_x, centroid_y, polygon_wkt_or_none, patch_image)
+            (patch_uid, label_class_id, image_id, downsample_factor, centroid_x, centroid_y, polygon_wkt_or_none, patch_image)
 
         where ``polygon_wkt_or_none`` is a WKT string or ``None`` (inserted as
         ``NULL``).
@@ -168,7 +169,7 @@ class PatchStore:
         with raw_conn.cursor() as cur:
             with cur.copy(
                 f"COPY {self.table_name} "
-                f"(patch_uid, label_class_id, image_id, working_mag, centroid_x, centroid_y, polygon, patch_image) "
+                f"(patch_uid, label_class_id, image_id, downsample_factor, centroid_x, centroid_y, polygon, patch_image) "
                 f"FROM STDIN"
             ) as copy:
                 for row in records:
@@ -187,7 +188,7 @@ class PatchStore:
         rows = self._session.execute(
             text(
                 f"""
-                SELECT patch_id, patch_uid, label_class_id, image_id, working_mag,
+                SELECT patch_id, patch_uid, label_class_id, image_id, downsample_factor,
                        centroid_x, centroid_y, ST_AsGeoJSON(polygon) AS polygon
                 FROM {self.table_name}
                 ORDER BY patch_id
@@ -215,7 +216,7 @@ class PatchStore:
         for shard_id in shard_ids:
             shard_rows = self._session.execute(
                 text(
-                    f"SELECT patch_id, patch_uid, label_class_id, image_id, working_mag, centroid_x, centroid_y FROM {self.table_name}_{shard_id}"
+                    f"SELECT patch_id, patch_uid, label_class_id, image_id, downsample_factor, centroid_x, centroid_y FROM {self.table_name}_{shard_id}"
                 )
             ).mappings().all()
             rows.extend(dict(r) for r in shard_rows)
@@ -338,7 +339,7 @@ class PatchStore:
             )
 
         patch_cols = (
-            "p.patch_id, p.patch_uid, p.label_class_id, p.image_id, p.working_mag,"
+            "p.patch_id, p.patch_uid, p.label_class_id, p.image_id, p.downsample_factor,"
             " p.centroid_x, p.centroid_y, ST_AsGeoJSON(p.polygon) AS polygon"
         )
         if include_image:

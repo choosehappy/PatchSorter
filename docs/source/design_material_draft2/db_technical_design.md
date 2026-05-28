@@ -11,7 +11,7 @@
 | patch_uid      | INT                | UNIQUE                          | External unique identifier for the patch.        |
 | label_class_id | SMALLINT           | NOT NULL, FOREIGN KEY           | Ground truth label for the patch.                |
 | image_id       | INT                | NOT NULL, FOREIGN KEY           | Identifier for the image containing the patch.   |
-| working_mag    | FLOAT              | NOT NULL                        | Magnification level at which the patch was extracted. |
+| downsample_factor | FLOAT              | NOT NULL                        | Factor (>1) at which the patch was downsampled from the base magnification of the underlying image. |
 | centroid_x     | FLOAT              |                                 | X pixel coordinate of the patch centroid at base magnification (optional). |
 | centroid_y     | FLOAT              |                                 | Y pixel coordinate of the patch centroid at base magnification (optional). |
 | polygon        | GEOMETRY(POLYGON)  |                                 | Source polygon geometry (optional, requires PostGIS). |
@@ -275,7 +275,7 @@ erDiagram
         INT patch_uid
         SMALLINT label_class_id FK
         INT image_id FK
-        FLOAT working_mag
+        FLOAT downsample_factor
         FLOAT centroid_x
         FLOAT centroid_y
         GEOMETRY polygon

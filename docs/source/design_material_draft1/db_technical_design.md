@@ -49,7 +49,7 @@ Docs indicate that IMVs are less effective when there are many updates to the ba
 | **gt_label**    | INT       | Foreign  | Ground truth label for the patch.                          |
 | **event_ts**    | TIMESTAMP | Column   | Time when the ground truth label was created/last updated. |
 | **image_id**    | INT       | Foreign  | Identifier for the image containing the patch.             |
-| **working_mag** | FLOAT     | Column   | The working magnification level of the patch.              |
+| **downsample_factor** | FLOAT     | Column   | Factor (>1) at which the patch was downsampled from the base magnification of the underlying image. |
 
 ### 1.4. `pred_patch` Table
 
