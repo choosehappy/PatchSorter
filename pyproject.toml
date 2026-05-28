@@ -19,6 +19,7 @@ dependencies = [
     "uvicorn>=0.47.0",
     "pytest>=9.0.3",
     "large-image[common]>=1.34.1",
+    "gdal>=3.0",
 ]
 dynamic = ["version"]  # ← version comes from setuptools_scm
 

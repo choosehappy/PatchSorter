@@ -91,6 +91,9 @@ class ProjectStore:
                 label_class_id SMALLINT  NOT NULL REFERENCES label_class(label_class_id),
                 image_id       INT       NOT NULL REFERENCES image(image_id),
                 working_mag    FLOAT     NOT NULL,
+                centroid_x     FLOAT,
+                centroid_y     FLOAT,
+                polygon        GEOMETRY(POLYGON),
                 patch_image    BYTEA     NOT NULL
             );""",
             f"""CREATE TABLE IF NOT EXISTS project{n}_pred_patch_latest (

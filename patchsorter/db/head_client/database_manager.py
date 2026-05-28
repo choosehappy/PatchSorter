@@ -35,6 +35,7 @@ class DatabaseManager:
 
     def setup_schema(self) -> None:
         schema_statements = [
+            "CREATE EXTENSION IF NOT EXISTS postgis CASCADE;",
             """CREATE TABLE IF NOT EXISTS project (
                 project_id   SERIAL    PRIMARY KEY,
                 project_name TEXT      NOT NULL,

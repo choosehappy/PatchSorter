@@ -286,7 +286,7 @@ class TestPaginatedPredJoin:
         assert len(rows) == 1
         row = rows[0]
         # patch columns
-        for key in ("patch_id", "patch_uid", "label_class_id", "image_id", "working_mag"):
+        for key in ("patch_id", "patch_uid", "label_class_id", "image_id", "working_mag", "centroid_x", "centroid_y"):
             assert key in row, f"Expected patch column '{key}' in result"
         # pred columns
         for key in ("embed_x", "embed_y", "grid_cell_i", "grid_cell_j",

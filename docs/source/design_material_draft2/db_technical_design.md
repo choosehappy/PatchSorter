@@ -5,14 +5,19 @@
 
 > **One unique table per project.** Each project has its own table named `project{project_id}_patch` where `{project_id}` is the integer ID of the project (e.g., `project1_patch`, `project2_patch`).
 
-| Column Name    | Data Type  | Constraints                     | Description                                      |
-|----------------|------------|---------------------------------|--------------------------------------------------|
-| patch_id       | BIGINT     | PRIMARY KEY, SHARD KEY          | Unique identifier for the patch.                 |
-| patch_uid      | INT        | UNIQUE                          | External unique identifier for the patch.        |
-| label_class_id | SMALLINT   | NOT NULL, FOREIGN KEY           | Ground truth label for the patch.                |
-| image_id       | INT        | NOT NULL, FOREIGN KEY           | Identifier for the image containing the patch.   |
-| working_mag    | FLOAT      | NOT NULL                        | Working magnification level of the patch.        |
-| patch_image    | BYTEA      | NOT NULL                        | Binary data storing the patch image.             |
+| Column Name    | Data Type          | Constraints                     | Description                                      |
+|----------------|--------------------|---------------------------------|--------------------------------------------------|
+| patch_id       | BIGINT             | PRIMARY KEY, SHARD KEY          | Unique identifier for the patch.                 |
+| patch_uid      | INT                | UNIQUE                          | External unique identifier for the patch.        |
+| label_class_id | SMALLINT           | NOT NULL, FOREIGN KEY           | Ground truth label for the patch.                |
+| image_id       | INT                | NOT NULL, FOREIGN KEY           | Identifier for the image containing the patch.   |
+| working_mag    | FLOAT              | NOT NULL                        | Magnification level at which the patch was extracted. |
+| centroid_x     | FLOAT              |                                 | X pixel coordinate of the patch centroid at base magnification (optional). |
+| centroid_y     | FLOAT              |                                 | Y pixel coordinate of the patch centroid at base magnification (optional). |
+| polygon        | GEOMETRY(POLYGON)  |                                 | Source polygon geometry (optional, requires PostGIS). |
+| patch_image    | BYTEA              | NOT NULL                        | Binary data storing the patch image.             |
+
+> **PostGIS:** The `polygon` column requires the PostGIS extension (`CREATE EXTENSION IF NOT EXISTS postgis CASCADE`). Polygons are written as WKT via `ST_GeomFromText` and read as GeoJSON via `ST_AsGeoJSON`.
 
 - **Citus:** Distributed by `patch_id` and co-located with prediction and aggregation tables.
 
@@ -222,6 +227,9 @@ erDiagram
         SMALLINT label_class_id FK
         INT image_id FK
         FLOAT working_mag
+        FLOAT centroid_x
+        FLOAT centroid_y
+        GEOMETRY polygon
         BYTEA patch_image
     }
     projectN_pred_patch_latest {

@@ -32,6 +32,9 @@ class PatchStore:
         image_id: int,
         working_mag: float,
         patch_image: bytes,
+        centroid_x: Optional[float] = None,
+        centroid_y: Optional[float] = None,
+        polygon: Optional[str] = None,
     ) -> int:
         """Insert a single patch and return the generated ``patch_id``.
 
@@ -41,6 +44,12 @@ class PatchStore:
             image_id: Foreign key to the parent image.
             working_mag: Magnification level at which the patch was extracted.
             patch_image: Raw image bytes (JPEG/PNG/etc.).
+            centroid_x: Optional X pixel coordinate of the patch centroid at
+                base magnification.
+            centroid_y: Optional Y pixel coordinate of the patch centroid at
+                base magnification.
+            polygon: Optional WKT string of the source polygon geometry.  When
+                provided it is stored via ``ST_GeomFromText``.
 
         Returns:
             The ``patch_id`` assigned by the database.
@@ -49,8 +58,10 @@ class PatchStore:
             text(
                 f"""
                 INSERT INTO {self.table_name}
-                    (patch_uid, label_class_id, image_id, working_mag, patch_image)
-                VALUES (:patch_uid, :label_class_id, :image_id, :working_mag, :patch_image)
+                    (patch_uid, label_class_id, image_id, working_mag, centroid_x, centroid_y, polygon, patch_image)
+                VALUES (:patch_uid, :label_class_id, :image_id, :working_mag, :centroid_x, :centroid_y,
+                        ST_GeomFromText(:polygon),
+                        :patch_image)
                 RETURNING patch_id
                 """
             ),
@@ -59,6 +70,9 @@ class PatchStore:
                 "label_class_id": label_class_id,
                 "image_id": image_id,
                 "working_mag": working_mag,
+                "centroid_x": centroid_x,
+                "centroid_y": centroid_y,
+                "polygon": polygon,
                 "patch_image": patch_image,
             },
         ).mappings().one()
@@ -69,47 +83,78 @@ class PatchStore:
 
         Each element of *records* must be a tuple of::
 
-            (patch_uid, label_class_id, image_id, working_mag, patch_image)
-
-        The insert uses ``executemany`` which sends all rows to the server in
-        a single network round-trip (psycopg3 pipeline mode).
+            (patch_uid, label_class_id, image_id, working_mag, centroid_x, centroid_y, polygon_wkt_or_none, patch_image)
 
         Args:
-            records: List of 5-tuples describing the patches to insert.
+            records: List of 8-tuples describing the patches to insert.
 
         Returns:
             The number of rows inserted (equal to ``len(records)``).
         """
-        from psycopg.rows import dict_row  # raw connection needed for executemany
-
-        # executemany is not natively supported through SQLAlchemy text() for
-        # bulk-insert performance, so we fall back to a VALUES list approach.
         if not records:
             return 0
         placeholders = ", ".join(
             [
-                f"(:patch_uid_{i}, :label_class_id_{i}, :image_id_{i}, :working_mag_{i}, :patch_image_{i})"
+                f"(:patch_uid_{i}, :label_class_id_{i}, :image_id_{i}, :working_mag_{i}, :centroid_x_{i}, :centroid_y_{i}, "
+                f"ST_GeomFromText(:polygon_{i}), "
+                f":patch_image_{i})"
                 for i in range(len(records))
             ]
         )
         params: Dict[str, Any] = {}
-        for i, (pu, lc, im, wm, pi) in enumerate(records):
+        for i, (pu, lc, im, wm, cx, cy, poly, pi) in enumerate(records):
             params[f"patch_uid_{i}"] = pu
             params[f"label_class_id_{i}"] = lc
             params[f"image_id_{i}"] = im
             params[f"working_mag_{i}"] = wm
+            params[f"centroid_x_{i}"] = cx
+            params[f"centroid_y_{i}"] = cy
+            params[f"polygon_{i}"] = poly
             params[f"patch_image_{i}"] = pi
 
         self._session.execute(
             text(
                 f"""
                 INSERT INTO {self.table_name}
-                    (patch_uid, label_class_id, image_id, working_mag, patch_image)
+                    (patch_uid, label_class_id, image_id, working_mag, centroid_x, centroid_y, polygon, patch_image)
                 VALUES {placeholders}
                 """
             ),
             params,
         )
+        return len(records)
+
+    def copy_insert(self, records: List[tuple]) -> int:
+        """Insert multiple patches via the psycopg COPY protocol.
+
+        Significantly faster than :meth:`bulk_insert` for large batches because
+        data is streamed to the server in binary rather than sent as SQL
+        parameter lists.
+
+        Each element of *records* must be a tuple of::
+
+            (patch_uid, label_class_id, image_id, working_mag, centroid_x, centroid_y, polygon_wkt_or_none, patch_image)
+
+        where ``polygon_wkt_or_none`` is a WKT string or ``None`` (inserted as
+        ``NULL``).
+
+        Args:
+            records: List of 8-tuples describing the patches to insert.
+
+        Returns:
+            The number of rows inserted (equal to ``len(records)``).
+        """
+        if not records:
+            return 0
+        raw_conn = self._session.connection().connection
+        with raw_conn.cursor() as cur:
+            with cur.copy(
+                f"COPY {self.table_name} "
+                f"(patch_uid, label_class_id, image_id, working_mag, centroid_x, centroid_y, polygon, patch_image) "
+                f"FROM STDIN"
+            ) as copy:
+                for row in records:
+                    copy.write_row(row)
         return len(records)
 
     def fetch(self, limit: int = 10) -> List[Dict[str, Any]]:
@@ -124,7 +169,8 @@ class PatchStore:
         rows = self._session.execute(
             text(
                 f"""
-                SELECT patch_id, patch_uid, label_class_id, image_id, working_mag
+                SELECT patch_id, patch_uid, label_class_id, image_id, working_mag,
+                       centroid_x, centroid_y, ST_AsGeoJSON(polygon) AS polygon
                 FROM {self.table_name}
                 ORDER BY patch_id
                 LIMIT :limit
@@ -151,7 +197,7 @@ class PatchStore:
         for shard_id in shard_ids:
             shard_rows = self._session.execute(
                 text(
-                    f"SELECT patch_id, patch_uid, label_class_id, image_id, working_mag FROM {self.table_name}_{shard_id}"
+                    f"SELECT patch_id, patch_uid, label_class_id, image_id, working_mag, centroid_x, centroid_y FROM {self.table_name}_{shard_id}"
                 )
             ).mappings().all()
             rows.extend(dict(r) for r in shard_rows)
@@ -274,7 +320,8 @@ class PatchStore:
             )
 
         patch_cols = (
-            "p.patch_id, p.patch_uid, p.label_class_id, p.image_id, p.working_mag"
+            "p.patch_id, p.patch_uid, p.label_class_id, p.image_id, p.working_mag,"
+            " p.centroid_x, p.centroid_y, ST_AsGeoJSON(p.polygon) AS polygon"
         )
         if include_image:
             patch_cols += ", p.patch_image"
