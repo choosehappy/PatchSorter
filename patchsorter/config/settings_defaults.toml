@@ -16,16 +16,6 @@
 #                  changed after the initial seed — the setting is read-only
 
 # ---------------------------------------------------------------------------
-# Application-scoped settings
-# ---------------------------------------------------------------------------
-
-[settings.theme]
-scope          = "application"
-default        = "light"
-type           = "enum"
-allowed_values = ["light", "dark", "system"]
-
-# ---------------------------------------------------------------------------
 # Project-scoped settings
 # ---------------------------------------------------------------------------
 

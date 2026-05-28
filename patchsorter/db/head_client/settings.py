@@ -146,6 +146,59 @@ class SettingsStore:
     # Private helpers
     # ------------------------------------------------------------------
 
+    def seed_app_settings(self) -> None:
+        """Upsert all application-scoped defaults from ``settings_defaults.toml``.
+
+        Reads every entry with ``scope = "application"`` and calls
+        :meth:`upsert` for each one.  Safe to call multiple times — existing
+        non-disabled rows have their value refreshed; disabled rows are left
+        untouched.
+        """
+        schema = SettingsStore._load_settings_schema()
+        for key, meta in schema.items():
+            if meta.get("scope") != "application":
+                continue
+            allowed: Optional[str] = None
+            if meta.get("type") == SettingType.ENUM:
+                allowed = ",".join(meta["allowed_values"])
+            self.upsert(
+                setting_key=key,
+                setting_value=meta["default"],
+                default_value=meta["default"],
+                setting_type=SettingType(meta["type"]),
+                project_id=None,
+                allowed_values=allowed,
+                disabled=meta.get("disabled", False),
+            )
+
+    def seed_project_settings(self, project_id: int) -> None:
+        """Upsert all project-scoped defaults from ``settings_defaults.toml``.
+
+        Reads every entry with ``scope = "project"`` and calls :meth:`upsert`
+        for each one using the given *project_id*.  Safe to call multiple
+        times — existing non-disabled rows have their value refreshed; disabled
+        rows are left untouched.
+
+        Args:
+            project_id: The integer ID of the project to seed settings for.
+        """
+        schema = SettingsStore._load_settings_schema()
+        for key, meta in schema.items():
+            if meta.get("scope") != "project":
+                continue
+            allowed: Optional[str] = None
+            if meta.get("type") == SettingType.ENUM:
+                allowed = ",".join(meta["allowed_values"])
+            self.upsert(
+                setting_key=key,
+                setting_value=meta["default"],
+                default_value=meta["default"],
+                setting_type=SettingType(meta["type"]),
+                project_id=project_id,
+                allowed_values=allowed,
+                disabled=meta.get("disabled", False),
+            )
+
     @staticmethod
     def _load_settings_schema() -> Dict[str, Any]:
         """Load and return the settings schema from the defaults TOML file.

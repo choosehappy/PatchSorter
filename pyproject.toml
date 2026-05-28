@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "patchsorter"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.136.1",
     "matplotlib>=3.10.9",
@@ -19,7 +19,7 @@ dependencies = [
     "uvicorn>=0.47.0",
     "pytest>=9.0.3",
     "large-image[common]>=1.34.1",
-    "gdal>=3.0",
+    "gdal==3.12.3",
 ]
 dynamic = ["version"]  # ← version comes from setuptools_scm
 

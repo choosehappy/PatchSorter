@@ -3,6 +3,7 @@ from patchsorter.db.head_client.project import ProjectStore
 from patchsorter.db.head_client.models import Base
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
+from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.config.constants import PredPatchSuffix
 
 
@@ -51,6 +52,9 @@ class DatabaseManager:
                     except Exception as e:
                         print(f"Distribution command failed (may already be distributed): {e}")
             conn.commit()
+
+        with self.sm.get_session() as session:
+            SettingsStore(session).seed_app_settings()
 
     def rotate_pred_patch_tables(self, project_id: int) -> None:
         """Rotate ``pred_patch_latest`` → ``pred_patch_last`` via a 3-way rename.

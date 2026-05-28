@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from patchsorter.db.head_client.models import Base, all_project_models
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
+from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.config.constants import PredPatchSuffix
 
 
@@ -48,7 +49,9 @@ class ProjectStore:
             ),
             {"name": name, "description": description},
         ).mappings().one()
-        return dict(row)
+        result = dict(row)
+        SettingsStore(self._session).seed_project_settings(result["project_id"])
+        return result
 
     def list_all(self) -> List[Dict[str, Any]]:
         """Return all projects ordered by ``project_id`` ascending.
