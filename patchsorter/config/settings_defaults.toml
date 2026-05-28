@@ -1,0 +1,43 @@
+# PatchSorter settings defaults
+#
+# Each entry defines one canonical setting.  The "scope" field controls
+# where the setting lives at runtime:
+#
+#   scope = "application"  – stored with project_id = NULL (app-wide)
+#   scope = "project"      – stored per project_id
+#
+# Fields
+# ------
+# scope          : "application" | "project"
+# default        : string representation of the default value
+# type           : "enum" | "string" | "boolean" | "integer"
+# allowed_values : (enum only) list of valid values
+# disabled       : (optional, default false) if true the value cannot be
+#                  changed after the initial seed — the setting is read-only
+
+# ---------------------------------------------------------------------------
+# Application-scoped settings
+# ---------------------------------------------------------------------------
+
+[settings.theme]
+scope          = "application"
+default        = "light"
+type           = "enum"
+allowed_values = ["light", "dark", "system"]
+
+# ---------------------------------------------------------------------------
+# Project-scoped settings
+# ---------------------------------------------------------------------------
+
+[settings.world_size]
+scope    = "project"
+default  = "4096"
+type     = "integer"
+disabled = true
+
+[settings.agg_hierarchy_depth]
+scope    = "project"
+default  = "4"
+type     = "integer"
+disabled = true
+# agg_hierarchy_depth must be greater than 1

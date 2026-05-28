@@ -5,6 +5,12 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from patchsorter.db.head_client.table_names import (
+    patch_table, pred_patch_table, confusion_matrix_table,
+)
+
+from patchsorter.config.constants import PredPatchSuffix
+
 _UNLABELED_CLASS_ID = 1
 """Reserved ``label_class_id`` for the "Unlabeled" class.  Cannot be deleted."""
 
@@ -107,35 +113,32 @@ class LabelClassStore:
         # Step 1: reset patch ground-truth labels.
         self._session.execute(
             text(
-                f"UPDATE project{n}_patch SET label_class_id = 1 WHERE label_class_id = :lcid"
+                f"UPDATE {patch_table(n)} SET label_class_id = 1 WHERE label_class_id = :lcid"
             ),
             {"lcid": label_class_id},
         )
 
         # Steps 2 & 3: reset prediction labels.
-        for pred_table in (
-            f"project{n}_pred_patch_latest",
-            f"project{n}_pred_patch_last",
-        ):
+        for tbl in (pred_patch_table(n, PredPatchSuffix.LATEST), pred_patch_table(n, PredPatchSuffix.LAST)):
             self._session.execute(
                 text(
-                    f"UPDATE {pred_table} SET label_class_id = 1 WHERE label_class_id = :lcid"
+                    f"UPDATE {tbl} SET label_class_id = 1 WHERE label_class_id = :lcid"
                 ),
                 {"lcid": label_class_id},
             )
 
         # Step 4: reset confusion-matrix pred_label / gt_label references.
         for lvl in range(8, 13):
-            cm_table = f"project{n}_confusion_matrix_l{lvl}"
+            cm_tbl = confusion_matrix_table(n, lvl)
             self._session.execute(
                 text(
-                    f"UPDATE {cm_table} SET pred_label = 1 WHERE pred_label = :lcid"
+                    f"UPDATE {cm_tbl} SET pred_label = 1 WHERE pred_label = :lcid"
                 ),
                 {"lcid": label_class_id},
             )
             self._session.execute(
                 text(
-                    f"UPDATE {cm_table} SET gt_label = 1 WHERE gt_label = :lcid"
+                    f"UPDATE {cm_tbl} SET gt_label = 1 WHERE gt_label = :lcid"
                 ),
                 {"lcid": label_class_id},
             )

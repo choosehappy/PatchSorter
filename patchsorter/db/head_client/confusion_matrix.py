@@ -6,6 +6,8 @@ import numpy as np
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from patchsorter.db.head_client.table_names import confusion_matrix_table
+
 
 class ConfusionMatrixStore:
     """Read aggregated patch-label counts from a project's confusion-matrix table.
@@ -38,7 +40,11 @@ class ConfusionMatrixStore:
         self.project_id = project_id
         self.level = level
         self._session = session
-        self.table_name = f"project{project_id}_confusion_matrix_l{level}"
+        self.table_name = self.build_table_name(project_id, level)
+
+    @staticmethod
+    def build_table_name(project_id: int, level: int) -> str:
+        return confusion_matrix_table(project_id, level)
 
     # ------------------------------------------------------------------ #
     # Internal helpers                                                     #

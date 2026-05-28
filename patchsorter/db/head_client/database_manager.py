@@ -1,5 +1,9 @@
 from patchsorter.db.utils import SessionManager
 from patchsorter.db.head_client.project import ProjectStore
+from patchsorter.db.head_client.models import Base
+from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
+from patchsorter.config.constants import PredPatchSuffix
 
 
 from typing import Any, Dict, List
@@ -20,68 +24,17 @@ class DatabaseManager:
                 return cur.fetchall()
 
     def drop_all_tables(self) -> None:
-        statements = [
-            "DROP TABLE IF EXISTS settings CASCADE;",
-            "DROP TABLE IF EXISTS log CASCADE;",
-            "DROP TABLE IF EXISTS label_class CASCADE;",
-            "DROP TABLE IF EXISTS image CASCADE;",
-            "DROP TABLE IF EXISTS project CASCADE;",
-        ]
-        with self.sm.get_connection() as conn:
-            with conn.cursor() as cur:
-                for stmt in statements:
-                    cur.execute(stmt)
-            conn.commit()
+        Base.metadata.drop_all(self.sm.engine)
 
     def setup_schema(self) -> None:
-        schema_statements = [
-            """CREATE TABLE IF NOT EXISTS project (
-                project_id   SERIAL    PRIMARY KEY,
-                project_name TEXT      NOT NULL,
-                description  TEXT
-            );""",
-            """CREATE TABLE IF NOT EXISTS image (
-                image_id          SERIAL    PRIMARY KEY,
-                project_id        INT       NOT NULL REFERENCES project(project_id),
-                name              TEXT      NOT NULL,
-                image_path        TEXT      NOT NULL,
-                upload_ts         TIMESTAMP NOT NULL DEFAULT NOW(),
-                base_mag          FLOAT     NOT NULL,
-                base_width        INT       NOT NULL,
-                base_height       INT       NOT NULL,
-                deepzoom_tilesize INT       NOT NULL,
-                embedding_x       FLOAT,
-                embedding_y       FLOAT,
-                group_id          INT,
-                train_test_split  INT,
-                UNIQUE(project_id, name)
-            );""",
-            """CREATE TABLE IF NOT EXISTS label_class (
-                label_class_id  SERIAL    PRIMARY KEY,
-                project_id      INT       REFERENCES project(project_id),
-                name            TEXT      NOT NULL,
-                color_code      TEXT,
-                event_ts        TIMESTAMP NOT NULL DEFAULT NOW(),
-                UNIQUE(project_id, name)
-            );""",
-            """INSERT INTO label_class (project_id, name, color_code)
+        Base.metadata.create_all(self.sm.engine)
+
+        # Seed the reserved "unassigned" label class (label_class_id = 1)
+        seed_statement = """
+            INSERT INTO label_class (project_id, name, color_code)
             SELECT NULL, 'unassigned', NULL
-            WHERE NOT EXISTS (SELECT 1 FROM label_class WHERE label_class_id = 1);""",
-            """CREATE TABLE IF NOT EXISTS settings (
-                setting_id    SERIAL  PRIMARY KEY,
-                project_id    INT     REFERENCES project(project_id),
-                setting_key   TEXT    NOT NULL,
-                setting_value TEXT    NOT NULL,
-                disabled      BOOLEAN NOT NULL DEFAULT FALSE
-            );""",
-            """CREATE TABLE IF NOT EXISTS log (
-                id        SERIAL    PRIMARY KEY,
-                name      TEXT      NOT NULL,
-                timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
-                level     TEXT      NOT NULL DEFAULT 'INFO',
-                message   TEXT      NOT NULL DEFAULT ''
-            );""",
-        ]
+            WHERE NOT EXISTS (SELECT 1 FROM label_class WHERE label_class_id = 1);
+        """
         distribution_statements = [
             "SELECT create_reference_table('project');",
             "SELECT create_reference_table('image');",
@@ -91,8 +44,7 @@ class DatabaseManager:
         ]
         with self.sm.get_connection() as conn:
             with conn.cursor() as cur:
-                for stmt in schema_statements:
-                    cur.execute(stmt)
+                cur.execute(seed_statement)
                 for stmt in distribution_statements:
                     try:
                         cur.execute(stmt)
@@ -116,9 +68,9 @@ class DatabaseManager:
         4. ``RENAME project{N}_pred_patch_tmp → project{N}_pred_patch_latest``
         """
         n = project_id
-        last_table = f"project{n}_pred_patch_last"
-        latest_table = f"project{n}_pred_patch_latest"
-        tmp_table = f"project{n}_pred_patch_tmp"
+        last_table   = PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)
+        latest_table = PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)
+        tmp_table    = f"project{n}_pred_patch_tmp"
         with self.sm.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(f"TRUNCATE TABLE {last_table};")
@@ -504,11 +456,11 @@ class DatabaseManager:
             cur.execute(f"SELECT run_command_on_workers($outer${update_trigger_fn_sql}$outer$);")
             print(f"UPDATE trigger function created on coordinator and workers for project {n}.")
 
-            cur.execute(_attach_insert_triggers_sql(f"project{n}_pred_patch_latest"))
-            print(f"Per-shard INSERT triggers installed on project{n}_pred_patch_latest shards.")
+            cur.execute(_attach_insert_triggers_sql(PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)))
+            print(f"Per-shard INSERT triggers installed on {PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)} shards.")
 
-            cur.execute(_attach_insert_triggers_sql(f"project{n}_pred_patch_last"))
-            print(f"Per-shard INSERT triggers installed on project{n}_pred_patch_last shards.")
+            cur.execute(_attach_insert_triggers_sql(PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)))
+            print(f"Per-shard INSERT triggers installed on {PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)} shards.")
 
             cur.execute(attach_update_triggers_sql)
             print(f"Per-shard UPDATE triggers installed on project{n}_patch shards.")
