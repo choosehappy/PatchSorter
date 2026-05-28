@@ -93,6 +93,31 @@ The codebase uses PostgreSQL with psycopg2-binary for database operations.
 - SQL injection prevention: Use parameterized queries
 - Transaction management: Explicit commit/rollback when needed
 
+## Database Client (for agents)
+This project exposes lightweight client helpers and per-table stores to make database work simple for scripts and agents. Prefer using the repository factories and helpers rather than constructing engines manually.
+
+- **Overview:** Use `head_client.get_client()` for coordinator/head access and `worker_client.get_client()` for worker access. Both return a `SessionManager` (see `patchsorter/db/utils.py`) which provides `get_session()` and `get_connection()`.
+- **Key files:**
+  - `patchsorter/db/head_client/__init__.py` — per-table stores and `get_client()` for head/coordinator
+  - `patchsorter/db/worker_client/__init__.py` — `get_client()` for worker nodes
+  - `patchsorter/db/utils.py` — `SessionManager` and session helpers
+  - `patchsorter/db/constants.py` — environment-backed DB connection defaults (CITUS_* vars)
+  - See table models under `patchsorter/db/head_client/` (e.g., `patch.py`, `image.py`, `project.py`)
+- **Environment:** Connection values are read from environment variables in `patchsorter/db/constants.py`. Key names:
+  - `CITUS_HEAD_HOST`, `CITUS_HEAD_PORT`, `CITUS_HEAD_DB`, `CITUS_HEAD_USER`, `CITUS_HEAD_PASSWORD`
+  - `CITUS_WORKER_HOST`, `CITUS_WORKER_PORT`, `CITUS_WORKER_DB`, `CITUS_WORKER_USER`, `CITUS_WORKER_PASSWORD`
+- **Quick local setup:** Development compose file is at `deployment/docker-compose.yaml`. To run a single-node Citus/PostGIS for local testing:
+
+```bash
+docker-compose -f deployment/docker-compose.yaml up -d
+```
+
+Default `POSTGRES_PASSWORD` in the compose file is `password` and ports map `5432:5432` (head). Confirm environment overrides in your shell or CI when running agents.
+- **Agent guidance:**
+  - Use `get_client()` factories and `with client.get_session() as session:` to run transactional work.
+  - Prefer repository store classes (in `patchsorter/db/head_client/`) for CRUD patterns instead of raw SQL when possible.
+  - When writing automation that modifies DB state, include explicit validation and small transactions to avoid long-running locks.
+
 ## Special Considerations
 - The project includes spatial data processing with geoalchemy2
 - Uses SQLAlchemy ORM for database interactions

@@ -40,7 +40,7 @@ def test_insert_single_patch(example_project, db_session):
         patch_uid=99,
         label_class_id=lc_id,
         image_id=image_id,
-        working_mag=20.0,
+        downsample_factor=2.0,
         patch_image=bytes(16),
     )
 

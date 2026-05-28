@@ -225,7 +225,7 @@ def example_project(
     # Five fake patches — patch_uid 0..4, all labeled as "Tumor"
     PatchStore(1, db_session).bulk_insert(
         [
-            (i, lc_tumor["label_class_id"], image["image_id"], 20.0, None, None, None, bytes(16))
+            (i, lc_tumor["label_class_id"], image["image_id"], 2.0, None, None, None, bytes(16))
             for i in range(5)
         ]
     )

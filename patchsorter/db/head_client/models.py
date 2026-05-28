@@ -134,7 +134,7 @@ def patch_model(project_id: int) -> type:
                 "patch_uid":      Column(Integer),
                 "label_class_id": Column(SmallInteger, ForeignKey("label_class.label_class_id"), nullable=False),
                 "image_id":       Column(Integer, ForeignKey("image.image_id"), nullable=False),
-                "working_mag":    Column(Float, nullable=False),
+                "downsample_factor": Column(Float, nullable=False),
                 "patch_image":    Column(LargeBinary, nullable=False),
             },
         )
