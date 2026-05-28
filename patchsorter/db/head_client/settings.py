@@ -84,7 +84,12 @@ class SettingsStore:
                 "allowed_values": allowed_values,
                 "disabled": disabled,
             },
-        ).mappings().one()
+        ).mappings().one_or_none()
+        if row is None:
+            # The ON CONFLICT DO UPDATE WHERE NOT disabled clause was false —
+            # the existing row is disabled and its value was intentionally
+            # preserved.  Return the current row unchanged.
+            return self.get(setting_key, project_id=project_id)
         return dict(row)
 
     def get(
