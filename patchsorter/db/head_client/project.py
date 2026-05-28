@@ -5,6 +5,11 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from patchsorter.db.head_client.models import Base, all_project_models
+from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
+from patchsorter.config.constants import PredPatchSuffix
+
 
 class ProjectStore:
     """Data-access methods for the ``project`` reference table.
@@ -62,10 +67,10 @@ class ProjectStore:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def create_project_tables(project_id: int, raw_conn) -> None:
+    def create_project_tables(project_id: int, engine) -> None:
         """Create and distribute the per-project tables for *project_id*.
 
-        Creates (idempotent — ``IF NOT EXISTS``):
+        Creates (idempotent — ``checkfirst=True``):
 
         - ``project{N}_patch`` — distributed by ``patch_id``.
         - ``project{N}_pred_patch_latest`` — co-located with patch.
@@ -79,71 +84,30 @@ class ProjectStore:
         Args:
             project_id: The integer project ID.  Used as the ``{N}`` suffix in
                 all table names.
-            raw_conn: A raw psycopg connection obtained from the application's
-                session factory (SessionManager.get_connection). The caller's
-                context manager commits the connection on success.
+            engine: A SQLAlchemy ``Engine`` for the target database.  DDL is
+                emitted via ``Base.metadata.create_all``; Citus distribution
+                statements run on a raw autocommit connection obtained from the
+                same engine.
         """
         n = project_id
-        ddl = [
-            f"""CREATE TABLE IF NOT EXISTS project{n}_patch (
-                patch_id       BIGSERIAL PRIMARY KEY,
-                patch_uid      INT,
-                label_class_id SMALLINT  NOT NULL REFERENCES label_class(label_class_id),
-                image_id       INT       NOT NULL REFERENCES image(image_id),
-                working_mag    FLOAT     NOT NULL,
-                patch_image    BYTEA     NOT NULL
-            );""",
-            f"""CREATE TABLE IF NOT EXISTS project{n}_pred_patch_latest (
-                patch_id       BIGINT    PRIMARY KEY,
-                embed_x        FLOAT     NOT NULL,
-                embed_y        FLOAT     NOT NULL,
-                grid_cell_i    SMALLINT  NOT NULL,
-                grid_cell_j    SMALLINT  NOT NULL,
-                event_ts       TIMESTAMP NOT NULL DEFAULT NOW(),
-                label_class_id SMALLINT  NOT NULL REFERENCES label_class(label_class_id)
-            );""",
-            f"""CREATE TABLE IF NOT EXISTS project{n}_pred_patch_last (
-                patch_id       BIGINT    PRIMARY KEY,
-                embed_x        FLOAT     NOT NULL,
-                embed_y        FLOAT     NOT NULL,
-                grid_cell_i    SMALLINT  NOT NULL,
-                grid_cell_j    SMALLINT  NOT NULL,
-                event_ts       TIMESTAMP NOT NULL DEFAULT NOW(),
-                label_class_id SMALLINT  NOT NULL REFERENCES label_class(label_class_id)
-            );""",
-            *[
-                f"""CREATE TABLE IF NOT EXISTS project{n}_confusion_matrix_l{lvl} (
-                    shard_id    BIGINT   NOT NULL,
-                    grid_cell_i SMALLINT NOT NULL,
-                    grid_cell_j SMALLINT NOT NULL,
-                    bucket_date DATE     NOT NULL,
-                    pred_label  SMALLINT NOT NULL REFERENCES label_class(label_class_id),
-                    gt_label    SMALLINT NOT NULL REFERENCES label_class(label_class_id),
-                    count       INT      NOT NULL,
-                    PRIMARY KEY (shard_id, grid_cell_i, grid_cell_j, pred_label, gt_label)
-                );"""
-                for lvl in range(8, 13)
-            ],
-            *[
-                f"CREATE INDEX IF NOT EXISTS idx_cm_p{n}_l{lvl}_nonpositive ON project{n}_confusion_matrix_l{lvl} (count) WHERE count <= 0;"
-                for lvl in range(8, 13)
-            ],
-        ]
+        models = all_project_models(n)
+        tables = [m.__table__ for m in models]
+        Base.metadata.create_all(engine, tables=tables, checkfirst=True)
+
+        patch_tbl = PatchStore.build_table_name(n)
         distribution = [
-            f"SELECT create_distributed_table('project{n}_patch', 'patch_id');",
-            f"SELECT create_distributed_table('project{n}_pred_patch_latest', 'patch_id', colocate_with => 'project{n}_patch');",
-            f"SELECT create_distributed_table('project{n}_pred_patch_last', 'patch_id', colocate_with => 'project{n}_patch');",
+            f"SELECT create_distributed_table('{patch_tbl}', 'patch_id');",
+            f"SELECT create_distributed_table('{PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)}', 'patch_id', colocate_with => '{patch_tbl}');",
+            f"SELECT create_distributed_table('{PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)}', 'patch_id', colocate_with => '{patch_tbl}');",
             *[
-                f"SELECT create_distributed_table('project{n}_confusion_matrix_l{lvl}', 'shard_id', colocate_with => 'project{n}_patch');"
+                f"SELECT create_distributed_table('{ConfusionMatrixStore.build_table_name(n, lvl)}', 'shard_id', colocate_with => '{patch_tbl}');"
                 for lvl in range(8, 13)
             ],
         ]
-        with raw_conn.cursor() as cur:
-            for stmt in ddl:
-                cur.execute(stmt)
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             for stmt in distribution:
                 try:
-                    cur.execute(stmt)
+                    conn.exec_driver_sql(stmt)
                 except Exception as exc:
                     print(f"Distribution command failed (may already be distributed): {exc}")
 
@@ -171,15 +135,15 @@ class ProjectStore:
         """
         n = project_id
         cm_tables = ", ".join(
-            f"project{n}_confusion_matrix_l{lvl}" for lvl in range(8, 13)
+            ConfusionMatrixStore.build_table_name(n, lvl) for lvl in range(8, 13)
         )
         self._session.execute(
             text(
                 f"""
                 DROP TABLE IF EXISTS
-                    project{n}_patch,
-                    project{n}_pred_patch_latest,
-                    project{n}_pred_patch_last,
+                    {PatchStore.build_table_name(n)},
+                    {PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)},
+                    {PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)},
                     {cm_tables}
                 CASCADE;
                 """
