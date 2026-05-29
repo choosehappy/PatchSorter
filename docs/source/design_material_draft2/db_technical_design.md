@@ -9,8 +9,8 @@
 |----------------|--------------------|---------------------------------|--------------------------------------------------|
 | patch_id       | BIGINT             | PRIMARY KEY, SHARD KEY          | Unique identifier for the patch.                 |
 | patch_uid      | UUID               | UNIQUE                          | External unique identifier for the patch.        |
-| label_class_id | SMALLINT           | NOT NULL, FOREIGN KEY           | Ground truth label for the patch.                |
-| image_id       | INT                | NOT NULL, FOREIGN KEY           | Identifier for the image containing the patch.   |
+| label_class_id | SMALLINT           | NOT NULL                        | Ground truth label for the patch.                |
+| image_id       | INT                | NOT NULL                        | Identifier for the image containing the patch.   |
 | downsample_factor | FLOAT              | NOT NULL                        | Factor (>1) at which the patch was downsampled from the base magnification of the underlying image. |
 | centroid_x     | FLOAT              |                                 | X pixel coordinate of the patch centroid at base magnification (optional). |
 | centroid_y     | FLOAT              |                                 | Y pixel coordinate of the patch centroid at base magnification (optional). |
@@ -37,7 +37,7 @@ Two tables are used for patch predictions:
 | grid_cell_i    | SMALLINT  | NOT NULL                        | Row index in the grid.                           |
 | grid_cell_j    | SMALLINT  | NOT NULL                        | Column index in the grid.                        |
 | event_ts       | TIMESTAMP | NOT NULL                        | Timestamp when the prediction was added.         |
-| label_class_id | SMALLINT  | NOT NULL, FOREIGN KEY           | Predicted label class for the patch.             |
+| label_class_id | SMALLINT  | NOT NULL                        | Predicted label class for the patch.             |
 
 ### project{project_id}_pred_patch_last (Distributed)
 
@@ -154,8 +154,8 @@ Factory results are cached per `(project_id[, level])` to prevent duplicate mapp
 | grid_cell_i    | SMALLINT   | NOT NULL, PRIMARY KEY (composite)| Row index in the grid.                          |
 | grid_cell_j    | SMALLINT   | NOT NULL, PRIMARY KEY (composite)| Column index in the grid.                       |
 | bucket_date    | DATE       | NOT NULL                        | Date when the bucket was last updated.           |
-| pred_label     | SMALLINT   | NOT NULL, FOREIGN KEY, PRIMARY KEY (composite)| Predicted label for the bucket.                 |
-| gt_label       | SMALLINT   | NOT NULL, FOREIGN KEY, PRIMARY KEY (composite)| Ground truth label for the bucket.              |
+| pred_label     | SMALLINT   | NOT NULL, PRIMARY KEY (composite)| Predicted label for the bucket.                 |
+| gt_label       | SMALLINT   | NOT NULL, PRIMARY KEY (composite)| Ground truth label for the bucket.              |
 | count          | INT        | NOT NULL                        | Number of patches in the bucket.                 |
 
 - **Citus:** Distributed by `shard_id` and co-located with the patch tables. `shard_id` should be derived from `patch_id` to ensure co-location.
@@ -273,8 +273,8 @@ erDiagram
     projectN_patch {
         SERIAL patch_id PK
         INT patch_uid
-        SMALLINT label_class_id FK
-        INT image_id FK
+        SMALLINT label_class_id
+        INT image_id
         FLOAT downsample_factor
         FLOAT centroid_x
         FLOAT centroid_y
@@ -288,7 +288,7 @@ erDiagram
         SMALLINT grid_cell_i
         SMALLINT grid_cell_j
         TIMESTAMP event_ts
-        SMALLINT label_class_id FK
+        SMALLINT label_class_id
     }
     projectN_pred_patch_last {
         SERIAL patch_id PK
@@ -297,14 +297,14 @@ erDiagram
         SMALLINT grid_cell_i
         SMALLINT grid_cell_j
         TIMESTAMP event_ts
-        SMALLINT label_class_id FK
+        SMALLINT label_class_id
     }
     projectN_confusion_matrix_ln {
         SMALLINT grid_cell_i PK
         SMALLINT grid_cell_j PK
         DATE bucket_date
-        SMALLINT pred_label FK
-        SMALLINT gt_label FK
+        SMALLINT pred_label
+        SMALLINT gt_label
         INT count
     }
     LOG {

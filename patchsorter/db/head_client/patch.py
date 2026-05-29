@@ -347,36 +347,32 @@ class PatchStore:
 
         sql = text(
             f"""
-            WITH pred AS (
-                SELECT *, 1 AS priority
-                FROM {self.pred_table_latest}
-                WHERE {pred_filter_sql}
-                  AND patch_id > :_cursor
+            WITH result AS (
+                SELECT DISTINCT ON (patch_id) *
+                FROM (
+                    SELECT *, 1 AS priority
+                    FROM {self.pred_table_latest}
+                    WHERE {pred_filter_sql}
 
-                UNION ALL
+                    UNION ALL
 
-                SELECT *, 2 AS priority
-                FROM {self.pred_table_last}
-                WHERE {pred_filter_sql}
-                  AND patch_id > :_cursor
-
+                    SELECT *, 2 AS priority
+                    FROM {self.pred_table_last}
+                    WHERE {pred_filter_sql}
+                ) pred_union
+                WHERE patch_id > :_cursor
                 ORDER BY patch_id, priority
                 LIMIT :_limit
-            ),
-            best_pred AS (
-                SELECT DISTINCT ON (patch_id) *
-                FROM pred
-                ORDER BY patch_id, priority
             )
             SELECT {patch_cols},
-                   bp.embed_x, bp.embed_y,
-                   bp.grid_cell_i, bp.grid_cell_j,
-                   bp.label_class_id AS pred_label_class_id,
-                   bp.event_ts,
-                   bp.priority
-            FROM best_pred bp
-            JOIN {self.table_name} p ON p.patch_id = bp.patch_id
-            ORDER BY bp.patch_id
+                   r.embed_x, r.embed_y,
+                   r.grid_cell_i, r.grid_cell_j,
+                   r.label_class_id AS pred_label_class_id,
+                   r.event_ts,
+                   r.priority
+            FROM result r
+            JOIN {self.table_name} p ON p.patch_id = r.patch_id
+            ORDER BY r.patch_id
             """
         )
 

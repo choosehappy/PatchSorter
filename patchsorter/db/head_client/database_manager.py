@@ -1,6 +1,6 @@
 from patchsorter.db.utils import SessionManager
 from patchsorter.db.head_client.project import ProjectStore
-from patchsorter.db.head_client.models import Base, all_project_models
+from patchsorter.db.head_client.models import Base, Project, all_project_models
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 from patchsorter.db.head_client.settings import SettingsStore
@@ -34,14 +34,20 @@ class DatabaseManager:
         ``project{N}_confusion_matrix_l*``) and can resolve FK dependencies
         correctly without manual CASCADE workarounds.
         """
-        with self.sm.get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT project_id FROM project")
-                project_ids = [row[0] for row in cur.fetchall()]
+        with self.sm.get_session() as session:
+            project_ids = session.query(Project.project_id).all()
+
         for project_id in project_ids:
             all_project_models(project_id)
 
     def drop_all_tables(self) -> None:
+        # check if the project table exists:
+        with self.sm.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM information_schema.tables WHERE table_name = 'project';")
+                if cur.fetchone() is None:
+                    print("No tables found, skipping drop_all_tables.")
+                    return
         self.register_project_models()
         Base.metadata.drop_all(self.sm.engine)
 

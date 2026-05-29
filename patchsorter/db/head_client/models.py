@@ -132,8 +132,8 @@ def patch_model(project_id: int) -> type:
                 "__tablename__": patch_table(project_id),
                 "patch_id":       Column(BigInteger, primary_key=True, autoincrement=True),
                 "patch_uid":      Column(Uuid, unique=True),
-                "label_class_id": Column(SmallInteger, ForeignKey("label_class.label_class_id"), nullable=False),
-                "image_id":       Column(Integer, ForeignKey("image.image_id"), nullable=False),
+                "label_class_id": Column(SmallInteger, nullable=False),
+                "image_id":       Column(Integer, nullable=False),
                 "downsample_factor": Column(Float, nullable=False),
                 "patch_image":    Column(LargeBinary, nullable=False),
             },
@@ -161,7 +161,7 @@ def pred_patch_model(project_id: int, suffix: str) -> type:
                 "grid_cell_i":    Column(SmallInteger, nullable=False),
                 "grid_cell_j":    Column(SmallInteger, nullable=False),
                 "event_ts":       Column(TIMESTAMP, nullable=False, server_default=func.now()),
-                "label_class_id": Column(SmallInteger, ForeignKey("label_class.label_class_id"), nullable=False),
+                "label_class_id": Column(SmallInteger, nullable=False),
             },
         )
     return cache[project_id]
@@ -193,8 +193,8 @@ def confusion_matrix_model(project_id: int, level: int) -> type:
                 "grid_cell_i": Column(SmallInteger, nullable=False, primary_key=True),
                 "grid_cell_j": Column(SmallInteger, nullable=False, primary_key=True),
                 "bucket_date": Column(Date, nullable=False),
-                "pred_label":  Column(SmallInteger, ForeignKey("label_class.label_class_id"), nullable=False, primary_key=True),
-                "gt_label":    Column(SmallInteger, ForeignKey("label_class.label_class_id"), nullable=False, primary_key=True),
+                "pred_label":  Column(SmallInteger, nullable=False, primary_key=True),
+                "gt_label":    Column(SmallInteger, nullable=False, primary_key=True),
                 "count":       Column(Integer, nullable=False),
             },
         )
