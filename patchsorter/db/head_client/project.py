@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from patchsorter.db.head_client.models import Base, all_project_models
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 from patchsorter.db.head_client.settings import SettingsStore
@@ -64,55 +63,6 @@ class ProjectStore:
             text("SELECT * FROM project ORDER BY project_id")
         ).mappings().all()
         return [dict(r) for r in rows]
-
-    # ------------------------------------------------------------------ #
-    # Per-project DDL                                                      #
-    # ------------------------------------------------------------------ #
-
-    @staticmethod
-    def create_project_tables(project_id: int, engine) -> None:
-        """Create and distribute the per-project tables for *project_id*.
-
-        Creates (idempotent — ``checkfirst=True``):
-
-        - ``project{N}_patch`` — distributed by ``patch_id``.
-        - ``project{N}_pred_patch_latest`` — co-located with patch.
-        - ``project{N}_pred_patch_last`` — co-located with patch.
-        - ``project{N}_confusion_matrix_l8`` … ``project{N}_confusion_matrix_l12``
-          — each distributed by ``shard_id``, co-located with patch.
-
-        A partial index on ``count <= 0`` is created for each confusion-matrix
-        level to accelerate the trigger cleanup pass.
-
-        Args:
-            project_id: The integer project ID.  Used as the ``{N}`` suffix in
-                all table names.
-            engine: A SQLAlchemy ``Engine`` for the target database.  DDL is
-                emitted via ``Base.metadata.create_all``; Citus distribution
-                statements run on a raw autocommit connection obtained from the
-                same engine.
-        """
-        n = project_id
-        models = all_project_models(n)
-        tables = [m.__table__ for m in models]
-        Base.metadata.create_all(engine, tables=tables, checkfirst=True)
-
-        patch_tbl = PatchStore.build_table_name(n)
-        distribution = [
-            f"SELECT create_distributed_table('{patch_tbl}', 'patch_id');",
-            f"SELECT create_distributed_table('{PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)}', 'patch_id', colocate_with => '{patch_tbl}');",
-            f"SELECT create_distributed_table('{PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)}', 'patch_id', colocate_with => '{patch_tbl}');",
-            *[
-                f"SELECT create_distributed_table('{ConfusionMatrixStore.build_table_name(n, lvl)}', 'shard_id', colocate_with => '{patch_tbl}');"
-                for lvl in range(8, 13)
-            ],
-        ]
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            for stmt in distribution:
-                try:
-                    conn.exec_driver_sql(stmt)
-                except Exception as exc:
-                    print(f"Distribution command failed (may already be distributed): {exc}")
 
     def delete(self, project_id: int) -> None:
         """Delete a project and all its associated data.

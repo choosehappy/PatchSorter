@@ -1,5 +1,7 @@
+from sqlalchemy import select
+from sqlalchemy.schema import CreateTable
+
 from patchsorter.db.utils import SessionManager
-from patchsorter.db.head_client.project import ProjectStore
 from patchsorter.db.head_client.models import Base, Project, all_project_models
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
@@ -35,10 +37,10 @@ class DatabaseManager:
         correctly without manual CASCADE workarounds.
         """
         with self.sm.get_session() as session:
-            project_ids = session.query(Project.project_id).all()
+            projects = session.query(Project).all()
 
-        for project_id in project_ids:
-            all_project_models(project_id)
+        for project in projects:
+            all_project_models(int(project.project_id))
 
     def drop_all_tables(self) -> None:
         # check if the project table exists:
@@ -107,6 +109,46 @@ class DatabaseManager:
                 cur.execute(f"ALTER TABLE {tmp_table} RENAME TO {latest_table};")
             conn.commit()
 
+    def create_project_tables(self, project_id: int, conn) -> None:
+        """Create and distribute the per-project tables for *project_id*.
+
+        Creates (idempotent — ``checkfirst=True``):
+
+        - ``project{N}_patch`` — distributed by ``patch_id``.
+        - ``project{N}_pred_patch_latest`` — co-located with patch.
+        - ``project{N}_pred_patch_last`` — co-located with patch.
+        - ``project{N}_confusion_matrix_l8`` … ``project{N}_confusion_matrix_l12``
+          — each distributed by ``shard_id``, co-located with patch.
+
+        Args:
+            project_id: The integer project ID.  Used as the ``{N}`` suffix in
+                all table names.
+            conn: A raw psycopg connection.  The caller is responsible for
+                committing.
+        """
+        n = project_id
+        models = all_project_models(n)
+
+        patch_tbl = PatchStore.build_table_name(n)
+        distribution = [
+            f"SELECT create_distributed_table('{patch_tbl}', 'patch_id');",
+            f"SELECT create_distributed_table('{PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)}', 'patch_id', colocate_with => '{patch_tbl}');",
+            f"SELECT create_distributed_table('{PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)}', 'patch_id', colocate_with => '{patch_tbl}');",
+            *[
+                f"SELECT create_distributed_table('{ConfusionMatrixStore.build_table_name(n, lvl)}', 'shard_id', colocate_with => '{patch_tbl}');"
+                for lvl in range(8, 13)
+            ],
+        ]
+        with conn.cursor() as cur:
+            for model in models:
+                ddl = str(CreateTable(model.__table__, if_not_exists=True).compile(self.sm.engine))
+                cur.execute(ddl)
+            for stmt in distribution:
+                try:
+                    cur.execute(stmt)
+                except Exception as exc:
+                    print(f"Distribution command failed (may already be distributed): {exc}")
+
     def setup_triggers(self, project_id: int, raw_conn) -> None:
         """Install per-shard statement-level triggers for hierarchical confusion matrix maintenance.
 
@@ -168,10 +210,10 @@ class DatabaseManager:
                 SELECT shardminvalue INTO v_shardminvalue FROM pg_dist_shard WHERE shardid = v_pred_shardid;
 
                 -- Resolve the colocated project{n}_patch shard (same hash-range).
-                SELECT TG_TABLE_SCHEMA || '.' || 'project{n}_patch_' || shardid::text
+                SELECT TG_TABLE_SCHEMA || '.' || '{PatchStore.build_table_name(n)}_' || shardid::text
                 INTO v_patch_shard
                 FROM pg_dist_shard
-                WHERE logicalrelid = 'project{n}_patch'::regclass
+                WHERE logicalrelid = '{PatchStore.build_table_name(n)}'::regclass
                 AND shardminvalue = v_shardminvalue;
 
                 -- Extract the stable patch shard ID to use as shard_id in CM rows.
@@ -181,8 +223,8 @@ class DatabaseManager:
 
                 -- Resolve the colocated project{n}_pred_patch_last shard (same hash-range).
                 -- to_regclass() returns NULL if the table does not yet exist.
-                v_pred_last_regclass := to_regclass(TG_TABLE_SCHEMA || '.project{n}_pred_patch_last');
-                SELECT TG_TABLE_SCHEMA || '.' || 'project{n}_pred_patch_last_' || shardid::text
+                v_pred_last_regclass := to_regclass(TG_TABLE_SCHEMA || '.{PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)}');
+                SELECT TG_TABLE_SCHEMA || '.' || '{PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)}_' || shardid::text
                 INTO v_pred_last_shard
                 FROM pg_dist_shard
                 WHERE logicalrelid = v_pred_last_regclass
@@ -197,10 +239,10 @@ class DatabaseManager:
                 FOR v_lvl IN 8..12 LOOP
                     v_shift := 12 - v_lvl;
 
-                    SELECT TG_TABLE_SCHEMA || '.' || 'project{n}_confusion_matrix_l' || v_lvl::text || '_' || shardid::text
+                    SELECT TG_TABLE_SCHEMA || '.' || '{ConfusionMatrixStore.build_table_name(n)}' || v_lvl::text || '_' || shardid::text
                     INTO v_cm_shard
                     FROM pg_dist_shard
-                    WHERE logicalrelid = ('project{n}_confusion_matrix_l' || v_lvl::text)::regclass
+                    WHERE logicalrelid = ('{ConfusionMatrixStore.build_table_name(n)}' || v_lvl::text)::regclass
                     AND shardminvalue = v_shardminvalue;
 
                     IF v_pred_last_shard IS NULL THEN
@@ -311,14 +353,14 @@ class DatabaseManager:
 
                 SELECT shardminvalue INTO v_shardminvalue FROM pg_dist_shard WHERE shardid = v_patch_shardid;
 
-                SELECT TG_TABLE_SCHEMA || '.' || 'project{n}_pred_patch_latest_' || shardid::text
+                SELECT TG_TABLE_SCHEMA || '.' || '{PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)}_' || shardid::text
                 INTO v_pred_latest_shard
                 FROM pg_dist_shard
-                WHERE logicalrelid = 'project{n}_pred_patch_latest'::regclass
+                WHERE logicalrelid = '{PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)}'::regclass
                 AND shardminvalue = v_shardminvalue;
 
-                v_pred_last_regclass := to_regclass(TG_TABLE_SCHEMA || '.project{n}_pred_patch_last');
-                SELECT TG_TABLE_SCHEMA || '.' || 'project{n}_pred_patch_last_' || shardid::text
+                v_pred_last_regclass := to_regclass(TG_TABLE_SCHEMA || '.{PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)}');
+                SELECT TG_TABLE_SCHEMA || '.' || '{PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)}_' || shardid::text
                 INTO v_pred_last_shard
                 FROM pg_dist_shard
                 WHERE logicalrelid = v_pred_last_regclass
@@ -331,10 +373,10 @@ class DatabaseManager:
                 FOR v_lvl IN 8..12 LOOP
                     v_shift := 12 - v_lvl;
 
-                    SELECT TG_TABLE_SCHEMA || '.' || 'project{n}_confusion_matrix_l' || v_lvl::text || '_' || shardid::text
+                    SELECT TG_TABLE_SCHEMA || '.' || '{ConfusionMatrixStore.build_table_name(n)}' || v_lvl::text || '_' || shardid::text
                     INTO v_cm_shard
                     FROM pg_dist_shard
-                    WHERE logicalrelid = ('project{n}_confusion_matrix_l' || v_lvl::text)::regclass
+                    WHERE logicalrelid = ('{ConfusionMatrixStore.build_table_name(n)}' || v_lvl::text)::regclass
                     AND shardminvalue = v_shardminvalue;
 
                     IF v_pred_last_shard IS NULL THEN
@@ -465,7 +507,7 @@ class DatabaseManager:
         # Step 2b: Attach AFTER UPDATE trigger to each project{N}_patch shard.
         attach_update_triggers_sql = f"""
             SELECT run_command_on_shards(
-                'project{n}_patch',
+                '{PatchStore.build_table_name(n)}',
                 $cmd$
                     CREATE TRIGGER trg_update_cm_on_patch_update_p{n} AFTER UPDATE ON %s
                     REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
@@ -507,6 +549,6 @@ class DatabaseManager:
         """
 
         with self.sm.get_connection() as conn:
-            ProjectStore.create_project_tables(project_id, conn)
+            self.create_project_tables(project_id, conn)
             self.setup_triggers(project_id, conn)
             conn.commit()

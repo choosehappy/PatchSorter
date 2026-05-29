@@ -43,7 +43,7 @@ class ConfusionMatrixStore:
         self.table_name = self.build_table_name(project_id, level)
 
     @staticmethod
-    def build_table_name(project_id: int, level: int) -> str:
+    def build_table_name(project_id: int, level: int | None = None) -> str:
         return confusion_matrix_table(project_id, level)
 
     # ------------------------------------------------------------------ #
