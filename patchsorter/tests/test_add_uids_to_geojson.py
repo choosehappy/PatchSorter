@@ -1,11 +1,22 @@
 """Unit tests for add_uids() in patchsorter.helper_scripts.add_uuids_to_geojson."""
 
 import json
+import re
 
 import pytest
 from osgeo import ogr
 
 from patchsorter.helper_scripts.add_uuids_to_geojson import add_uids
+
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def _is_valid_uuid4(value: str) -> bool:
+    return bool(_UUID_RE.match(value))
 
 
 # ---------------------------------------------------------------------------
@@ -83,8 +94,8 @@ def test_inplace_all_features_have_uid(tmp_path):
     assert all(feat["uid"] is not None for feat in features)
 
 
-def test_inplace_uid_values_are_valid_bigints(tmp_path):
-    """Generated uid values are non-negative 63-bit integers."""
+def test_inplace_uid_values_are_valid_uuid4_strings(tmp_path):
+    """Generated uid values are valid UUID v4 strings."""
     f = tmp_path / "test.geojson"
     _write_geojson(f)
 
@@ -92,8 +103,8 @@ def test_inplace_uid_values_are_valid_bigints(tmp_path):
 
     for feat in _read_features(str(f)):
         uid = feat["uid"]
-        assert isinstance(uid, int)
-        assert 0 <= uid < 2**63
+        assert isinstance(uid, str)
+        assert _is_valid_uuid4(uid)
 
 
 def test_inplace_overwrites_existing_uid_field(tmp_path):
@@ -172,7 +183,7 @@ def test_output_path_all_features_present(tmp_path):
 
     features = _read_features(str(dst))
     assert len(features) == 3
-    assert all(0 <= feat["uid"] < 2**63 for feat in features)
+    assert all(_is_valid_uuid4(feat["uid"]) for feat in features)
 
 
 # ---------------------------------------------------------------------------

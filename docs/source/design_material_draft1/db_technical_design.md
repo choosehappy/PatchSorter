@@ -45,7 +45,7 @@ Docs indicate that IMVs are less effective when there are many updates to the ba
 | Column Name     | Data Type | Key Type | Description                                                |
 | --------------- | --------- | -------- | ---------------------------------------------------------- |
 | **id**          | BIGSERIAL | Primary  | Identifier for the patch, unique.                          |
-| **patch_uid**   | INT       | Column   | Identifier for the patch, unique.                          |
+| **patch_uid**   | UUID      | Column   | Identifier for the patch, unique.                          |
 | **gt_label**    | INT       | Foreign  | Ground truth label for the patch.                          |
 | **event_ts**    | TIMESTAMP | Column   | Time when the ground truth label was created/last updated. |
 | **image_id**    | INT       | Foreign  | Identifier for the image containing the patch.             |
@@ -58,7 +58,7 @@ Docs indicate that IMVs are less effective when there are many updates to the ba
 | Column Name        | Data Type | Key Type | Description                                        |
 | ------------------ | --------- | -------- | -------------------------------------------------- |
 | **id**             | BIGSERIAL | Primary  | Identifier for the patch.                          |
-| **patch_uid**      | BIGINT    | Column   | Identifier for the patch, unique.                  |
+| **patch_uid**      | UUID      | Column   | Identifier for the patch, unique.                  |
 | **embed_coords**   | POINT     | Column   | Coordinates of the patch embedding.                |
 | **grid_cell_id**   | INT       | Foreign  | Identifier for the grid cell containing the point. |
 | **event_ts**       | TIMESTAMP | Column   | Time when the point was appended.                  |

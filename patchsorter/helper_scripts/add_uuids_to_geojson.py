@@ -1,18 +1,18 @@
 import argparse
-import secrets
+import uuid
 
 from osgeo import ogr
 
 
 def add_uids(geojson_path: str, output_path: str | None = None) -> None:
-    """Inject a ``uid`` field (63-bit random integer) into every feature of a GeoJSON file.
+    """Inject a patchsorter-compatible ``uid`` field (UUID v4 string) into every feature of a GeoJSON file.
 
     By default, modifies the input file in-place using GDAL/OGR. If
     ``output_path`` is provided, the input datasource is copied to that path via
     the GeoJSON driver and the copy is modified. If the ``uid`` field already
-    exists its values are overwritten. The generated integers fit in a
-    PostgreSQL ``BIGINT`` column and are practically collision-free at any
-    realistic dataset size.
+    exists ITS VALUES ARE OVERWRITTEN. Each UID is a randomly generated UUID v4
+    string (e.g. ``"550e8400-e29b-41d4-a716-446655440000"``), stored as a
+    ``VARCHAR(36)`` / PostgreSQL ``UUID`` column.
 
     Args:
         geojson_path: Path to the input GeoJSON file.
@@ -49,7 +49,9 @@ def add_uids(geojson_path: str, output_path: str | None = None) -> None:
     }
 
     if "uid" not in existing_fields:
-        layer.CreateField(ogr.FieldDefn("uid", ogr.OFTInteger64))
+        uid_field = ogr.FieldDefn("uid", ogr.OFTString)
+        uid_field.SetWidth(36)
+        layer.CreateField(uid_field)
         print("Created 'uid' field.")
     else:
         print("'uid' field already exists — values will be overwritten.")
@@ -57,7 +59,7 @@ def add_uids(geojson_path: str, output_path: str | None = None) -> None:
     layer.ResetReading()
     count = 0
     for feature in layer:
-        feature.SetField("uid", secrets.randbelow(2**63))
+        feature.SetField("uid", str(uuid.uuid4()))
         layer.SetFeature(feature)
         count += 1
 
@@ -69,7 +71,7 @@ def add_uids(geojson_path: str, output_path: str | None = None) -> None:
 def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="add_uids_to_geojson",
-        description="Inject a unique integer 'uid' field into every feature of a GeoJSON file.",
+        description="Inject a unique UUID v4 'uid' field into every feature of a GeoJSON file.",
         add_help=True,
     )
     parser.add_argument(

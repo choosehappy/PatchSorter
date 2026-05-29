@@ -1,6 +1,6 @@
 from sqlalchemy import (
     BigInteger, Boolean, CheckConstraint, Column, Date, Float, ForeignKey,
-    Index, Integer, LargeBinary, SmallInteger, Text, UniqueConstraint, event
+    Index, Integer, LargeBinary, SmallInteger, Text, UniqueConstraint, Uuid, event
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.sql import func, text
@@ -131,7 +131,7 @@ def patch_model(project_id: int) -> type:
             {
                 "__tablename__": patch_table(project_id),
                 "patch_id":       Column(BigInteger, primary_key=True, autoincrement=True),
-                "patch_uid":      Column(Integer),
+                "patch_uid":      Column(Uuid, unique=True),
                 "label_class_id": Column(SmallInteger, ForeignKey("label_class.label_class_id"), nullable=False),
                 "image_id":       Column(Integer, ForeignKey("image.image_id"), nullable=False),
                 "downsample_factor": Column(Float, nullable=False),
