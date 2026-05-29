@@ -1,6 +1,6 @@
 from patchsorter.db.utils import SessionManager
 from patchsorter.db.head_client.project import ProjectStore
-from patchsorter.db.head_client.models import Base
+from patchsorter.db.head_client.models import Base, all_project_models
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 from patchsorter.db.head_client.settings import SettingsStore
@@ -24,7 +24,25 @@ class DatabaseManager:
                 cur.execute("SELECT * FROM citus_get_active_worker_nodes();")
                 return cur.fetchall()
 
+    def register_project_models(self) -> None:
+        """Query all existing project IDs and register their per-project ORM
+        models with ``Base.metadata``.
+
+        Call this once at application startup so that operations such as
+        ``drop_all_tables`` and ``setup_schema`` are aware of all project-
+        scoped tables (``project{N}_patch``, ``project{N}_pred_patch_*``,
+        ``project{N}_confusion_matrix_l*``) and can resolve FK dependencies
+        correctly without manual CASCADE workarounds.
+        """
+        with self.sm.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT project_id FROM project")
+                project_ids = [row[0] for row in cur.fetchall()]
+        for project_id in project_ids:
+            all_project_models(project_id)
+
     def drop_all_tables(self) -> None:
+        self.register_project_models()
         Base.metadata.drop_all(self.sm.engine)
 
     def setup_schema(self) -> None:

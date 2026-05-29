@@ -42,7 +42,7 @@ def main():
     scripts_subparsers = scripts_parser.add_subparsers(dest="script", required=True)
 
     scripts_subparsers.add_parser(
-        "add_uids_to_geojson",
+        "add_uuids_to_geojson",
         parents=[_add_uids_script.get_parser()],
         add_help=False,
         help="Inject a unique integer 'uid' field into every feature of a GeoJSON file.",

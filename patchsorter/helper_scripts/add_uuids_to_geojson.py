@@ -70,7 +70,7 @@ def add_uids(geojson_path: str, output_path: str | None = None) -> None:
 
 def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="add_uids_to_geojson",
+        prog="add_uuids_to_geojson",
         description="Inject a unique UUID v4 'uid' field into every feature of a GeoJSON file.",
         add_help=True,
     )
