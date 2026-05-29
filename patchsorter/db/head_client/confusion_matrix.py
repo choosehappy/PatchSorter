@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
+from deprecated import deprecated
 import numpy as np
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -248,6 +249,7 @@ class ConfusionMatrixStore:
         confusion = mat.sum(axis=(2, 3))
         return confusion, gt_labels, pred_labels
 
+    @deprecated()
     def get_max_counts(
         self,
         bbox: Tuple[int, int, int, int],
