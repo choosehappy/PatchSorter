@@ -37,10 +37,10 @@ class DatabaseManager:
         correctly without manual CASCADE workarounds.
         """
         with self.sm.get_session() as session:
-            projects = session.query(Project).all()
+            project_ids = session.execute(select(Project.project_id)).scalars().all()
 
-        for project in projects:
-            all_project_models(int(project.project_id))
+        for project_id in project_ids:
+            all_project_models(int(project_id))
 
     def drop_all_tables(self) -> None:
         # check if the project table exists:
@@ -413,5 +413,6 @@ class DatabaseManager:
 
         with self.sm.get_connection() as conn:
             self.create_project_tables(project_id, conn)
+        
+        with self.sm.get_connection() as conn:
             self.setup_triggers(project_id, conn)
-            conn.commit()
