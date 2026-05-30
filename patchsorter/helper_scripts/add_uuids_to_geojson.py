@@ -4,7 +4,7 @@ import uuid
 from osgeo import ogr
 
 
-def add_uids(geojson_path: str, output_path: str | None = None, overwrite_if_exists: bool = False) -> None:
+def add_uids(geojson_path: str, output_path: str | None = None, overwrite_uids: bool = False) -> None:
     """Inject a patchsorter-compatible ``uid`` field (UUID v4 string) into every feature of a GeoJSON file.
 
     By default, modifies the input file in-place using GDAL/OGR. If
@@ -17,7 +17,7 @@ def add_uids(geojson_path: str, output_path: str | None = None, overwrite_if_exi
     Args:
         geojson_path: Path to the input GeoJSON file.
         output_path: Optional path for writing the result as a new file.
-        overwrite_if_exists: If ``output_path`` is given and a file already exists at that path, overwrite it if True, otherwise raise an error.
+        overwrite_uids: If ``output_path`` is given and a file already exists at that path, overwrite it if True, otherwise raise an error.
     """
     if output_path:
         src_ds = ogr.Open(geojson_path, 0)
@@ -56,8 +56,8 @@ def add_uids(geojson_path: str, output_path: str | None = None, overwrite_if_exi
         print("Created 'uid' field.")
     else:
         print("'uid' field already exists — values will be overwritten.")
-        if not overwrite_if_exists:
-            raise RuntimeError("Aborting to avoid overwriting existing 'uid' values. Set overwrite_if_exists=True to allow this.")
+        if not overwrite_uids:
+            raise RuntimeError("Aborting to avoid overwriting existing 'uid' values. Set overwrite=True to allow this.")
 
     layer.ResetReading()
     count = 0
@@ -102,13 +102,13 @@ def get_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--overwrite-if-exists",
+        "--overwrite-uids",
         action="store_true",
         help=(
-            "If --output is given and a file already exists at that path, overwrite it if set, otherwise raise an error."
+            "If UIDs already exist, overwrite them with new UUID v4 values."
         ),
     )
-    
+
     return parser
 
 
