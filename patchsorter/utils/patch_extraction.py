@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import uuid
 from contextlib import contextmanager
 from typing import Generator
 
@@ -108,7 +109,7 @@ def _makepatch_geojson(
         image_filepath: Path to the whole-slide image file readable by
             ``large_image``.
         geojson_filepath: Path to a GeoJSON file whose features each contain a
-            ``Polygon`` geometry and a ``uid`` property.
+            ``Polygon`` geometry and a ``uid`` property (UUID4 string).
         project_id: ID of the target project.  Used to resolve the
             ``project{N}_patch`` table name.
         image_id: Foreign key to the parent ``image`` row.
@@ -151,7 +152,7 @@ def _makepatch_geojson(
                 raise ValueError(
                     f"GeoJSON feature FID={feature.GetFID()} is missing the required 'uid' property."
                 )
-            uid = int(props["uid"])
+            uid = uuid.UUID(str(props["uid"]))
 
             geom = feature.GetGeometryRef()
             geom_type = geom.GetGeometryType()

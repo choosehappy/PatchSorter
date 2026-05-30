@@ -59,6 +59,7 @@ def add_uids(geojson_path: str, output_path: str | None = None) -> None:
     layer.ResetReading()
     count = 0
     for feature in layer:
+        validate_feature_geom_type(feature)
         feature.SetField("uid", str(uuid.uuid4()))
         layer.SetFeature(feature)
         count += 1
@@ -67,6 +68,15 @@ def add_uids(geojson_path: str, output_path: str | None = None) -> None:
     datasource = None
     print(f"UIDs written to {count} features in {target_path}")
 
+def validate_feature_geom_type(feature: ogr.Feature) -> None:
+    geom = feature.GetGeometryRef()
+    if geom is None:
+        raise ValueError(f"Feature FID={feature.GetFID()} has no geometry.")
+    geom_type = geom.GetGeometryType()
+    if geom_type != ogr.wkbPolygon:
+        raise ValueError(
+            f"Feature FID={feature.GetFID()} has unsupported geometry type: {ogr.GeometryTypeToName(geom_type)}. Only 'Polygon' is accepted."
+        )
 
 def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(

@@ -6,6 +6,7 @@ from pathlib import Path
 import uvicorn
 
 from patchsorter.helper_scripts import add_uuids_to_geojson as _add_uids_script
+from patchsorter.helper_scripts import split_multipolygons as _split_mp_script
 
 
 def run_server():
@@ -47,6 +48,13 @@ def main():
         add_help=False,
         help="Inject a unique integer 'uid' field into every feature of a GeoJSON file.",
     ).set_defaults(func=_add_uids_script.main)
+
+    scripts_subparsers.add_parser(
+        "split_multipolygons",
+        parents=[_split_mp_script.get_parser()],
+        add_help=False,
+        help="Fix invalid geometries and split MultiPolygon features into individual Polygons.",
+    ).set_defaults(func=_split_mp_script.main)
 
     args = parser.parse_args()
     if args.command == "server":
