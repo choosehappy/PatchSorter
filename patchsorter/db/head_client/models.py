@@ -131,7 +131,7 @@ def patch_model(project_id: int) -> type:
             {
                 "__tablename__": patch_table(project_id),
                 "patch_id":       Column(BigInteger, primary_key=True, autoincrement=True),
-                "patch_uid":      Column(Uuid, unique=True),
+                "patch_uid":      Column(Uuid, unique=False, nullable=False),
                 "label_class_id": Column(SmallInteger, nullable=False),
                 "image_id":       Column(Integer, nullable=False),
                 "downsample_factor": Column(Float, nullable=False),
