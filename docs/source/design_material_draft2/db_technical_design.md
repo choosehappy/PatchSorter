@@ -8,7 +8,7 @@
 | Column Name    | Data Type          | Constraints                     | Description                                      |
 |----------------|--------------------|---------------------------------|--------------------------------------------------|
 | patch_id       | BIGINT             | PRIMARY KEY, SHARD KEY          | Unique identifier for the patch.                 |
-| patch_uid      | UUID               | UNIQUE                          | External unique identifier for the patch.        |
+| patch_uid      | UUID               |                                 | External identifier for the patch.               |
 | label_class_id | SMALLINT           | NOT NULL                        | Ground truth label for the patch.                |
 | image_id       | INT                | NOT NULL                        | Identifier for the image containing the patch.   |
 | downsample_factor | FLOAT              | NOT NULL                        | Factor (>1) at which the patch was downsampled from the base magnification of the underlying image. |

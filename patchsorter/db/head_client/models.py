@@ -1,3 +1,4 @@
+from geoalchemy2 import Geometry
 from sqlalchemy import (
     BigInteger, Boolean, CheckConstraint, Column, Date, Float, ForeignKey,
     Index, Integer, LargeBinary, SmallInteger, Text, UniqueConstraint, Uuid, event
@@ -131,11 +132,14 @@ def patch_model(project_id: int) -> type:
             {
                 "__tablename__": patch_table(project_id),
                 "patch_id":       Column(BigInteger, primary_key=True, autoincrement=True),
-                "patch_uid":      Column(Uuid, unique=False, nullable=False),
-                "label_class_id": Column(SmallInteger, nullable=False),
-                "image_id":       Column(Integer, nullable=False),
+                "patch_uid":         Column(Uuid, unique=False, nullable=False),
+                "label_class_id":    Column(SmallInteger, nullable=False),
+                "image_id":          Column(Integer, nullable=False),
                 "downsample_factor": Column(Float, nullable=False),
-                "patch_image":    Column(LargeBinary, nullable=False),
+                "centroid_x":        Column(Float),
+                "centroid_y":        Column(Float),
+                "polygon":           Column(Geometry("POLYGON")),
+                "patch_image":       Column(LargeBinary, nullable=False),
             },
         )
     return _patch_cache[project_id]

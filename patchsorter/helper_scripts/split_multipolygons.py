@@ -17,13 +17,11 @@ def fix_and_split(geojson_path: str, output_path: str) -> None:
        feature per constituent polygon (all non-geometry properties are
        preserved on every child feature).
 
-    By default the result is written back to ``geojson_path`` (in-place). If
-    ``output_path`` is supplied the original file is left untouched and the
-    result is written to the new path.
+    The result is written to ``output_path``; the original file is left untouched.
 
     Args:
         geojson_path: Path to the input GeoJSON file.
-        output_path: Path for writing the result as a new file.
+        output_path: Path for writing the result.
     """
     with open(geojson_path) as f:
         data = json.load(f)
@@ -90,11 +88,9 @@ def get_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "-o", "--output",
+        required=True,
         metavar="OUTPUT_GEOJSON_PATH",
-        help=(
-            "Write result to a new file path. "
-            "If omitted, the input file is modified in-place."
-        ),
+        help="Write result to this file path.",
     )
     return parser
 
