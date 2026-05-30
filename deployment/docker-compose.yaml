@@ -3,7 +3,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.citus-postgis
-    image: citus-postgis:14.0
     container_name: citus_single
     environment:
       POSTGRES_PASSWORD: password
