@@ -7,8 +7,9 @@ from patchsorter.db.constants import (
     CITUS_WORKER_PASSWORD,
 )
 from patchsorter.db.utils import SessionManager
+from patchsorter.db.worker_client.patch import WorkerPatchStore
 
-__all__ = ["get_client"]
+__all__ = ["get_client", "WorkerPatchStore"]
 
 
 def get_client() -> SessionManager:

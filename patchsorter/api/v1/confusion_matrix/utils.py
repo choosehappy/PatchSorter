@@ -7,46 +7,21 @@ from fastapi import HTTPException
 from fastapi.responses import Response
 from PIL import Image
 
-
-# ------------------------------------------------------------------
-# Constants
-# ------------------------------------------------------------------
-
-NUM_CLASSES = 10
-MAX_LEVEL = 12
-WORLD_X_MIN = 0
-WORLD_Y_MIN = 0
-WORLD_X_MAX = 4096
-WORLD_Y_MAX = 4096
-WORLD_SIZE = WORLD_X_MAX - WORLD_X_MIN  # 4096
-OSM_ZOOM_OFFSET = 8  # OSM zoom z → aggregation level (z + 8)
-
-color_names = [
-    "#222222",  # Unlabeled
-    "#e41a1c",  # Class 1
-    "#377eb8",  # Class 2
-    "#ff7f00",  # Class 3
-    "#984ea3",  # Class 4
-    "#4daf4a",  # Class 5
-    "#ffff33",  # Class 6
-    "#a65628",  # Class 7
-    "#f781bf",  # Class 8
-    "#999999",  # Class 9
-]
-colors = np.array([mcolors.to_rgb(c) for c in color_names], dtype=np.float32)
-all_pairs: List[Tuple[int, int]] = [
-    (gt, pred) for gt in range(NUM_CLASSES) for pred in range(NUM_CLASSES)
-]
+from patchsorter.db.head_client.models import LabelClass
 
 
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
 
-def _parse_label_pairs(lp: Optional[List[str]]) -> List[Tuple[int, int]]:
-    """Parse repeated ?lp=gt,pred query params into a list of (gt, pred) tuples."""
+def _parse_label_pairs(lp: Optional[List[str]]) -> Optional[List[Tuple[int, int]]]:
+    """Parse repeated ?lp=gt,pred query params into a list of (gt, pred) tuples.
+
+    Returns ``None`` when *lp* is empty/missing to signal that the caller
+    should supply its own default (e.g. the full cartesian product).
+    """
     if not lp:
-        return all_pairs
+        return None
     pairs = []
     for item in lp:
         parts = item.split(",")
@@ -66,18 +41,19 @@ def _parse_label_pairs(lp: Optional[List[str]]) -> List[Tuple[int, int]]:
 
 
 def _world_to_grid_bbox(
-    x_min: float, y_min: float, x_max: float, y_max: float, level: int
+    x_min: float, y_min: float, x_max: float, y_max: float, level: int,
+    max_level: int, world_size: int,
 ) -> Tuple[int, int, int, int]:
-    """Convert embed-space coordinates [0, 4096] to grid bbox at the given level.
+    """Convert embed-space coordinates [0, world_size] to grid bbox at the given level.
 
     Convention matches point_to_cell: i = x-axis, j = y-axis.
     """
-    grid_scale = 2 ** (MAX_LEVEL - level)
+    grid_scale = 2 ** (max_level - level)
 
     x_min = max(0.0, float(x_min))
     y_min = max(0.0, float(y_min))
-    x_max = min(float(WORLD_SIZE), float(x_max))
-    y_max = min(float(WORLD_SIZE), float(y_max))
+    x_max = min(float(world_size), float(x_max))
+    y_max = min(float(world_size), float(y_max))
 
     i_min = int(min(x_min, x_max) / grid_scale)
     i_max = int(max(x_min, x_max) / grid_scale)
@@ -88,22 +64,23 @@ def _world_to_grid_bbox(
 
 
 def _osm_tile_to_bbox(
-    z: int, x: int, y: int, level: int
+    z: int, x: int, y: int, level: int,
+    max_level: int, world_size: int,
 ) -> Tuple[int, int, int, int, float, float, float, float]:
     """Convert OSM tile (z, x, y) to grid bbox at the given aggregation level.
 
     Returns (i_min, j_min, i_max, j_max, wx0, wy0, wx1, wy1).
-    i = x-axis, j = y-axis.
+    i = x-axis, j = y-axis.  Origin is always (0, 0).
     """
     num_tiles = 2**z
-    scale = WORLD_SIZE / num_tiles
+    scale = world_size / num_tiles
 
-    wx0 = max(WORLD_X_MIN, x * scale)
-    wx1 = min(WORLD_X_MAX, (x + 1) * scale)
-    wy0 = max(WORLD_Y_MIN, y * scale)
-    wy1 = min(WORLD_Y_MAX, (y + 1) * scale)
+    wx0 = max(0.0, x * scale)
+    wx1 = min(float(world_size), (x + 1) * scale)
+    wy0 = max(0.0, y * scale)
+    wy1 = min(float(world_size), (y + 1) * scale)
 
-    grid_scale = 2 ** (MAX_LEVEL - level)
+    grid_scale = 2 ** (max_level - level)
     i_min = int(wx0 / grid_scale)
     i_max = int(wx1 / grid_scale)
     j_min = int(wy0 / grid_scale)
@@ -114,7 +91,7 @@ def _osm_tile_to_bbox(
 
 def _make_dist_image(
     region: np.ndarray,
-    colors: np.ndarray,
+    label_classes: List[LabelClass],
     class_indices: np.ndarray,
     min_brightness: float = 0.15,
 ) -> np.ndarray:
@@ -122,7 +99,16 @@ def _make_dist_image(
     n_classes, n_i, n_j = region.shape
     out = np.ones((n_i * sub, n_j * sub, 3), dtype=np.float32)
 
-    local_colors = colors[class_indices]
+    _fallback = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+    _color_lookup = {
+        lc.label_class_id: np.array(mcolors.to_rgb(lc.color_code), dtype=np.float32)
+        for lc in label_classes
+        if lc.color_code
+    }
+    local_colors = np.array(
+        [_color_lookup.get(int(idx), _fallback) for idx in class_indices],
+        dtype=np.float32,
+    )
 
     ranked = np.argsort(-region.astype(np.float32), axis=0)
 

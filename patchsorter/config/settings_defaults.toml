@@ -31,3 +31,37 @@ default  = "4"
 type     = "integer"
 disabled = true
 # agg_hierarchy_depth must be greater than 1
+
+[settings.osm_zoom_offset]
+scope    = "project"
+default  = "8"
+type     = "integer"
+disabled = true
+# coarsest aggregation level; maps OSM tile zoom z=0 to grid level 8
+
+[settings.max_level]
+scope    = "project"
+default  = "12"
+type     = "integer"
+disabled = true
+# finest aggregation level; equals osm_zoom_offset + agg_hierarchy_depth
+
+[settings.dl_num_workers]
+scope   = "project"
+default = "8"
+type    = "integer"
+
+[settings.dl_patches_per_batch]
+scope   = "project"
+default = "10000"
+type    = "integer"
+
+# ---------------------------------------------------------------------------
+# Application-scoped settings
+# ---------------------------------------------------------------------------
+
+[settings.log_level]
+scope          = "application"
+default        = "INFO"
+type           = "enum"
+allowed_values = ["DEBUG", "INFO", "WARNING", "ERROR"]

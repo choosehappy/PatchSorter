@@ -4,13 +4,20 @@ import tomllib
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import text
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from patchsorter.db.head_client.models import Setting
 from patchsorter.config.constants import SettingType
 
 _SETTINGS_DEFAULTS_PATH = Path(__file__).parent.parent.parent / "config" / "settings_defaults.toml"
+
+
+def _scope_clause(project_id: Optional[int]):
+    """Return a WHERE clause fragment that matches the given project scope."""
+    if project_id is None:
+        return Setting.project_id.is_(None)
+    return Setting.project_id == project_id
 
 
 class SettingsStore:
@@ -29,75 +36,57 @@ class SettingsStore:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def upsert(
+    def update(
         self,
         setting_key: str,
         setting_value: str,
-        default_value: str,
-        setting_type: SettingType,
         project_id: Optional[int] = None,
-        allowed_values: Optional[str] = None,
-        disabled: bool = False,
-    ) -> Dict[str, Any]:
-        """Insert or update a setting and return the resulting row.
+    ) -> Setting:
+        """Update the value of an existing setting and return the ORM object.
 
-        If a row with the same (*setting_key*, *project_id*) combination
-        already exists and is not disabled, its ``setting_value`` is updated
-        in-place.  If the existing row has ``disabled = TRUE`` the value is
-        not changed.
+        Assumes the setting row already exists (seeded via
+        :meth:`seed_app_settings` or :meth:`seed_project_settings`).
+        Raises if the row is not found.  Does not modify rows whose
+        ``disabled`` flag is ``True``.
+
+        The new *setting_value* is validated against the schema defined in
+        ``settings_defaults.toml`` before being written.
 
         Args:
             setting_key: The key that identifies the setting.
-            setting_value: The new value for the setting.
-            default_value: The default value used when the setting is reset.
-            setting_type: One of :attr:`~patchsorter.config.constants.SettingType`.
-            project_id: The project this setting belongs to, or ``None`` for
-                an application-level setting.
-            allowed_values: Comma-separated (or JSON) list of valid values;
-                required when *setting_type* is ``'enum'``.
-            disabled: Pass ``True`` to mark the setting as read-only after the
-                initial insert.
+            setting_value: The new value to store.
+            project_id: The project scope, or ``None`` for an application-level
+                setting.
 
         Returns:
-            A dict with all columns of the upserted row.
+            The updated :class:`~patchsorter.db.head_client.models.Setting` instance.
+
+        Raises:
+            KeyError: If *setting_key* is not present in the defaults schema or
+                does not exist in the database for the given scope.
+            ValueError: If *setting_value* fails type or enum validation.
         """
-        row = self._session.execute(
-            text(
-                """
-                INSERT INTO settings
-                    (project_id, setting_key, setting_value, default_value,
-                     setting_type, allowed_values, disabled)
-                VALUES
-                    (:project_id, :key, :value, :default_value,
-                     :setting_type, :allowed_values, :disabled)
-                ON CONFLICT ON CONSTRAINT uq_project_setting
-                DO UPDATE SET setting_value = EXCLUDED.setting_value
-                    WHERE NOT settings.disabled
-                RETURNING *
-                """
-            ),
-            {
-                "project_id": project_id,
-                "key": setting_key,
-                "value": setting_value,
-                "default_value": default_value,
-                "setting_type": setting_type,
-                "allowed_values": allowed_values,
-                "disabled": disabled,
-            },
-        ).mappings().one_or_none()
-        if row is None:
-            # The ON CONFLICT DO UPDATE WHERE NOT disabled clause was false —
-            # the existing row is disabled and its value was intentionally
-            # preserved.  Return the current row unchanged.
-            return self.get(setting_key, project_id=project_id)
-        return dict(row)
+        obj = self._session.scalar(
+            select(Setting)
+            .where(Setting.setting_key == setting_key)
+            .where(_scope_clause(project_id))
+        )
+        if obj is None:
+            raise KeyError(
+                f"Setting {setting_key!r} not found for project_id={project_id!r}. "
+                "Seed project settings before calling update()."
+            )
+        schema = self._load_settings_schema()
+        self._validate_setting(setting_key, setting_value, schema)
+        if not obj.disabled:
+            obj.setting_value = setting_value
+        return obj
 
     def get(
         self,
         setting_key: str,
         project_id: Optional[int] = None,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[Setting]:
         """Fetch a single setting by key and optional project scope.
 
         Args:
@@ -106,19 +95,14 @@ class SettingsStore:
                 setting.
 
         Returns:
-            A dict with all setting columns, or ``None`` if not found.
+            The :class:`~patchsorter.db.head_client.models.Setting` instance,
+            or ``None`` if not found.
         """
-        row = self._session.execute(
-            text(
-                """
-                SELECT * FROM settings
-                WHERE setting_key = :key
-                  AND (project_id = :project_id OR (project_id IS NULL AND :project_id IS NULL))
-                """
-            ),
-            {"key": setting_key, "project_id": project_id},
-        ).mappings().one_or_none()
-        return dict(row) if row else None
+        return self._session.scalar(
+            select(Setting)
+            .where(Setting.setting_key == setting_key)
+            .where(_scope_clause(project_id))
+        )
 
     def list_by_project(self, project_id: Optional[int] = None) -> List[Setting]:
         """Return all settings for a given project scope.
@@ -131,15 +115,12 @@ class SettingsStore:
             A list of Setting ORM objects ordered by ``setting_id``.  Empty
             list if no settings exist for the given scope.
         """
-        return (
-            self._session.query(Setting)
-            .filter(
-                Setting.project_id == project_id
-                if project_id is not None
-                else Setting.project_id.is_(None)
-            )
-            .order_by(Setting.setting_id)
-            .all()
+        return list(
+            self._session.scalars(
+                select(Setting)
+                .where(_scope_clause(project_id))
+                .order_by(Setting.setting_id)
+            ).all()
         )
 
     # ------------------------------------------------------------------
@@ -147,37 +128,41 @@ class SettingsStore:
     # ------------------------------------------------------------------
 
     def seed_app_settings(self) -> None:
-        """Upsert all application-scoped defaults from ``settings_defaults.toml``.
+        """Insert all application-scoped defaults from ``settings_defaults.toml``.
 
-        Reads every entry with ``scope = "application"`` and calls
-        :meth:`upsert` for each one.  Safe to call multiple times — existing
-        non-disabled rows have their value refreshed; disabled rows are left
-        untouched.
+        Inserts a row for each entry with ``scope = "application"`` if it does
+        not already exist.  Existing rows are left untouched.
         """
         schema = SettingsStore._load_settings_schema()
         for key, meta in schema.items():
             if meta.get("scope") != "application":
                 continue
+            existing = self._session.scalar(
+                select(Setting)
+                .where(Setting.setting_key == key)
+                .where(Setting.project_id.is_(None))
+            )
+            if existing is not None:
+                continue
             allowed: Optional[str] = None
             if meta.get("type") == SettingType.ENUM:
                 allowed = ",".join(meta["allowed_values"])
-            self.upsert(
+            self._session.add(Setting(
+                project_id=None,
                 setting_key=key,
                 setting_value=meta["default"],
                 default_value=meta["default"],
                 setting_type=SettingType(meta["type"]),
-                project_id=None,
                 allowed_values=allowed,
                 disabled=meta.get("disabled", False),
-            )
+            ))
 
     def seed_project_settings(self, project_id: int) -> None:
-        """Upsert all project-scoped defaults from ``settings_defaults.toml``.
+        """Insert all project-scoped defaults from ``settings_defaults.toml``.
 
-        Reads every entry with ``scope = "project"`` and calls :meth:`upsert`
-        for each one using the given *project_id*.  Safe to call multiple
-        times — existing non-disabled rows have their value refreshed; disabled
-        rows are left untouched.
+        Inserts a row for each entry with ``scope = "project"`` if it does not
+        already exist for the given *project_id*.  Existing rows are left
+        untouched.
 
         Args:
             project_id: The integer ID of the project to seed settings for.
@@ -186,18 +171,25 @@ class SettingsStore:
         for key, meta in schema.items():
             if meta.get("scope") != "project":
                 continue
+            existing = self._session.scalar(
+                select(Setting)
+                .where(Setting.setting_key == key)
+                .where(Setting.project_id == project_id)
+            )
+            if existing is not None:
+                continue
             allowed: Optional[str] = None
             if meta.get("type") == SettingType.ENUM:
                 allowed = ",".join(meta["allowed_values"])
-            self.upsert(
+            self._session.add(Setting(
+                project_id=project_id,
                 setting_key=key,
                 setting_value=meta["default"],
                 default_value=meta["default"],
                 setting_type=SettingType(meta["type"]),
-                project_id=project_id,
                 allowed_values=allowed,
                 disabled=meta.get("disabled", False),
-            )
+            ))
 
     @staticmethod
     def _load_settings_schema() -> Dict[str, Any]:
@@ -260,7 +252,7 @@ class SettingsStore:
         self,
         setting_key: str,
         project_id: Optional[int] = None,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[Setting]:
         """Reset a setting to its stored default value.
 
         The default value is read from the ``default_value`` column of the
@@ -276,41 +268,24 @@ class SettingsStore:
                 setting.
 
         Returns:
-            A dict with all columns of the (possibly updated) row, or ``None``
-            if no matching row exists.
-
-        Raises:
-            KeyError: If *setting_key* is not present in the defaults schema.
-            ValueError: If the stored default value fails type/enum validation.
+            The (possibly updated) :class:`~patchsorter.db.head_client.models.Setting`
+            instance, or ``None`` if no matching row exists.
         """
-        row = self.get(setting_key, project_id=project_id)
-        if row is None:
+        obj = self._session.scalar(
+            select(Setting)
+            .where(Setting.setting_key == setting_key)
+            .where(_scope_clause(project_id))
+        )
+        if obj is None:
             return None
-
-        schema = self._load_settings_schema()
-        self._validate_setting(setting_key, row["default_value"], schema)
-
-        updated = self._session.execute(
-            text(
-                """
-                UPDATE settings
-                SET setting_value = default_value
-                WHERE setting_key = :key
-                  AND (project_id = :project_id OR (project_id IS NULL AND :project_id IS NULL))
-                  AND NOT disabled
-                RETURNING *
-                """
-            ),
-            {"key": setting_key, "project_id": project_id},
-        ).mappings().one_or_none()
-
-        # If disabled, return the row as-is (no update was made)
-        return dict(updated) if updated is not None else row
+        if not obj.disabled:
+            obj.setting_value = obj.default_value
+        return obj
 
     def reset_all(
         self,
         project_id: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[Setting]:
         """Reset all settings for the given scope to their default values.
 
         Unlike :meth:`reset`, this method resets **all** settings including
@@ -323,32 +298,13 @@ class SettingsStore:
                 settings.
 
         Returns:
-            A list of dicts (one per row) reflecting the state after the
-            reset, ordered by ``setting_id``.  Empty list if no settings
-            exist for the given scope.
-
-        Raises:
-            KeyError: If any setting key is not present in the defaults schema.
-            ValueError: If any stored default value fails type/enum validation.
+            A list of :class:`~patchsorter.db.head_client.models.Setting` instances
+            reflecting the state after the reset, ordered by ``setting_id``.
+            Empty list if no settings exist for the given scope.
         """
         rows = self.list_by_project(project_id=project_id)
         if not rows:
             return []
-
-        schema = self._load_settings_schema()
-        for row in rows:
-            self._validate_setting(row["setting_key"], row["default_value"], schema)
-
-        updated = self._session.execute(
-            text(
-                """
-                UPDATE settings
-                SET setting_value = default_value
-                WHERE (project_id = :project_id OR (project_id IS NULL AND :project_id IS NULL))
-                RETURNING *
-                """
-            ),
-            {"project_id": project_id},
-        ).mappings().all()
-
-        return [dict(r) for r in updated]
+        for obj in rows:
+            obj.setting_value = obj.default_value
+        return rows
