@@ -45,6 +45,7 @@ the main application:
 """
 
 import os
+import uuid
 from typing import Any, Dict, Generator
 
 import psycopg
@@ -147,7 +148,14 @@ def _project1_tables(test_db: SessionManager) -> None:
     distribution statements run on an autocommit connection obtained from the
     engine.
     """
-    ProjectStore.create_project_tables(1, test_db.engine)
+    dm = DatabaseManager(test_db)
+    url = test_db.engine.url
+    dsn = (
+        f"host={url.host} port={url.port} dbname={url.database} "
+        f"user={url.username} password={url.password}"
+    )
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        dm.create_project_tables(1, conn)
 
 
 # ---------------------------------------------------------------------------
@@ -222,11 +230,11 @@ def example_project(
         deepzoom_tilesize=256,
     )
 
-    # Five fake patches — patch_uid 0..4, all labeled as "Tumor"
+    # Five fake patches — each with a unique UUID, all labeled as "Tumor"
     PatchStore(1, db_session).bulk_insert(
         [
-            (i, lc_tumor["label_class_id"], image["image_id"], 2.0, None, None, None, bytes(16))
-            for i in range(5)
+            (uuid.uuid4(), lc_tumor["label_class_id"], image["image_id"], 2.0, None, None, None, bytes(16))
+            for _ in range(5)
         ]
     )
 

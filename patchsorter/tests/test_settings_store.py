@@ -165,7 +165,7 @@ def test_list_by_project_returns_all_in_scope(db_session):
     _upsert_string(store, "k2")
 
     rows = store.list_by_project(project_id=None)
-    keys = {r["setting_key"] for r in rows}
+    keys = {r.setting_key for r in rows}
     assert {"k1", "k2"}.issubset(keys)
 
 
@@ -176,7 +176,7 @@ def test_list_by_project_ordered_by_setting_id(db_session):
     _upsert_string(store, "b_key")
 
     rows = store.list_by_project(project_id=None)
-    ids = [r["setting_id"] for r in rows]
+    ids = [r.setting_id for r in rows]
     assert ids == sorted(ids)
 
 
@@ -190,8 +190,8 @@ def test_list_by_project_does_not_return_other_project(db_session):
     _upsert_string(store, "app_key", project_id=None)
 
     rows = store.list_by_project(project_id=project_id)
-    assert all(r["project_id"] == project_id for r in rows)
-    assert not any(r["setting_key"] == "app_key" for r in rows)
+    assert all(r.project_id == project_id for r in rows)
+    assert not any(r.setting_key == "app_key" for r in rows)
 
 
 # ---------------------------------------------------------------------------
@@ -213,25 +213,23 @@ def test_reset_restores_default_value(db_session):
     pid = project["project_id"]
     store = SettingsStore(db_session)
     store.upsert(
-        setting_key="theme",
-        setting_value="light",
-        default_value="light",
-        setting_type=SettingType.ENUM,
-        allowed_values="light,dark,system",
+        setting_key="world_size",
+        setting_value="4096",
+        default_value="4096",
+        setting_type=SettingType.INTEGER,
         project_id=pid,
     )
     store.upsert(
-        setting_key="theme",
-        setting_value="dark",
-        default_value="light",
-        setting_type=SettingType.ENUM,
-        allowed_values="light,dark,system",
+        setting_key="world_size",
+        setting_value="8192",
+        default_value="4096",
+        setting_type=SettingType.INTEGER,
         project_id=pid,
     )
 
-    row = store.reset("theme", project_id=pid)
+    row = store.reset("world_size", project_id=pid)
     assert row is not None
-    assert row["setting_value"] == "light"
+    assert row["setting_value"] == "4096"
 
 
 def test_reset_returns_unchanged_row_when_disabled(db_session):
@@ -267,11 +265,10 @@ def test_reset_all_resets_all_settings_in_scope(db_session):
     """
     store = SettingsStore(db_session)
     store.upsert(
-        setting_key="theme",
-        setting_value="dark",
-        default_value="light",
-        setting_type=SettingType.ENUM,
-        allowed_values="light,dark,system",
+        setting_key="agg_hierarchy_depth",
+        setting_value="8",
+        default_value="4",
+        setting_type=SettingType.INTEGER,
     )
     store.upsert(
         setting_key="world_size",
@@ -282,7 +279,7 @@ def test_reset_all_resets_all_settings_in_scope(db_session):
 
     rows = store.reset_all(project_id=None)
     values = {r["setting_key"]: r["setting_value"] for r in rows}
-    assert values["theme"] == "light"
+    assert values["agg_hierarchy_depth"] == "4"
     assert values["world_size"] == "4096"
 
 
@@ -303,21 +300,26 @@ def test_reset_all_includes_disabled_settings(db_session):
 
 
 def test_reset_all_only_affects_given_scope(db_session):
-    """reset_all() for a project scope does not touch app-level settings.
+    """reset_all() for a project scope does not touch settings in a different scope.
 
-    Uses schema-known keys (theme, world_size) so reset_all's validation passes.
+    Uses schema-known keys (world_size, agg_hierarchy_depth) so reset_all's
+    validation passes.
     """
     project = ProjectStore(db_session).create("Scope Test")
     project_id = project["project_id"]
     store = SettingsStore(db_session)
 
-    store.upsert("theme", "dark", "light", SettingType.ENUM, project_id=None, allowed_values="light,dark,system")
-    store.upsert("world_size", "8192", "4096", SettingType.INTEGER, project_id=project_id)
+    # Insert the same key at app scope (project_id=None) with a changed value
+    store.upsert("world_size", "8192", "4096", SettingType.INTEGER, project_id=None)
+    # Insert a different key at project scope
+    store.upsert("agg_hierarchy_depth", "8", "4", SettingType.INTEGER, project_id=project_id)
 
+    # Reset only the project scope
     store.reset_all(project_id=project_id)
 
-    app_row = store.get("theme", project_id=None)
-    assert app_row["setting_value"] == "dark"
+    # App-level world_size should still be unchanged
+    app_row = store.get("world_size", project_id=None)
+    assert app_row["setting_value"] == "8192"
 
 
 # ---------------------------------------------------------------------------
@@ -392,16 +394,14 @@ def test_load_settings_schema_returns_expected_keys():
     """_load_settings_schema() returns a dict containing the canonical setting keys."""
     schema = SettingsStore._load_settings_schema()
     assert isinstance(schema, dict)
-    assert "theme" in schema
     assert "world_size" in schema
     assert "agg_hierarchy_depth" in schema
 
 
-def test_load_settings_schema_theme_entry():
-    """The 'theme' entry from the TOML file has the expected structure."""
+def test_load_settings_schema_world_size_entry():
+    """The 'world_size' entry from the TOML file has the expected structure."""
     schema = SettingsStore._load_settings_schema()
-    theme = schema["theme"]
-    assert theme["type"] == "enum"
-    assert theme["default"] == "light"
-    assert "light" in theme["allowed_values"]
-    assert "dark" in theme["allowed_values"]
+    entry = schema["world_size"]
+    assert entry["type"] == "integer"
+    assert entry["default"] == "4096"
+    assert entry["scope"] == "project"

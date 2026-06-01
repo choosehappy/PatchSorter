@@ -1,5 +1,7 @@
 """Unit tests for PatchStore — requires the ``example_project`` fixture."""
 
+import uuid
+
 from patchsorter.db.head_client import PatchStore
 
 
@@ -37,7 +39,7 @@ def test_insert_single_patch(example_project, db_session):
 
     store = PatchStore(project_id, db_session)
     new_patch_id = store.insert(
-        patch_uid=99,
+        patch_uid=uuid.uuid4(),
         label_class_id=lc_id,
         image_id=image_id,
         downsample_factor=2.0,

@@ -28,17 +28,17 @@ _GEOJSON_TEMPLATE = {
     "features": [
         {
             "type": "Feature",
-            "geometry": {"type": "Point", "coordinates": [0.0, 0.0]},
+            "geometry": {"type": "Polygon", "coordinates": [[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [0.0, 0.0]]]},
             "properties": {"name": "a"},
         },
         {
             "type": "Feature",
-            "geometry": {"type": "Point", "coordinates": [1.0, 1.0]},
+            "geometry": {"type": "Polygon", "coordinates": [[[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 2.0], [1.0, 1.0]]]},
             "properties": {"name": "b"},
         },
         {
             "type": "Feature",
-            "geometry": {"type": "Point", "coordinates": [2.0, 2.0]},
+            "geometry": {"type": "Polygon", "coordinates": [[[2.0, 2.0], [3.0, 2.0], [3.0, 3.0], [2.0, 3.0], [2.0, 2.0]]]},
             "properties": {"name": "c"},
         },
     ],
@@ -115,7 +115,7 @@ def test_inplace_overwrites_existing_uid_field(tmp_path):
     add_uids(str(f))
     first_uids = [feat["uid"] for feat in _read_features(str(f))]
 
-    add_uids(str(f))
+    add_uids(str(f), overwrite_uids=True)
     second_uids = [feat["uid"] for feat in _read_features(str(f))]
 
     # uid field must still be present

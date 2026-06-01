@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from patchsorter.db.head_client.models import Setting
 from patchsorter.config.constants import SettingType
 
 _SETTINGS_DEFAULTS_PATH = Path(__file__).parent.parent.parent / "config" / "settings_defaults.toml"
@@ -119,7 +120,7 @@ class SettingsStore:
         ).mappings().one_or_none()
         return dict(row) if row else None
 
-    def list_by_project(self, project_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    def list_by_project(self, project_id: Optional[int] = None) -> List[Setting]:
         """Return all settings for a given project scope.
 
         Args:
@@ -127,20 +128,19 @@ class SettingsStore:
                 to retrieve application-level settings.
 
         Returns:
-            A list of dicts ordered by ``setting_id``.  Empty list if no
-            settings exist for the given scope.
+            A list of Setting ORM objects ordered by ``setting_id``.  Empty
+            list if no settings exist for the given scope.
         """
-        rows = self._session.execute(
-            text(
-                """
-                SELECT * FROM settings
-                WHERE (project_id = :project_id OR (project_id IS NULL AND :project_id IS NULL))
-                ORDER BY setting_id
-                """
-            ),
-            {"project_id": project_id},
-        ).mappings().all()
-        return [dict(r) for r in rows]
+        return (
+            self._session.query(Setting)
+            .filter(
+                Setting.project_id == project_id
+                if project_id is not None
+                else Setting.project_id.is_(None)
+            )
+            .order_by(Setting.setting_id)
+            .all()
+        )
 
     # ------------------------------------------------------------------
     # Private helpers

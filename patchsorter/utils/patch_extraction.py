@@ -10,6 +10,7 @@ from osgeo import ogr
 from sqlalchemy.orm import Session
 
 from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.image import ImageStore
 
 
 @contextmanager
@@ -133,9 +134,8 @@ def _makepatch_geojson(
         ValueError: If a feature is missing the ``uid`` property, or contains
             a ``Point``, ``MultiPolygon``, or other unsupported geometry type.
     """
+    base_mag = ImageStore(session).get(image_id)["base_mag"]
     ts = large_image.open(image_filepath)
-    metadata = ts.getMetadata()
-    base_mag: float = metadata["magnification"]
     scale = 1.0 / downsample_factor
     magnification = base_mag / downsample_factor
 
@@ -161,16 +161,6 @@ def _makepatch_geojson(
                 centroid = geom.Centroid()
                 cx, cy = centroid.GetX(), centroid.GetY()
                 polygon_wkt: str | None = geom.ExportToWkt()
-            elif geom_type == ogr.wkbPoint:
-                raise ValueError(
-                    f"GeoJSON feature FID={feature.GetFID()} has Point geometry. "
-                    "Only Polygon geometry is supported."
-                )
-            elif geom_type == ogr.wkbMultiPolygon:
-                raise ValueError(
-                    f"GeoJSON feature FID={feature.GetFID()} has MultiPolygon geometry. "
-                    "Only Polygon geometry is supported."
-                )
             else:
                 raise ValueError(
                     f"GeoJSON feature FID={feature.GetFID()} has unsupported geometry type: "

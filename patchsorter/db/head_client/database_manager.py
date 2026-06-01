@@ -54,6 +54,13 @@ class DatabaseManager:
         Base.metadata.drop_all(self.sm.engine)
 
     def setup_schema(self) -> None:
+        """Create all tables and extensions required by the application.
+
+
+        """
+
+
+
         Base.metadata.create_all(self.sm.engine)
 
         # Seed the reserved "unassigned" label class (label_class_id = 1)
@@ -77,6 +84,12 @@ class DatabaseManager:
                         cur.execute(stmt)
                     except Exception as e:
                         print(f"Distribution command failed (may already be distributed): {e}")
+                
+                try:
+                    # Citus propagates extensions to workers automatically.
+                    cur.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
+                except Exception as e:
+                    print(f"PostGIS extension creation failed: {e}")
             conn.commit()
 
         with self.sm.get_session() as session:

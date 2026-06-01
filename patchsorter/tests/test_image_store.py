@@ -59,7 +59,7 @@ def test_list_by_project_returns_only_own_images(db_session):
 
     images = i_store.list_by_project(p1["project_id"])
     assert len(images) == 1
-    assert images[0]["image_id"] == img_p1["image_id"]
+    assert images[0].image_id == img_p1["image_id"]
 
 
 def test_list_by_project_ordered_by_image_id(db_session):
@@ -72,7 +72,7 @@ def test_list_by_project_ordered_by_image_id(db_session):
     img_c = _make_image(i_store, project["project_id"], name="c.svs")
 
     images = i_store.list_by_project(project["project_id"])
-    ids = [img["image_id"] for img in images]
+    ids = [img.image_id for img in images]
     assert ids == sorted(ids)
     assert len(ids) == 3
     assert ids[0] == img_a["image_id"]

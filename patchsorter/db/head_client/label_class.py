@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from patchsorter.db.head_client.models import LabelClass
 from patchsorter.db.head_client.table_names import (
     patch_table, pred_patch_table, confusion_matrix_table,
 )
@@ -58,22 +59,21 @@ class LabelClassStore:
         ).mappings().one()
         return dict(row)
 
-    def list_by_project(self, project_id: int) -> List[Dict[str, Any]]:
+    def list_by_project(self, project_id: int) -> List[LabelClass]:
         """Return all label classes for a project ordered by ``label_class_id``.
 
         Args:
             project_id: The integer ID of the project.
 
         Returns:
-            A list of dicts, one per label class.
+            A list of LabelClass ORM objects.
         """
-        rows = self._session.execute(
-            text(
-                "SELECT * FROM label_class WHERE project_id = :pid ORDER BY label_class_id"
-            ),
-            {"pid": project_id},
-        ).mappings().all()
-        return [dict(r) for r in rows]
+        return (
+            self._session.query(LabelClass)
+            .filter(LabelClass.project_id == project_id)
+            .order_by(LabelClass.label_class_id)
+            .all()
+        )
 
     def delete(self, label_class_id: int, project_id: int) -> None:
         """Delete a label class following the Annotation Class Deletion Protocol.

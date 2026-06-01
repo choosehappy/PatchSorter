@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from patchsorter.db.head_client.models import Image
 from patchsorter.db.head_client.table_names import patch_table, pred_patch_table
 
 from patchsorter.config.constants import PredPatchSuffix
@@ -86,23 +87,34 @@ class ImageStore:
         ).mappings().one()
         return dict(row)
 
-    def list_by_project(self, project_id: int) -> List[Dict[str, Any]]:
+    def get(self, image_id: int) -> Image:
+        """Return a single image row as an Image ORM object.
+
+        Args:
+            image_id: The integer ID of the image.
+
+        Returns:
+            The Image ORM instance for the given image_id.
+        """
+        return self._session.query(Image).filter(Image.image_id == image_id).one()
+
+
+    def list_by_project(self, project_id: int) -> List[Image]:
         """Return all images belonging to a project ordered by ``image_id``.
 
         Args:
             project_id: The integer ID of the project.
 
         Returns:
-            A list of dicts, one per image.  Empty list if the project has no
+            A list of Image ORM objects.  Empty list if the project has no
             images.
         """
-        rows = self._session.execute(
-            text(
-                "SELECT * FROM image WHERE project_id = :pid ORDER BY image_id"
-            ),
-            {"pid": project_id},
-        ).mappings().all()
-        return [dict(r) for r in rows]
+        return (
+            self._session.query(Image)
+            .filter(Image.project_id == project_id)
+            .order_by(Image.image_id)
+            .all()
+        )
 
     def delete(self, image_id: int, project_id: int) -> None:
         """Delete an image and all associated patches and predictions.
