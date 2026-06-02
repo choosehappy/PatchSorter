@@ -7,7 +7,18 @@ from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.config.constants import PredPatchSuffix
-
+# Clear per-project model caches so they are not in Base.metadata
+# when create_all() runs.  Project tables must only be created by
+# setup_project().
+from patchsorter.db.head_client.models import (
+    _cm_cache,
+    _patch_cache,
+    _pred_patch_last_cache,
+    _pred_patch_latest_cache,
+    confusion_matrix_table,
+    patch_table,
+    pred_patch_table,
+)
 
 from typing import Any, Dict, List
 
@@ -50,16 +61,34 @@ class DatabaseManager:
                 if cur.fetchone() is None:
                     print("No tables found, skipping drop_all_tables.")
                     return
-        self.register_project_models()
+        # Drop base tables via ORM.
         Base.metadata.drop_all(self.sm.engine)
+        # Drop per-project tables (project{N}_*) via raw SQL.
+        with self.sm.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT table_schema, table_name FROM information_schema.tables "
+                    "WHERE table_schema = 'public' AND table_name LIKE 'project%_%%';"
+                )
+                for (schema, tbl) in cur.fetchall():
+                    cur.execute(f"DROP TABLE IF EXISTS {tbl} CASCADE;")
+                    print(f"Dropped {schema}.{tbl}")
 
     def setup_schema(self) -> None:
         """Create all tables and extensions required by the application.
-
-
         """
 
-
+        for key in list(_patch_cache):
+            del Base.metadata.tables[patch_table(key)]
+        _patch_cache.clear()
+        for key in list(_pred_patch_latest_cache):
+            del Base.metadata.tables[pred_patch_table(key, "latest")]
+            del Base.metadata.tables[pred_patch_table(key, "last")]
+        _pred_patch_latest_cache.clear()
+        _pred_patch_last_cache.clear()
+        for (pid, lvl) in list(_cm_cache):
+            del Base.metadata.tables[confusion_matrix_table(pid, lvl)]
+        _cm_cache.clear()
 
         Base.metadata.create_all(self.sm.engine)
 
@@ -78,6 +107,17 @@ class DatabaseManager:
         ]
         with self.sm.get_connection() as conn:
             with conn.cursor() as cur:
+                try:
+                    # Citus propagates extensions to workers automatically.
+                    cur.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
+                except Exception as e:
+                    print(f"PostGIS extension creation failed: {e}")
+
+                try:
+                    cur.execute("CREATE EXTENSION IF NOT EXISTS citus;")
+                except Exception as e:
+                    print(f"Citus extension creation failed: {e}")
+
                 cur.execute(seed_statement)
                 for stmt in distribution_statements:
                     try:
@@ -85,11 +125,7 @@ class DatabaseManager:
                     except Exception as e:
                         print(f"Distribution command failed (may already be distributed): {e}")
                 
-                try:
-                    # Citus propagates extensions to workers automatically.
-                    cur.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
-                except Exception as e:
-                    print(f"PostGIS extension creation failed: {e}")
+
             conn.commit()
 
         with self.sm.get_session() as session:
@@ -156,9 +192,11 @@ class DatabaseManager:
             for model in models:
                 ddl = str(CreateTable(model.__table__, if_not_exists=True).compile(self.sm.engine))
                 cur.execute(ddl)
+                print(f"Ensured existence of table {model.__tablename__} for project {n}.")
             for stmt in distribution:
                 try:
                     cur.execute(stmt)
+                    print(f"Executed distribution command for project {n}: {stmt}")
                 except Exception as exc:
                     print(f"Distribution command failed (may already be distributed): {exc}")
 
@@ -424,8 +462,20 @@ class DatabaseManager:
             project_id: The integer project ID to initialise.
         """
 
+        # Use a single raw connection for both DDL and trigger installation
+        # so the operations are committed or rolled back atomically.  Also
+        # ensure Citus runs these multi-shard function commands sequentially
+        # rather than in parallel — set this at the start of the transaction
+        # so the mode applies before any distributed operations occur.
         with self.sm.get_connection() as conn:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute("SET LOCAL citus.multi_shard_modify_mode TO 'sequential';")
+                except Exception:
+                    # If the setting is unavailable, proceed and let any DB error surface.
+                    pass
+
             self.create_project_tables(project_id, conn)
-        
-        with self.sm.get_connection() as conn:
             self.setup_triggers(project_id, conn)
+            # Commit the transaction so DDL and trigger installation persist.
+            conn.commit()

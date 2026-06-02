@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 import tomllib
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -103,6 +104,39 @@ class SettingsStore:
             .where(Setting.setting_key == setting_key)
             .where(_scope_clause(project_id))
         )
+    
+    def get(
+        self,
+        setting_key: str,
+        project_id: Optional[int] = None,
+        ) -> Optional[T]:
+        """Fetch a single setting by key and optional project scope, returning the value.
+
+        Args:
+            setting_key: The key that identifies the setting.
+            project_id: The project scope, or ``None`` for an application-level
+                setting.
+        Returns:
+            The value of the setting, cast to the appropriate type based on the
+            schema, or ``None`` if not found.
+        """
+        obj = self.get(setting_key, project_id=project_id)
+        if obj is None:
+            return None
+        schema = self._load_settings_schema()
+        entry = schema.get(setting_key)
+        if entry is None:
+            raise KeyError(f"Setting {setting_key!r} not found in schema.")
+        setting_type = SettingType(entry["type"])
+        raw_value = obj.setting_value
+        if setting_type == SettingType.INTEGER:
+            return int(raw_value)  # type: ignore[return-value]
+        elif setting_type == SettingType.BOOLEAN:
+            return raw_value.lower() in ("true", "1")  # type: ignore[return-value]
+        elif setting_type == SettingType.ENUM or setting_type == SettingType.STRING:
+            return raw_value  # type: ignore[return-value]
+        else:
+            raise ValueError(f"Unsupported setting type: {setting_type}")
 
     def list_by_project(self, project_id: Optional[int] = None) -> List[Setting]:
         """Return all settings for a given project scope.
@@ -192,6 +226,7 @@ class SettingsStore:
             ))
 
     @staticmethod
+    @lru_cache(maxsize=1)
     def _load_settings_schema() -> Dict[str, Any]:
         """Load and return the settings schema from the defaults TOML file.
 

@@ -251,9 +251,9 @@ def startup_dl_actor(project_id: int) -> "DLActor":
         store = SettingsStore(session)
         num_workers_row = store.get("dl_num_workers", project_id=project_id)
         patches_per_batch_row = store.get("dl_patches_per_batch", project_id=project_id)
-
-    num_workers: int = int(num_workers_row["setting_value"]) if num_workers_row else 8
-    patches_per_batch: int = int(patches_per_batch_row["setting_value"]) if patches_per_batch_row else 10000
+        
+        num_workers: int = int(num_workers_row.setting_value) if num_workers_row else 8
+        patches_per_batch: int = int(patches_per_batch_row.setting_value) if patches_per_batch_row else 10000
 
     actor = DLActor.options(  # type: ignore[attr-defined]
         name=DL_ACTOR_NAME,

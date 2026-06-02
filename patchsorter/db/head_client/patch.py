@@ -34,12 +34,12 @@ class PatchStore:
         return patch_table(project_id)
 
     @staticmethod
-    def build_pred_table_name(project_id: int, suffix: str) -> str:
+    def build_pred_table_name(project_id: int, suffix: PredPatchSuffix) -> str:
         """Return the pred_patch table name for the given project and suffix.
 
         Args:
             project_id: Integer project ID.
-            suffix: Either ``'latest'`` or ``'last'``.
+            suffix: Either ``PredPatchSuffix.LATEST`` or ``PredPatchSuffix.LAST``.
         """
         return pred_patch_table(project_id, suffix)
 

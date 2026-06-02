@@ -3,7 +3,7 @@
 patch_pred_monitor.py - CLI monitor for PatchSorter prediction tables.
 
 Usage:
-    python patch_pred_monitor.py --num-workers 4 [--interval 2]
+    python patch_pred_monitor.py --project-id 1 --num-workers 4 [--interval 2]
 """
 
 import argparse
@@ -16,6 +16,10 @@ from psycopg.rows import dict_row
 
 sys.path.insert(0, os.path.dirname(__file__))
 from constants import CITUS_HEAD_HOST, CITUS_HEAD_PORT, CITUS_HEAD_DB, CITUS_HEAD_USER, CITUS_HEAD_PASSWORD
+
+from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
+from patchsorter.config.constants import PredPatchSuffix
 
 try:
     from rich import box
@@ -75,57 +79,96 @@ CM_LEVELS = [8, 9, 10, 11, 12]
 CM_LEVEL_GRID = {lvl: 2 ** lvl for lvl in CM_LEVELS}
 
 
-def build_display(num_workers: int, interval: float):
+def build_display(project_id: int, num_workers: int, interval: float):
+    # Build table names using the canonical helpers
+    latest_tbl = PatchStore.build_pred_table_name(project_id, PredPatchSuffix.LATEST)
+    last_tbl = PatchStore.build_pred_table_name(project_id, PredPatchSuffix.LAST)
+
     with get_conn() as conn:
         with conn.cursor() as cur:
-            latest_total = _table_count(cur, "pred_patch_latest")
-            last_total = _table_count(cur, "pred_patch_last")
+            latest_total = _table_count(cur, latest_tbl)
+            last_total = _table_count(cur, last_tbl)
 
             # Collect totals and shard data for all CM levels
             cm_totals: dict[int, int | None] = {}
             cm_shard_ids_by_level: dict[int, list[int]] = {}
             cm_shard_counts_by_level: dict[int, dict[int, int]] = {}
             for lvl in CM_LEVELS:
-                tbl = f"confusion_matrix_l{lvl}"
+                tbl = ConfusionMatrixStore.build_table_name(project_id, lvl)
                 cm_totals[lvl] = _table_count(cur, tbl)
                 sids = _shard_ids(cur, tbl)
                 cm_shard_ids_by_level[lvl] = sids
                 cm_shard_counts_by_level[lvl] = _shard_counts(cur, tbl, sids)
 
-            shard_ids = _shard_ids(cur, "pred_patch_latest")
-            shard_counts = _shard_counts(cur, "pred_patch_latest", shard_ids)
+            shard_ids = _shard_ids(cur, latest_tbl)
+            shard_counts = _shard_counts(cur, latest_tbl, shard_ids)
+
+            # Patch table shard data
+            patch_tbl = PatchStore.build_table_name(project_id)
+            patch_shard_ids = _shard_ids(cur, patch_tbl)
+            patch_shard_counts = _shard_counts(cur, patch_tbl, patch_shard_ids)
+            patch_total = _table_count(cur, patch_tbl)
 
     def fmt(val):
         if val is None:
             return "[dim]not yet created[/dim]"
         return str(val)
 
-    # Table 1 — summary counts (pred tables + one row per CM level)
+    # Table 1 — summary counts (patch table, pred tables + one row per CM level)
     summary = Table(
-        title=f"PatchSorter Prediction Monitor  (refresh every {interval}s)",
+        title=f"PatchSorter Prediction Monitor (project {project_id})  (refresh every {interval}s)",
         box=box.ROUNDED,
         show_footer=False,
     )
     summary.add_column("Table", style="cyan", no_wrap=True)
     summary.add_column("Grid Size", justify="right")
     summary.add_column("Total Rows", justify="right", style="bright_green")
-    summary.add_row("pred_patch_latest", "—", fmt(latest_total))
-    summary.add_row("pred_patch_last", "—", fmt(last_total))
+    summary.add_row(patch_tbl, "—", fmt(patch_total))
+    summary.add_row(latest_tbl, "—", fmt(latest_total))
+    summary.add_row(last_tbl, "—", fmt(last_total))
     for lvl in CM_LEVELS:
         grid = CM_LEVEL_GRID[lvl]
         summary.add_row(
-            f"confusion_matrix_l{lvl}",
+            ConfusionMatrixStore.build_table_name(project_id, lvl),
             f"{grid}×{grid}",
             fmt(cm_totals[lvl]),
         )
 
-    # Table 2 — pred_patch_latest shard breakdown grouped by worker
+    # Table 2 — patch table shard breakdown grouped by worker
+    patch_worker_shards: dict[int, list[tuple[int, int]]] = {i: [] for i in range(num_workers)}
+    for idx, shard_id in enumerate(patch_shard_ids):
+        patch_worker_shards[idx % num_workers].append((shard_id, patch_shard_counts.get(shard_id, 0)))
+
+    patch_shard_tbl = Table(
+        title=f"{patch_tbl} — Shard Breakdown ({num_workers} workers)",
+        box=box.SIMPLE_HEAD,
+    )
+    patch_shard_tbl.add_column("Worker", style="bold yellow")
+    patch_shard_tbl.add_column("# Shards", justify="right")
+    patch_shard_tbl.add_column("Shard IDs")
+    patch_shard_tbl.add_column("Row Counts", justify="right")
+    patch_shard_tbl.add_column("Worker Total", justify="right", style="bright_green")
+
+    for worker_idx in range(num_workers):
+        shards = patch_worker_shards[worker_idx]
+        shard_id_str = ", ".join(str(s) for s, _ in shards)
+        count_str = ", ".join(str(c) for _, c in shards)
+        worker_total = sum(c for _, c in shards)
+        patch_shard_tbl.add_row(
+            f"Worker {worker_idx}",
+            str(len(shards)),
+            shard_id_str or "[dim]—[/dim]",
+            count_str or "[dim]—[/dim]",
+            str(worker_total),
+        )
+
+    # Table 3 — pred_patch_latest shard breakdown grouped by worker
     worker_shards: dict[int, list[tuple[int, int]]] = {i: [] for i in range(num_workers)}
     for idx, shard_id in enumerate(shard_ids):
         worker_shards[idx % num_workers].append((shard_id, shard_counts.get(shard_id, 0)))
 
     shard_tbl = Table(
-        title=f"pred_patch_latest — Shard Breakdown ({num_workers} workers)",
+        title=f"{latest_tbl} — Shard Breakdown ({num_workers} workers)",
         box=box.SIMPLE_HEAD,
     )
     shard_tbl.add_column("Worker", style="bold yellow")
@@ -147,10 +190,10 @@ def build_display(num_workers: int, interval: float):
             str(worker_total),
         )
 
-    # Tables 3-7 — one shard breakdown per CM level
+    # Tables 4-8 — one shard breakdown per CM level
     cm_tables = []
     for lvl in CM_LEVELS:
-        tbl_name = f"confusion_matrix_l{lvl}"
+        tbl_name = ConfusionMatrixStore.build_table_name(project_id, lvl)
         grid = CM_LEVEL_GRID[lvl]
         lvl_shard_ids = cm_shard_ids_by_level[lvl]
         lvl_shard_counts = cm_shard_counts_by_level[lvl]
@@ -183,11 +226,15 @@ def build_display(num_workers: int, interval: float):
             )
         cm_tables.append(cm_tbl)
 
-    return Group(summary, shard_tbl, *cm_tables)
+    return Group(summary, patch_shard_tbl, shard_tbl, *cm_tables)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Monitor PatchSorter prediction tables.")
+    parser.add_argument(
+        "--project-id", type=int, required=True,
+        help="Project ID whose tables to monitor",
+    )
     parser.add_argument(
         "--num-workers", type=int, required=True,
         help="Number of Ray Train workers (used to group shards per worker)",
@@ -199,12 +246,12 @@ def main():
     args = parser.parse_args()
 
     console = Console()
-    console.print(f"Monitoring prediction tables with {args.num_workers} workers. Press Ctrl+C to exit.\n")
+    console.print(f"Monitoring project {args.project_id} prediction tables with {args.num_workers} workers. Press Ctrl+C to exit.\n")
 
     with Live(console=console, refresh_per_second=4, screen=True) as live:
         while True:
             try:
-                live.update(build_display(args.num_workers, args.interval))
+                live.update(build_display(args.project_id, args.num_workers, args.interval))
             except KeyboardInterrupt:
                 break
             except Exception as exc:
