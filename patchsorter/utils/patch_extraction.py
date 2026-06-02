@@ -61,7 +61,7 @@ def _extract_patch_region(
             (``base_mag / downsample_factor``).
 
     Returns:
-        PNG-encoded bytes of the extracted patch.
+        JPEG-encoded bytes of the extracted patch.
     """
     half = patch_size / 2.0 / scale
     region, _ = ts.getRegion(
@@ -76,7 +76,9 @@ def _extract_patch_region(
         format=large_image.tilesource.TILE_FORMAT_PIL,
     )
     buf = io.BytesIO()
-    region.save(buf, format="PNG")
+    if region.mode == "RGBA":
+        region = region.convert("RGB")
+    region.save(buf, format="JPEG", quality=85)
     return buf.getvalue()
 
 
@@ -134,7 +136,7 @@ def _makepatch_geojson(
         ValueError: If a feature is missing the ``uid`` property, or contains
             a ``Point``, ``MultiPolygon``, or other unsupported geometry type.
     """
-    base_mag = ImageStore(session).get(image_id)["base_mag"]
+    base_mag = ImageStore(session).get(image_id).base_mag
     ts = large_image.open(image_filepath)
     scale = 1.0 / downsample_factor
     magnification = base_mag / downsample_factor
