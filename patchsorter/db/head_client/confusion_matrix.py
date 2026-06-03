@@ -44,8 +44,11 @@ class ConfusionMatrixStore:
         self.table_name = self.build_table_name(project_id, level)
 
     @staticmethod
-    def build_table_name(project_id: int, level: int | None = None) -> str:
-        return confusion_matrix_table(project_id, level)
+    def build_table_name(project_id: int, level: int | None = None, shard: int | None = None) -> str:
+        tbl = confusion_matrix_table(project_id, level)
+        if shard is not None:
+            tbl = f"{tbl}_{shard}"
+        return tbl
 
     # ------------------------------------------------------------------ #
     # Internal helpers                                                     #

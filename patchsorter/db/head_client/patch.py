@@ -30,18 +30,25 @@ class PatchStore:
         self.table_name = self.build_table_name(project_id)
 
     @staticmethod
-    def build_table_name(project_id: int) -> str:
-        return patch_table(project_id)
+    def build_table_name(project_id: int, shard: Optional[int] = None) -> str:
+        tbl = patch_table(project_id)
+        if shard is not None:
+            tbl = f"{tbl}_{shard}"
+        return tbl
 
     @staticmethod
-    def build_pred_table_name(project_id: int, suffix: PredPatchSuffix) -> str:
+    def build_pred_table_name(project_id: int, suffix: PredPatchSuffix, shard: Optional[int] = None) -> str:
         """Return the pred_patch table name for the given project and suffix.
 
         Args:
             project_id: Integer project ID.
             suffix: Either ``PredPatchSuffix.LATEST`` or ``PredPatchSuffix.LAST``.
+            shard: Optional shard ID to append as a suffix.
         """
-        return pred_patch_table(project_id, suffix)
+        tbl = pred_patch_table(project_id, suffix)
+        if shard is not None:
+            tbl = f"{tbl}_{shard}"
+        return tbl
 
     def insert(
         self,

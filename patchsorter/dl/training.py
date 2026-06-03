@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import ray
 from ray.train import get_context
@@ -58,6 +58,52 @@ def _build_prediction_records(
 
 
 # --------------------------------------------------------------------------- #
+# Shard dataset — read-only iteration over locally placed patch shards        #
+# --------------------------------------------------------------------------- #
+
+class ShardDataset:
+    """Read-only iterable that streams patches from locally placed Citus shards.
+
+    Wraps :meth:`~patchsorter.db.worker_client.patch.WorkerPatchStore.fetch_patch_batch`
+    with one short-lived DB session per batch so no connection is held between
+    yields.
+
+    Args:
+        worker_sm: A :class:`~patchsorter.db.utils.SessionManager` for the
+            worker node.
+        project_id: Project whose patch shards are read.
+        assigned_shards: Ordered list of shard IDs to iterate.
+        batch_size: Maximum number of patch rows per yielded batch.
+    """
+
+    def __init__(
+        self,
+        worker_sm: Any,
+        project_id: int,
+        assigned_shards: List[int],
+        batch_size: int,
+    ) -> None:
+        self._worker_sm = worker_sm
+        self._project_id = project_id
+        self._assigned_shards = assigned_shards
+        self._batch_size = batch_size
+
+    def __iter__(self) -> Iterator[Tuple[int, List[Dict[str, Any]]]]:
+        """Yield ``(shard_id, batch)`` tuples, one session opened per batch."""
+        for shard_id in self._assigned_shards:
+            cursor = 0
+            while True:
+                with self._worker_sm.get_session() as session:
+                    batch = WorkerPatchStore(
+                        self._project_id, session
+                    ).fetch_patch_batch(shard_id, cursor, self._batch_size)
+                if not batch:
+                    break
+                cursor = batch[-1]["patch_id"]
+                yield shard_id, batch
+
+
+# --------------------------------------------------------------------------- #
 # Ray Train worker function                                                    #
 # --------------------------------------------------------------------------- #
 
@@ -84,8 +130,16 @@ def train_worker(config: Dict[str, Any]) -> None:
             - ``project_id`` (int)
             - ``patches_per_batch`` (int)
     """
+    breakpoint()
     project_id: int = config["project_id"]
     patches_per_batch: int = config["patches_per_batch"]
+
+    head_sm = head_client.get_client()
+    worker_sm = worker_client.get_client()
+    dm = DatabaseManager(head_sm)
+    shard_map = dm.get_shard_map_for_patch_and_pred(project_id)
+    assigned_shards = shard_map.get_table_a_shard_list()
+
 
     context = get_context()
     rank = context.get_world_rank()
@@ -93,32 +147,27 @@ def train_worker(config: Dict[str, Any]) -> None:
     # Resolve the DLActor to check training_enabled each cycle
     actor = ray.get_actor(DL_ACTOR_NAME)
 
+
     # Worker DB client — all reads and writes except table rotation
     worker_sm = worker_client.get_client()
-
-    # Discover locally available shards once before the loop
-    with worker_sm.get_session() as session:
-        assigned_shards = WorkerPatchStore(project_id, session).get_local_shard_ids()
-    logger.info("[Worker %d] Found %d local shards: %s", rank, len(assigned_shards), assigned_shards)
-
-    # Head client only needed by rank 0 for table rotation
-    head_sm = head_client.get_client() if rank == 0 else None
 
     cycle = 0
     while ray.get(actor.get_training_enabled.remote()):
         cycle += 1
         logger.info("[Worker %d] Starting cycle %d.", rank, cycle)
 
-        for shard_id in assigned_shards:
+        dataset = ShardDataset(worker_sm, project_id, assigned_shards, patches_per_batch)
+        for shard_id, batch in dataset:
+            breakpoint()
+            records = _build_prediction_records(batch)
             with worker_sm.get_session() as session:
-                store = WorkerPatchStore(project_id, session)
-                for batch in store.fetch_patches_by_shard(shard_id, patches_per_batch):
-                    records = _build_prediction_records(batch)
-                    store.insert_predictions_to_shard(shard_id, records)
-                    logger.debug(
-                        "[Worker %d] Cycle %d — shard %d, wrote %d predictions.",
-                        rank, cycle, shard_id, len(records),
-                    )
+                WorkerPatchStore(project_id, session).insert_predictions_to_shard(
+                    shard_id, records
+                )
+            logger.debug(
+                "[Worker %d] Cycle %d — shard %d, wrote %d predictions.",
+                rank, cycle, shard_id, len(records),
+            )
 
         logger.info("[Worker %d] Cycle %d done. Waiting at barrier.", rank, cycle)
 
@@ -127,7 +176,6 @@ def train_worker(config: Dict[str, Any]) -> None:
 
         # Rank 0 rotates tables while other workers wait
         if rank == 0:
-            assert head_sm is not None
             DatabaseManager(head_sm).rotate_pred_patch_tables(project_id)
             logger.info(
                 "[Rank 0] Cycle %d — table rotation complete: "
@@ -156,11 +204,12 @@ class DLActor:
     Use :func:`startup_dl_actor` to create the actor and start training.
     """
 
-    def __init__(self, project_id: int, patches_per_batch: int = 10000) -> None:
+    def __init__(self, project_id: int, patches_per_batch: int, app_config: Dict[str, Any]) -> None:
         self._project_id = project_id
         self._patches_per_batch = patches_per_batch
         self._training_enabled: bool = False
         self._training_ref: Optional[ray.ObjectRef] = None
+        self._app_config = app_config or {}
 
     # ---- State accessors -------------------------------------------------- #
 
@@ -248,17 +297,16 @@ def startup_dl_actor(project_id: int) -> "DLActor":
     """
     head_sm = head_client.get_client()
     with head_sm.get_session() as session:
-        store = SettingsStore(session)
-        num_workers_row = store.get("dl_num_workers", project_id=project_id)
-        patches_per_batch_row = store.get("dl_patches_per_batch", project_id=project_id)
-        
-        num_workers: int = int(num_workers_row.setting_value) if num_workers_row else 8
-        patches_per_batch: int = int(patches_per_batch_row.setting_value) if patches_per_batch_row else 10000
+        settings_store = SettingsStore(session)
+        app_config = settings_store.get_all_as_dict(project_id)
+
+    patches_per_batch: int = app_config.get("dl_patches_per_batch", 1000)
+    num_workers: int = app_config.get("dl_num_workers", 8)
 
     actor = DLActor.options(  # type: ignore[attr-defined]
         name=DL_ACTOR_NAME,
         get_if_exists=True,
-    ).remote(project_id, patches_per_batch)
+    ).remote(project_id, patches_per_batch, app_config=app_config)
 
     actor.start_dl_proc.remote(num_workers)
     return actor

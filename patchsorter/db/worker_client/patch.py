@@ -58,6 +58,43 @@ class WorkerPatchStore:
     # Patch reads                                                          #
     # ------------------------------------------------------------------ #
 
+    def fetch_patch_batch(
+        self,
+        shard_id: int,
+        after_id: int,
+        batch_size: int,
+    ) -> List[Dict[str, Any]]:
+        """Fetch a single page of patch rows from a local shard table.
+
+        Uses keyset pagination — returns up to *batch_size* rows whose
+        ``patch_id`` is strictly greater than *after_id*, ordered by
+        ``patch_id``.  Pass ``after_id=0`` to start from the beginning.
+
+        Args:
+            shard_id: Numeric Citus shard ID to read from.
+            after_id: Exclusive lower bound on ``patch_id`` for this page.
+            batch_size: Maximum number of rows to return.
+
+        Returns:
+            List of dicts containing ``patch_id``, ``patch_uid``,
+            ``label_class_id``, ``image_id``, ``downsample_factor``,
+            ``centroid_x``, ``centroid_y``.  Empty list when no more rows
+            are available.
+        """
+        shard_table = f"{self._patch_table}{shard_id}"
+        rows = self._session.execute(
+            text(
+                f"SELECT patch_id, patch_uid, label_class_id, image_id, "
+                f"downsample_factor, centroid_x, centroid_y "
+                f"FROM {shard_table} "
+                f"WHERE patch_id > :after_id "
+                f"ORDER BY patch_id "
+                f"LIMIT :batch_size"
+            ),
+            {"after_id": after_id, "batch_size": batch_size},
+        ).mappings().fetchall()
+        return [dict(r) for r in rows]
+
     def fetch_patches_by_shard(
         self,
         shard_id: int,
@@ -140,3 +177,6 @@ class WorkerPatchStore:
                 for row in records:
                     copy.write_row(row)
         return len(records)
+
+    @staticmethod
+    def build_pred_table_name
