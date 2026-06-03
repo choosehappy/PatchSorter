@@ -6,6 +6,7 @@ from typing import Any, Dict, Generator, List
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.table_names import patch_table, pred_patch_table
 from patchsorter.config.constants import PredPatchSuffix
 
@@ -29,30 +30,6 @@ class WorkerPatchStore:
         self._patch_table = patch_table(project_id)
         self._pred_table_latest = pred_patch_table(project_id, PredPatchSuffix.LATEST)
 
-    # ------------------------------------------------------------------ #
-    # Shard discovery                                                      #
-    # ------------------------------------------------------------------ #
-
-    def get_local_shard_ids(self) -> List[int]:
-        """Return shard IDs of all patch shard tables physically present on this worker.
-
-        Queries ``pg_class`` for heap-relation names matching
-        ``project{N}_patch_<digits>`` — only tables that actually reside on this
-        node are returned.
-
-        Returns:
-            Sorted list of integer shard IDs.
-        """
-        pattern = rf"^{re.escape(self._patch_table)}_\d+$"
-        rows = self._session.execute(
-            text(
-                "SELECT relname FROM pg_class "
-                "WHERE relname ~ :pattern AND relkind = 'r'"
-            ),
-            {"pattern": pattern},
-        ).fetchall()
-        prefix = f"{self._patch_table}_"
-        return sorted(int(row[0][len(prefix):]) for row in rows)
 
     # ------------------------------------------------------------------ #
     # Patch reads                                                          #
@@ -166,7 +143,7 @@ class WorkerPatchStore:
         """
         if not records:
             return 0
-        shard_table = f"{self._pred_table_latest}_{shard_id}"
+        shard_table = PatchStore.build_pred_table_name(self.project_id, PredPatchSuffix.LATEST, shard_id)
         raw_conn = self._session.connection().connection
         with raw_conn.cursor() as cur:
             with cur.copy(
@@ -177,6 +154,3 @@ class WorkerPatchStore:
                 for row in records:
                     copy.write_row(row)
         return len(records)
-
-    @staticmethod
-    def build_pred_table_name

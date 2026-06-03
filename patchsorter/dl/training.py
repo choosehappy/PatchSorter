@@ -137,8 +137,7 @@ def train_worker(config: Dict[str, Any]) -> None:
     head_sm = head_client.get_client()
     worker_sm = worker_client.get_client()
     dm = DatabaseManager(head_sm)
-    shard_map = dm.get_shard_map_for_patch_and_pred(project_id)
-    assigned_shards = shard_map.get_table_a_shard_list()
+
 
 
     context = get_context()
@@ -153,6 +152,14 @@ def train_worker(config: Dict[str, Any]) -> None:
 
     cycle = 0
     while ray.get(actor.get_training_enabled.remote()):
+        # Discover locally assigned shards on each cycle since table rotation changes shard placements.
+        shard_map = dm.get_shard_map_for_patch_and_pred(project_id)
+        all_local_shards = shard_map.get_table_a_shard_list()
+
+        # Divide local shards among local workers. 
+        # If shards are not divisible by the number of workers, some workers will process one more shard than others.
+        assigned_shards = compute_shard_assignments(all_local_shards, context.get_local_world_size(), rank)
+        
         cycle += 1
         logger.info("[Worker %d] Starting cycle %d.", rank, cycle)
 
@@ -160,9 +167,10 @@ def train_worker(config: Dict[str, Any]) -> None:
         for shard_id, batch in dataset:
             breakpoint()
             records = _build_prediction_records(batch)
+            pred_shard_id = shard_map.get_b_shard_for_a_shard(shard_id)
             with worker_sm.get_session() as session:
                 WorkerPatchStore(project_id, session).insert_predictions_to_shard(
-                    shard_id, records
+                    pred_shard_id, records
                 )
             logger.debug(
                 "[Worker %d] Cycle %d — shard %d, wrote %d predictions.",
@@ -310,3 +318,17 @@ def startup_dl_actor(project_id: int) -> "DLActor":
 
     actor.start_dl_proc.remote(num_workers)
     return actor
+
+def compute_shard_assignments(shard_ids: List[int], num_local_workers: int, rank: int) -> Dict[int, List[int]]:
+    """Compute which Citus shards are assigned to each worker for a project.
+
+    Args:
+        shard_ids: List of shard IDs to assign.
+        num_local_workers: Number of local workers to divide shards among.
+        rank: Rank of the current worker.
+    Returns:
+        List of shard IDs assigned to the current worker.
+    """
+
+    assigned_shards = [s for s in shard_ids if s % num_local_workers == rank]
+    return assigned_shards
