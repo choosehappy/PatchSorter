@@ -1,9 +1,10 @@
 import './patchGallery.css';
 interface PatchImageProps {
-    patchImageBase64: string;
+    projectId: number;
+    patchId: number;
     gtLabelClassId: number;
     predLabelClassId: number | null;
     isSelected: boolean;
 }
-export default function PatchImage({ patchImageBase64, gtLabelClassId, predLabelClassId, isSelected }: PatchImageProps): import("react/jsx-runtime").JSX.Element;
+export default function PatchImage({ projectId, patchId, gtLabelClassId, predLabelClassId, isSelected }: PatchImageProps): import("react/jsx-runtime").JSX.Element;
 export {};

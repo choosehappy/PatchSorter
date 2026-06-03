@@ -14,7 +14,6 @@ class PatchResponse(BaseModel):
     centroid_x: Optional[float] = None
     centroid_y: Optional[float] = None
     polygon: Optional[str] = None
-    patch_image: bytes
     # Prediction columns (None when no prediction exists for this patch)
     embed_x: Optional[float] = None
     embed_y: Optional[float] = None

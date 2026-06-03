@@ -95,10 +95,6 @@ export type PatchResponse = {
      */
     polygon?: string | null;
     /**
-     * Patch Image
-     */
-    patch_image: Blob | File;
-    /**
      * Embed X
      */
     embed_x?: number | null;
@@ -532,3 +528,35 @@ export type GetPatchProjectsProjectIdPatchesPatchIdGetResponses = {
 };
 
 export type GetPatchProjectsProjectIdPatchesPatchIdGetResponse = GetPatchProjectsProjectIdPatchesPatchIdGetResponses[keyof GetPatchProjectsProjectIdPatchesPatchIdGetResponses];
+
+export type GetPatchImageProjectsProjectIdPatchesPatchIdImageGetData = {
+    body?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+        /**
+         * Patch Id
+         */
+        patch_id: number;
+    };
+    query?: never;
+    url: '/projects/{project_id}/patches/{patch_id}/image';
+};
+
+export type GetPatchImageProjectsProjectIdPatchesPatchIdImageGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetPatchImageProjectsProjectIdPatchesPatchIdImageGetError = GetPatchImageProjectsProjectIdPatchesPatchIdImageGetErrors[keyof GetPatchImageProjectsProjectIdPatchesPatchIdImageGetErrors];
+
+export type GetPatchImageProjectsProjectIdPatchesPatchIdImageGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};

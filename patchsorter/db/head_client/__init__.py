@@ -57,13 +57,19 @@ __all__ = [
 ]
 
 
-# Convenience factory to obtain a SessionManager configured for the head (coordinator)
+# Module-level cache to avoid creating a new engine per request
+_head_client: SessionManager | None = None
+
+
 def get_client() -> SessionManager:
     """Return a `SessionManager` configured for the head node using repo constants."""
-    return SessionManager(
-        host=CITUS_HEAD_HOST,
-        port=CITUS_HEAD_PORT,
-        dbname=CITUS_HEAD_DB,
-        user=CITUS_HEAD_USER,
-        password=CITUS_HEAD_PASSWORD,
-    )
+    global _head_client
+    if _head_client is None:
+        _head_client = SessionManager(
+            host=CITUS_HEAD_HOST,
+            port=CITUS_HEAD_PORT,
+            dbname=CITUS_HEAD_DB,
+            user=CITUS_HEAD_USER,
+            password=CITUS_HEAD_PASSWORD,
+        )
+    return _head_client

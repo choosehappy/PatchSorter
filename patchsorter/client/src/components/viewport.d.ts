@@ -15,6 +15,13 @@ interface ViewportProps {
     refreshTick: number;
     onBoundsChange: (bounds: MapBounds) => void;
     onZoomChange: (osmZoom: number, level: number) => void;
+    polygonTool: boolean;
+    onPolygonComplete: (bbox: {
+        i_min: number;
+        i_max: number;
+        j_min: number;
+        j_max: number;
+    }) => void;
 }
-export default function Viewport({ projectId, colorBy, filterBy, selectedCells, numClasses, worldInfo, refreshTick, onBoundsChange, onZoomChange, }: ViewportProps): import("react/jsx-runtime").JSX.Element;
+export default function Viewport({ projectId, colorBy, filterBy, selectedCells, numClasses, worldInfo, refreshTick, onBoundsChange, onZoomChange, polygonTool, onPolygonComplete, }: ViewportProps): import("react/jsx-runtime").JSX.Element;
 export {};

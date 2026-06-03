@@ -2,29 +2,33 @@ import { useState, useEffect, useCallback } from 'react'
 import { client } from '../api_client/client.gen'
 import PatchImage from './PatchImage'
 import './patchGallery.css'
-
-interface PatchRow {
-    patch_id: number
-    patch_uid: string
-    label_class_id: number
-    pred_label_class_id: number | null
-    patch_image: string
-}
+import type { PatchResponse } from '../api_client'
 
 const PAGE_SIZE_OPTIONS = [12, 24, 48, 96]
 const MIN_PATCH_SIZE = 40
 const MAX_PATCH_SIZE = 120
 const DEFAULT_PATCH_SIZE = 80
-const DEFAULT_PAGE_SIZE = 24
 
-export default function PatchGallery({ projectId }: { projectId: number }) {
-    const [patches, setPatches] = useState<PatchRow[]>([])
+export default function PatchGallery({
+    projectId,
+    patchGalleryItems,
+    pageSize,
+    setPageSize,
+}: {
+    projectId: number
+    patchGalleryItems: PatchResponse[] | null
+    pageSize: number
+    setPageSize: (s: number) => void
+}) {
+    const [patches, setPatches] = useState<PatchResponse[]>([])
     const [cursor, setCursor] = useState(0)
     const [loading, setLoading] = useState(false)
     const [selectAll, setSelectAll] = useState(false)
     const [patchSize, setPatchSize] = useState(DEFAULT_PATCH_SIZE)
-    const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
     const [hasNext, setHasNext] = useState(true)
+
+    const effectivePatches = patchGalleryItems ?? patches
+    const hasExternalItems = patchGalleryItems !== null
 
     const fetchPatches = useCallback(async (pageCursor: number) => {
         setLoading(true)
@@ -35,7 +39,7 @@ export default function PatchGallery({ projectId }: { projectId: number }) {
                 url: '/projects/{project_id}/patches/',
             })
             if (res.data && Array.isArray(res.data)) {
-                setPatches(res.data as PatchRow[])
+                setPatches(res.data as PatchResponse[])
                 setHasNext(res.data.length >= pageSize)
             } else {
                 setPatches([])
@@ -51,11 +55,13 @@ export default function PatchGallery({ projectId }: { projectId: number }) {
     }, [projectId, pageSize])
 
     useEffect(() => {
-        fetchPatches(0)
-    }, [fetchPatches])
+        if (!hasExternalItems) {
+            fetchPatches(0)
+        }
+    }, [fetchPatches, hasExternalItems])
 
     function handlePrev() {
-        if (cursor <= 0) return
+        if (cursor <= 0 || hasExternalItems) return
         const newCursor = patches.length > 0 ? patches[patches.length - 1].patch_id : cursor
         const nextCursor = Math.max(0, newCursor - 1)
         setCursor(nextCursor)
@@ -63,13 +69,12 @@ export default function PatchGallery({ projectId }: { projectId: number }) {
     }
 
     function handleNext() {
-        if (!hasNext || patches.length === 0) return
+        if (!hasNext || patches.length === 0 || hasExternalItems) return
         const newCursor = patches[patches.length - 1].patch_id
         setCursor(newCursor)
         fetchPatches(newCursor)
     }
 
-    const cols = Math.max(2, Math.floor(320 / patchSize))
     const gridStyle = {
         gridTemplateColumns: `repeat(auto-fill, minmax(${patchSize}px, 1fr))`,
         gap: '8px',
@@ -79,10 +84,10 @@ export default function PatchGallery({ projectId }: { projectId: number }) {
         <div className="patch-gallery">
             <div className="gallery-toolbar">
                 <div className="toolbar-group">
-                    <button onClick={handlePrev} disabled={cursor <= 0 || loading}>
+                    <button onClick={handlePrev} disabled={cursor <= 0 || loading || hasExternalItems}>
                         Prev
                     </button>
-                    <button onClick={handleNext} disabled={!hasNext || loading}>
+                    <button onClick={handleNext} disabled={!hasNext || loading || hasExternalItems}>
                         Next
                     </button>
                 </div>
@@ -126,12 +131,13 @@ export default function PatchGallery({ projectId }: { projectId: number }) {
                     <div className="gallery-loading">Loading patches...</div>
                 ) : (
                     <div className="gallery-grid" style={gridStyle}>
-                        {patches.map(patch => (
+                        {effectivePatches.map(patch => (
                             <PatchImage
                                 key={patch.patch_id}
-                                patchImageBase64={patch.patch_image}
+                                projectId={projectId}
+                                patchId={patch.patch_id}
                                 gtLabelClassId={patch.label_class_id}
-                                predLabelClassId={patch.pred_label_class_id}
+                                predLabelClassId={patch.pred_label_class_id ?? null}
                                 isSelected={selectAll}
                             />
                         ))}

@@ -1,12 +1,58 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, Children, cloneElement } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { client } from '../api_client/client.gen'
 import './labelingPage.css'
 import Viewport, { type MapBounds } from '../components/viewport'
 import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatrix'
 import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
-import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, type WorldInfo } from '../api_client'
+import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, type PatchResponse, type WorldInfo } from '../api_client'
+
+// ---- ToggleButtonGroup (lightweight, no react-bootstrap dependency) ----
+
+interface ToggleButtonGroupProps {
+    children: React.ReactNode
+    name: string
+    activeKey: string
+    onChange: (value: string) => void
+}
+
+interface ToggleButtonProps {
+    value: string
+    active: boolean
+    onChange: (value: string) => void
+    children: React.ReactNode
+    title?: string
+}
+
+function ToggleButtonGroup({ children, name, activeKey, onChange }: ToggleButtonGroupProps) {
+    return (
+        <div className="toggle-button-group">
+            {Children.map(children, child =>
+                cloneElement(child as React.ReactElement<ToggleButtonProps>, {
+                    name,
+                    activeKey,
+                    onChange,
+                })
+            )}
+        </div>
+    )
+}
+
+function ToggleButton({ value, active, onChange, children, title }: ToggleButtonProps & { name?: string; activeKey?: string; onChange?: (value: string) => void }) {
+    const handleClick = () => onChange?.(value)
+    return (
+        <button
+            className={`toggle-button${active ? ' active' : ''}`}
+            onClick={handleClick}
+            title={title}
+            type="button"
+        >
+            {children}
+        </button>
+    )
+}
 
 
 
@@ -54,6 +100,9 @@ export default function LabelingPage() {
     const [worldInfo, setWorldInfo] = useState<WorldInfo | null>(null)
     const [refreshTick, setRefreshTick] = useState(0)
     const [refreshIntervalMs, setRefreshIntervalMs] = useState<number | null>(5000)
+    const [polygonTool, setPolygonTool] = useState(false)
+    const [patchGalleryItems, setPatchGalleryItems] = useState<PatchResponse[] | null>(null)
+    const [pageSize, setPageSize] = useState(24)
 
     useEffect(() => {
         infoProjectsProjectIdInfoGet({ path: { project_id: projectId } })
@@ -172,6 +221,31 @@ export default function LabelingPage() {
         setZoomInfo(`OSM zoom: ${osmZoom}  →  agg level: ${level}`)
     }
 
+    function handleClear() {
+        setPatchGalleryItems([])
+    }
+
+    async function handlePolygonComplete(bbox: { x_min: number; x_max: number; y_min: number; y_max: number }) {
+        try {
+            const res = await client.get({
+                path: { project_id: projectId },
+                query: {
+                    x_min: bbox.x_min,
+                    y_min: bbox.y_min,
+                    x_max: bbox.x_max,
+                    y_max: bbox.y_max,
+                    limit: pageSize,
+                },
+                url: '/projects/{project_id}/patches/',
+            })
+            if (res.data && Array.isArray(res.data)) {
+                setPatchGalleryItems(res.data as PatchResponse[])
+            }
+        } catch (err) {
+            console.error('Failed to fetch patches by polygon bbox:', err)
+        }
+    }
+
     return (
         <div className="labeling-page">
             {/* Left column: map + overlays */}
@@ -186,6 +260,9 @@ export default function LabelingPage() {
                     refreshTick={refreshTick}
                     onBoundsChange={setBounds}
                     onZoomChange={handleZoomChange}
+                    polygonTool={polygonTool}
+                    onPolygonComplete={handlePolygonComplete}
+                    onClear={handleClear}
                 />
 
                 {/* OSM zoom info in bottom left */}
@@ -210,6 +287,23 @@ export default function LabelingPage() {
                                 <option value="concordant">Concordant</option>
                                 <option value="custom">Custom</option>
                             </select>
+                        </div>
+                        <div className="control-group">
+                            <label>Polygon tool</label>
+                            <ToggleButtonGroup
+                                name="polygonTool"
+                                activeKey={polygonTool ? 'on' : 'off'}
+                                onChange={val => setPolygonTool(val === 'on')}
+                            >
+                                <ToggleButton value="off" active={!polygonTool} title="Click and drag on the map to draw a polygon">
+                                    <span className="toggle-icon">○</span>
+                                    <span className="toggle-label">Off</span>
+                                </ToggleButton>
+                                <ToggleButton value="on" active={polygonTool} title="Click to add points, double-click to complete">
+                                    <span className="toggle-icon">⬠</span>
+                                    <span className="toggle-label">On</span>
+                                </ToggleButton>
+                            </ToggleButtonGroup>
                         </div>
                         <RefreshTimer
                             intervalMs={refreshIntervalMs}
@@ -247,7 +341,7 @@ export default function LabelingPage() {
 
             {/* Right column: patch gallery */}
             <div className="labeling-column labeling-column-gallery">
-                <PatchGallery projectId={projectId} />
+                <PatchGallery projectId={projectId} patchGalleryItems={patchGalleryItems} pageSize={pageSize} setPageSize={setPageSize} />
             </div>
         </div>
     )

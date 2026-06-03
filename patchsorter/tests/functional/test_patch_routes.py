@@ -32,7 +32,8 @@ def test_list_patches_response_shape(client: TestClient, seeded_project):
     assert "label_class_id" in item
     assert "image_id" in item
     assert "downsample_factor" in item
-    assert "patch_image" in item
+    # patch_image is NOT included in list response - use GET /patches/{id}/image instead
+    assert "patch_image" not in item
     # Prediction columns
     assert "embed_x" in item
     assert "embed_y" in item
@@ -42,15 +43,19 @@ def test_list_patches_response_shape(client: TestClient, seeded_project):
     assert "event_ts" in item
 
 
-def test_list_patches_patch_image_included(client: TestClient, seeded_project):
-    """GET /projects/1/patches/?limit=1 includes a non-empty base64 patch_image."""
-    response = client.get("/projects/1/patches/?limit=1")
+def test_get_patch_image_returns_jpeg(client: TestClient, seeded_project):
+    """GET /projects/1/patches/{patch_id}/image returns a JPEG image."""
+    patch_id = seeded_project["patch_ids"][0]
+    response = client.get(f"/projects/1/patches/{patch_id}/image")
     assert response.status_code == 200
-    body = response.json()
-    assert len(body) == 1
-    patch_image = body[0]["patch_image"]
-    assert isinstance(patch_image, str)
-    assert len(patch_image) > 0
+    assert "image/jpeg" in response.headers.get("content-type", "")
+    assert len(response.content) > 0
+
+
+def test_get_patch_image_not_found(client: TestClient, seeded_project):
+    """GET /projects/1/patches/{patch_id}/image returns 404 for a non-existent patch."""
+    response = client.get("/projects/1/patches/99999/image")
+    assert response.status_code == 404
 
 
 def test_list_patches_limit(client: TestClient, seeded_project):
