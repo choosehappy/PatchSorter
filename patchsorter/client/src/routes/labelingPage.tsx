@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, Children, cloneElement } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { client } from '../api_client/client.gen'
@@ -8,51 +8,6 @@ import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatr
 import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
 import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, type PatchResponse, type WorldInfo } from '../api_client'
-
-// ---- ToggleButtonGroup (lightweight, no react-bootstrap dependency) ----
-
-interface ToggleButtonGroupProps {
-    children: React.ReactNode
-    name: string
-    activeKey: string
-    onChange: (value: string) => void
-}
-
-interface ToggleButtonProps {
-    value: string
-    active: boolean
-    onChange: (value: string) => void
-    children: React.ReactNode
-    title?: string
-}
-
-function ToggleButtonGroup({ children, name, activeKey, onChange }: ToggleButtonGroupProps) {
-    return (
-        <div className="toggle-button-group">
-            {Children.map(children, child =>
-                cloneElement(child as React.ReactElement<ToggleButtonProps>, {
-                    name,
-                    activeKey,
-                    onChange,
-                })
-            )}
-        </div>
-    )
-}
-
-function ToggleButton({ value, active, onChange, children, title }: ToggleButtonProps & { name?: string; activeKey?: string; onChange?: (value: string) => void }) {
-    const handleClick = () => onChange?.(value)
-    return (
-        <button
-            className={`toggle-button${active ? ' active' : ''}`}
-            onClick={handleClick}
-            title={title}
-            type="button"
-        >
-            {children}
-        </button>
-    )
-}
 
 
 
@@ -100,9 +55,10 @@ export default function LabelingPage() {
     const [worldInfo, setWorldInfo] = useState<WorldInfo | null>(null)
     const [refreshTick, setRefreshTick] = useState(0)
     const [refreshIntervalMs, setRefreshIntervalMs] = useState<number | null>(5000)
-    const [polygonTool, setPolygonTool] = useState(false)
     const [patchGalleryItems, setPatchGalleryItems] = useState<PatchResponse[] | null>(null)
     const [pageSize, setPageSize] = useState(24)
+    const [lassoPolygon, setLassoPolygon] = useState<number[][] | null>(null)
+    const [totalPatches, setTotalPatches] = useState<number | null>(null)
 
     useEffect(() => {
         infoProjectsProjectIdInfoGet({ path: { project_id: projectId } })
@@ -221,29 +177,75 @@ export default function LabelingPage() {
         setZoomInfo(`OSM zoom: ${osmZoom}  →  agg level: ${level}`)
     }
 
-    function handleClear() {
+    function handleClearLassoPolygon() {
+        setLassoPolygon(null)
+        setTotalPatches(null)
         setPatchGalleryItems([])
     }
 
-    async function handlePolygonComplete(bbox: { x_min: number; x_max: number; y_min: number; y_max: number }) {
+    async function handlePolygonComplete(data: { polygon: number[][][]; bbox: { x_min: number; x_max: number; y_min: number; y_max: number } }) {
+        const { polygon, bbox } = data
+        setLassoPolygon(polygon[0])
+
         try {
-            const res = await client.get({
-                path: { project_id: projectId },
-                query: {
-                    x_min: bbox.x_min,
-                    y_min: bbox.y_min,
-                    x_max: bbox.x_max,
-                    y_max: bbox.y_max,
-                    limit: pageSize,
-                },
-                url: '/projects/{project_id}/patches/',
-            })
-            if (res.data && Array.isArray(res.data)) {
-                setPatchGalleryItems(res.data as PatchResponse[])
+            const [patchesRes, confusionRes] = await Promise.all([
+                client.get({
+                    path: { project_id: projectId },
+                    query: {
+                        x_min: bbox.x_min,
+                        y_min: bbox.y_min,
+                        x_max: bbox.x_max,
+                        y_max: bbox.y_max,
+                        limit: pageSize,
+                    },
+                    url: '/projects/{project_id}/patches/',
+                }),
+                getConfusionMatrixProjectsProjectIdConfusionMatrixGet({
+                    path: { project_id: projectId },
+                    query: {
+                        x_min: bbox.x_min,
+                        y_min: bbox.y_min,
+                        x_max: bbox.x_max,
+                        y_max: bbox.y_max,
+                        lp: undefined,
+                    }
+                }),
+            ])
+
+            if (patchesRes.data && Array.isArray(patchesRes.data)) {
+                setPatchGalleryItems(patchesRes.data as PatchResponse[])
+            }
+
+            if (confusionRes.data?.matrix) {
+                const total = confusionRes.data.matrix.flat().reduce((sum: number, val: number) => sum + val, 0)
+                setTotalPatches(total)
             }
         } catch (err) {
             console.error('Failed to fetch patches by polygon bbox:', err)
         }
+    }
+
+    function handlePageSizeChange(newSize: number) {
+        setPageSize(newSize)
+        if (lassoPolygon) {
+            setPatchGalleryItems(null)
+            setTotalPatches(null)
+            handlePolygonComplete({
+                polygon: [lassoPolygon],
+                bbox: computeBboxFromPolygon(lassoPolygon),
+            })
+        }
+    }
+
+    function computeBboxFromPolygon(ring: number[][]): { x_min: number; x_max: number; y_min: number; y_max: number } {
+        let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity
+        for (const [x, y] of ring) {
+            if (x < xMin) xMin = x
+            if (x > xMax) xMax = x
+            if (y < yMin) yMin = y
+            if (y > yMax) yMax = y
+        }
+        return { x_min: xMin, x_max: xMax, y_min: yMin, y_max: yMax }
     }
 
     return (
@@ -260,9 +262,8 @@ export default function LabelingPage() {
                     refreshTick={refreshTick}
                     onBoundsChange={setBounds}
                     onZoomChange={handleZoomChange}
-                    polygonTool={polygonTool}
-                    onPolygonComplete={handlePolygonComplete}
-                    onClear={handleClear}
+                    onLassoComplete={handlePolygonComplete}
+                    onViewportClick={handleClearLassoPolygon}
                 />
 
                 {/* OSM zoom info in bottom left */}
@@ -287,23 +288,6 @@ export default function LabelingPage() {
                                 <option value="concordant">Concordant</option>
                                 <option value="custom">Custom</option>
                             </select>
-                        </div>
-                        <div className="control-group">
-                            <label>Polygon tool</label>
-                            <ToggleButtonGroup
-                                name="polygonTool"
-                                activeKey={polygonTool ? 'on' : 'off'}
-                                onChange={val => setPolygonTool(val === 'on')}
-                            >
-                                <ToggleButton value="off" active={!polygonTool} title="Click and drag on the map to draw a polygon">
-                                    <span className="toggle-icon">○</span>
-                                    <span className="toggle-label">Off</span>
-                                </ToggleButton>
-                                <ToggleButton value="on" active={polygonTool} title="Click to add points, double-click to complete">
-                                    <span className="toggle-icon">⬠</span>
-                                    <span className="toggle-label">On</span>
-                                </ToggleButton>
-                            </ToggleButtonGroup>
                         </div>
                         <RefreshTimer
                             intervalMs={refreshIntervalMs}
@@ -341,7 +325,13 @@ export default function LabelingPage() {
 
             {/* Right column: patch gallery */}
             <div className="labeling-column labeling-column-gallery">
-                <PatchGallery projectId={projectId} patchGalleryItems={patchGalleryItems} pageSize={pageSize} setPageSize={setPageSize} />
+                <PatchGallery
+                    projectId={projectId}
+                    patchGalleryItems={patchGalleryItems}
+                    pageSize={pageSize}
+                    setPageSize={handlePageSizeChange}
+                    totalPatches={totalPatches}
+                />
             </div>
         </div>
     )

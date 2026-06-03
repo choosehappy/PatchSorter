@@ -14,11 +14,13 @@ export default function PatchGallery({
     patchGalleryItems,
     pageSize,
     setPageSize,
+    totalPatches,
 }: {
     projectId: number
     patchGalleryItems: PatchResponse[] | null
     pageSize: number
     setPageSize: (s: number) => void
+    totalPatches: number | null
 }) {
     const [patches, setPatches] = useState<PatchResponse[]>([])
     const [cursor, setCursor] = useState(0)
@@ -29,6 +31,8 @@ export default function PatchGallery({
 
     const effectivePatches = patchGalleryItems ?? patches
     const hasExternalItems = patchGalleryItems !== null
+
+    const totalPages = totalPatches !== null ? Math.max(1, Math.ceil(totalPatches / pageSize)) : 0
 
     const fetchPatches = useCallback(async (pageCursor: number) => {
         setLoading(true)
@@ -123,6 +127,20 @@ export default function PatchGallery({
                             ))}
                         </select>
                     </label>
+                </div>
+
+                <div className="toolbar-group">
+                    {hasExternalItems && totalPatches !== null ? (
+                        <span>
+                            Page {cursor / pageSize + 1} of {totalPages} · {totalPatches} patches
+                        </span>
+                    ) : hasExternalItems ? (
+                        <span>{effectivePatches.length} patches</span>
+                    ) : (
+                        <span>
+                            {patches.length > 0 ? `Page ${Math.floor(cursor / pageSize) + 1}` : 'Page 1'} of {totalPages > 0 ? totalPages : '?'}
+                        </span>
+                    )}
                 </div>
             </div>
 

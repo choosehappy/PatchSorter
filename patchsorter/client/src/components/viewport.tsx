@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { client } from '../api_client/client.gen'
 import { type ServeTileProjectsProjectIdTilesZxyPngGetData, type WorldInfo } from '../api_client'
 
@@ -24,9 +24,8 @@ interface ViewportProps {
     refreshTick: number
     onBoundsChange: (bounds: MapBounds) => void
     onZoomChange: (osmZoom: number, level: number) => void
-    polygonTool: boolean
-    onPolygonComplete: (bbox: { x_min: number; x_max: number; y_min: number; y_max: number }) => void
-    onClear: () => void
+    onLassoComplete: (data: { polygon: number[][][]; bbox: { x_min: number; x_max: number; y_min: number; y_max: number } }) => void
+    onViewportClick: () => void
 }
 
 export default function Viewport({
@@ -39,9 +38,8 @@ export default function Viewport({
     refreshTick,
     onBoundsChange,
     onZoomChange,
-    polygonTool,
-    onPolygonComplete,
-    onClear,
+    onLassoComplete,
+    onViewportClick,
 }: ViewportProps) {
     const osmZoomOffset = worldInfo?.osm_zoom_offset ?? 8
     const maxOsmZoom = (worldInfo?.max_level ?? 12) - osmZoomOffset
@@ -50,19 +48,79 @@ export default function Viewport({
     const overlayLayerRef = useRef<any>(null)
     const paramsRef = useRef<any>(null)
     const annotationLayerRef = useRef<any>(null)
-    const polygonFeatureRef = useRef<any>(null)
-    const annotationLayerCreatedRef = useRef(false)
+    const isDrawingRef = useRef(false)
+    const justCompletedRef = useRef(false)
+    const activeModeRef = useRef<'lasso' | 'polygon'>('lasso')
+    const isCtrlHeldRef = useRef(false)
+    const [isCtrlHeld, setIsCtrlHeld] = useState(false)
 
-    function getPolygonFromAnnotationLayer(): number[][][] | null {
-        if (!annotationLayerRef.current) return null
-        const annotations = annotationLayerRef.current.annotations()
-        if (annotations && annotations.length > 0) {
-            const geometry = annotations[0].geojson()?.geometry
-            if (geometry?.type === 'Polygon') {
-                return geometry.coordinates
-            }
+    function computeBboxFromPolygon(coordinates: number[][][]): { x_min: number; x_max: number; y_min: number; y_max: number } | null {
+        const ring = coordinates[0]
+        let wxMin = Infinity, wxMax = -Infinity, wyMin = Infinity, wyMax = -Infinity
+        for (const [x, y] of ring) {
+            if (x < wxMin) wxMin = x
+            if (x > wxMax) wxMax = x
+            if (y < wyMin) wyMin = y
+            if (y > wyMax) wyMax = y
+        }
+        if (wxMin < wxMax && wyMin < wyMax) {
+            return { x_min: wxMin, x_max: wxMax, y_min: wyMin, y_max: wyMax }
         }
         return null
+    }
+
+    function handleNewAnnotation(e: any) {
+        if (e.type !== 'create') return
+        isDrawingRef.current = false
+        justCompletedRef.current = true
+
+        // Get coordinates from the newly created annotation
+        const annotation = e.annotation
+        const geometry = annotation?.geojson()?.geometry
+        const coordinates: number[][][] | null = geometry?.type === 'Polygon' ? geometry.coordinates : null
+        if (!coordinates || coordinates.length === 0) return
+
+        // Remove any previous polygon annotations, keeping only this new one
+        const allAnnotations = annotationLayerRef.current.annotations()
+        for (const ann of allAnnotations) {
+            if (ann !== annotation) {
+                annotationLayerRef.current.removeAnnotation(ann)
+            }
+        }
+
+        const bbox = computeBboxFromPolygon(coordinates)
+        if (bbox) {
+            onLassoComplete({ polygon: coordinates, bbox })
+        }
+
+        // Keep annotation visible; restore drawing mode for next lasso
+        annotationLayerRef.current.mode('lasso')
+        annotationLayerRef.current.draw()
+    }
+
+    function setAnnotationMode(mode: 'lasso' | 'polygon') {
+        if (!annotationLayerRef.current || !mapRef.current) return
+        activeModeRef.current = mode
+        annotationLayerRef.current.mode(mode, undefined, {
+            createStyle: {
+                fillColor: 'rgba(255, 165, 0, 0.3)',
+                strokeColor: 'orange',
+                strokeWidth: 2,
+                pointSize: 5,
+                pointFillColor: 'orange',
+                pointBorderColor: 'darkorange',
+                pointBorderWidth: 1,
+            },
+        })
+        annotationLayerRef.current.draw()
+    }
+
+    function clearLassoPolygon() {
+        if (annotationLayerRef.current) {
+            annotationLayerRef.current.removeAllAnnotations()
+            annotationLayerRef.current.draw()
+        }
+        onViewportClick()
     }
 
     // Keep a mutable ref for tile-URL state so the GeoJS callback always reads
@@ -110,7 +168,7 @@ export default function Viewport({
             mapRef.current.deleteLayer(overlayLayerRef.current)
         }
         paramsRef.current.layer.url = (x: number, y: number, z: number) => buildTileUrl(x, y, z)
-        overlayLayerRef.current = mapRef.current.createLayer('osm', paramsRef.current.layer)
+        overlayLayerRef.current = mapRef.current.createLayer('osm', { ...paramsRef.current.layer, zIndex: 0 })
         mapRef.current.draw()
     }
 
@@ -139,7 +197,37 @@ export default function Viewport({
         params.layer.nearestPixel = true
         params.layer.background = { r: 1, g: 1, b: 1, a: 1 }
         params.layer.maxLevel = maxOsmZoom
-        overlayLayerRef.current = map.createLayer('osm', params.layer)
+        overlayLayerRef.current = map.createLayer('osm', { ...params.layer, zIndex: 0 })
+
+        // Create annotation layer on init
+        annotationLayerRef.current = map.createLayer('annotation', { zIndex: 1 })
+        setAnnotationMode('lasso')
+
+        // When a new annotation drawing starts, mark as drawing and clear old annotations
+        annotationLayerRef.current.geoOn(geo.event.annotation.add, (e: any) => {
+            isDrawingRef.current = true
+            justCompletedRef.current = false
+            const newAnnotation = e.annotation
+            const existingAnnotations = annotationLayerRef.current.annotations()
+            for (const ann of existingAnnotations) {
+                if (ann !== newAnnotation) {
+                    annotationLayerRef.current.removeAnnotation(ann)
+                }
+            }
+        })
+
+        // Register annotation completion event listener
+        annotationLayerRef.current.geoOn(geo.event.annotation.state, handleNewAnnotation)
+
+        // Use GeoJS mouseclick to clear polygon; skip the click that ends a lasso
+        map.geoOn(geo.event.mouseclick, () => {
+            if (isDrawingRef.current) return
+            if (justCompletedRef.current) {
+                justCompletedRef.current = false
+                return
+            }
+            clearLassoPolygon()
+        })
 
         map.geoOn(geo.event.zoom, () => {
             const z = Math.round(map.zoom())
@@ -158,8 +246,27 @@ export default function Viewport({
 
         onBoundsChange(map.bounds())
 
+        // Track Ctrl key state via mouse events on the map div
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Control' || e.key === 'Meta') {
+                isCtrlHeldRef.current = true
+                setIsCtrlHeld(true)
+            }
+        }
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (e.key === 'Control' || e.key === 'Meta') {
+                isCtrlHeldRef.current = false
+                setIsCtrlHeld(false)
+            }
+        }
+
+        document.addEventListener('keydown', handleKeyDown)
+        document.addEventListener('keyup', handleKeyUp)
+
         return () => {
             map.exit()
+            document.removeEventListener('keydown', handleKeyDown)
+            document.removeEventListener('keyup', handleKeyUp)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
@@ -178,111 +285,14 @@ export default function Viewport({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [colorBy, filterBy, selectedCells])
 
-    // Polygon annotation layer: enable/disable based on polygonTool prop
+    // Change annotation mode based on Ctrl state
     useEffect(() => {
-        const map = mapRef.current
-        if (!map) return
-
-        if (polygonTool) {
-            // Create annotation layer if not already created
-            if (!annotationLayerCreatedRef.current) {
-                annotationLayerRef.current = map.createLayer('annotation')
-                annotationLayerCreatedRef.current = true
-            }
-
-            // Set polygon mode on the annotation layer
-            const annotationLayer = annotationLayerRef.current
-            annotationLayer.mode('polygon', undefined, {
-                createStyle: {
-                    fillColor: 'rgba(255, 165, 0, 0.3)',
-                    strokeColor: 'orange',
-                    strokeWidth: 2,
-                    pointSize: 5,
-                    pointFillColor: 'orange',
-                    pointBorderColor: 'darkorange',
-                    pointBorderWidth: 1,
-                },
-            })
-
-            // Listen for polygon completion via annotation state event
-            const handleNewAnnotation = () => {
-                // Get polygon coordinates from annotation layer
-                const coordinates = getPolygonFromAnnotationLayer()
-                if (!coordinates || coordinates.length === 0) return
-
-                // Compute world-space bbox from polygon coordinates
-                const ring = coordinates[0]
-                let wxMin = Infinity, wxMax = -Infinity, wyMin = Infinity, wyMax = -Infinity
-                for (const [x, y] of ring) {
-                    if (x < wxMin) wxMin = x
-                    if (x > wxMax) wxMax = x
-                    if (y < wyMin) wyMin = y
-                    if (y > wyMax) wyMax = y
-                }
-
-                if (wxMin < wxMax && wyMin < wyMax) {
-                    onPolygonComplete({ x_min: wxMin, x_max: wxMax, y_min: wyMin, y_max: wyMax })
-                }
-
-                // Disable polygon mode after completing a polygon
-                annotationLayer.mode('none')
-
-                // Clear annotations so layer can be reused
-                annotationLayer.removeAllAnnotations()
-            }
-
-            annotationLayer.geoOn(geo.event.annotation.state, handleNewAnnotation)
-
-            // Store the handler reference for cleanup
-            polygonFeatureRef.current = { handler: handleNewAnnotation }
-
+        if (isCtrlHeld) {
+            setAnnotationMode('polygon')
         } else {
-            // Disable polygon mode and clean up annotation layer
-            if (annotationLayerRef.current) {
-                annotationLayerRef.current.mode('none')
-                annotationLayerRef.current.geoOff(geo.event.annotation.state, polygonFeatureRef.current?.handler)
-                map.deleteLayer(annotationLayerRef.current)
-                annotationLayerRef.current = null
-                annotationLayerCreatedRef.current = false
-            }
-            polygonFeatureRef.current = null
+            setAnnotationMode('lasso')
         }
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [polygonTool])
-
-    // Click on map clears annotation layer and gallery items
-    function handleMapClick() {
-        const map = mapRef.current
-        if (!map) return
-
-        if (annotationLayerRef.current) {
-            annotationLayerRef.current.mode('none')
-            annotationLayerRef.current.removeAllAnnotations()
-        }
-
-        onClear()
-    }
-
-    useEffect(() => {
-        const map = mapRef.current
-        if (!map) return
-
-        function onMapClick() {
-            handleMapClick()
-        }
-
-        if (typeof geo !== 'undefined' && geo.event?.pan) {
-            map.geoOn(geo.event.pan, onMapClick)
-        }
-
-        return () => {
-            if (typeof geo !== 'undefined' && geo.event?.pan) {
-                map.geoOff(geo.event.pan, onMapClick)
-            }
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, [isCtrlHeld])
 
     return <div ref={mapDivRef} style={{ width: '100%', height: '100%' }} />
 }
