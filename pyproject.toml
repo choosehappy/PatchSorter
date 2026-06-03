@@ -52,3 +52,8 @@ egg_base = "../"
 testpaths = ["patchsorter/tests"]
 pythonpath = ["."]
 
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+]
+

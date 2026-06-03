@@ -6,6 +6,26 @@
     min-height: 0;
     overflow: hidden;
     background: #fff;
+    display: flex;
+    flex-direction: row;
+}
+
+.labeling-column {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.labeling-column-map {
+    flex: 1;
+    position: relative;
+}
+
+.labeling-column-gallery {
+    width: 50%;
+    flex-shrink: 0;
 }
 
 /* ---- Shared controls panel style ---- */

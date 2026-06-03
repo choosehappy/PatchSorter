@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetData, GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetErrors, GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetResponses, InfoAggInfoGetData, InfoAggInfoGetResponses, ServeTileAggProjectsProjectIdTilesZxyPngGetData, ServeTileAggProjectsProjectIdTilesZxyPngGetErrors, ServeTileAggProjectsProjectIdTilesZxyPngGetResponses } from './types.gen';
+import type { GetConfusionMatrixProjectsProjectIdConfusionMatrixGetData, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetErrors, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetResponses, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetData, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetErrors, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetResponses, GetPatchProjectsProjectIdPatchesPatchIdGetData, GetPatchProjectsProjectIdPatchesPatchIdGetErrors, GetPatchProjectsProjectIdPatchesPatchIdGetResponses, GetProjectProjectsProjectIdGetData, GetProjectProjectsProjectIdGetErrors, GetProjectProjectsProjectIdGetResponses, InfoProjectsProjectIdInfoGetData, InfoProjectsProjectIdInfoGetErrors, InfoProjectsProjectIdInfoGetResponses, ListLabelClassesProjectsProjectIdLabelClassesGetData, ListLabelClassesProjectsProjectIdLabelClassesGetErrors, ListLabelClassesProjectsProjectIdLabelClassesGetResponses, ListPatchesProjectsProjectIdPatchesGetData, ListPatchesProjectsProjectIdPatchesGetErrors, ListPatchesProjectsProjectIdPatchesGetResponses, ListProjectsProjectsGetData, ListProjectsProjectsGetResponses, ServeTileProjectsProjectIdTilesZxyPngGetData, ServeTileProjectsProjectIdTilesZxyPngGetErrors, ServeTileProjectsProjectIdTilesZxyPngGetResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -21,14 +21,44 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 /**
  * Info
  */
-export const infoAggInfoGet = <ThrowOnError extends boolean = false>(options?: Options<InfoAggInfoGetData, ThrowOnError>) => (options?.client ?? client).get<InfoAggInfoGetResponses, unknown, ThrowOnError>({ url: '/agg/info', ...options });
+export const infoProjectsProjectIdInfoGet = <ThrowOnError extends boolean = false>(options: Options<InfoProjectsProjectIdInfoGetData, ThrowOnError>) => (options.client ?? client).get<InfoProjectsProjectIdInfoGetResponses, InfoProjectsProjectIdInfoGetErrors, ThrowOnError>({ url: '/projects/{project_id}/info', ...options });
 
 /**
  * Serve Tile
  */
-export const serveTileAggProjectsProjectIdTilesZXYPngGet = <ThrowOnError extends boolean = false>(options: Options<ServeTileAggProjectsProjectIdTilesZxyPngGetData, ThrowOnError>) => (options.client ?? client).get<ServeTileAggProjectsProjectIdTilesZxyPngGetResponses, ServeTileAggProjectsProjectIdTilesZxyPngGetErrors, ThrowOnError>({ url: '/agg/projects/{project_id}/tiles/{z}/{x}/{y}.png', ...options });
+export const serveTileProjectsProjectIdTilesZXYPngGet = <ThrowOnError extends boolean = false>(options: Options<ServeTileProjectsProjectIdTilesZxyPngGetData, ThrowOnError>) => (options.client ?? client).get<ServeTileProjectsProjectIdTilesZxyPngGetResponses, ServeTileProjectsProjectIdTilesZxyPngGetErrors, ThrowOnError>({ url: '/projects/{project_id}/tiles/{z}/{x}/{y}.png', ...options });
 
 /**
  * Get Confusion Matrix
  */
-export const getConfusionMatrixAggProjectsProjectIdConfusionMatrixGet = <ThrowOnError extends boolean = false>(options: Options<GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetData, ThrowOnError>) => (options.client ?? client).get<GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetResponses, GetConfusionMatrixAggProjectsProjectIdConfusionMatrixGetErrors, ThrowOnError>({ url: '/agg/projects/{project_id}/confusion_matrix', ...options });
+export const getConfusionMatrixProjectsProjectIdConfusionMatrixGet = <ThrowOnError extends boolean = false>(options: Options<GetConfusionMatrixProjectsProjectIdConfusionMatrixGetData, ThrowOnError>) => (options.client ?? client).get<GetConfusionMatrixProjectsProjectIdConfusionMatrixGetResponses, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetErrors, ThrowOnError>({ url: '/projects/{project_id}/confusion_matrix', ...options });
+
+/**
+ * List Projects
+ */
+export const listProjectsProjectsGet = <ThrowOnError extends boolean = false>(options?: Options<ListProjectsProjectsGetData, ThrowOnError>) => (options?.client ?? client).get<ListProjectsProjectsGetResponses, unknown, ThrowOnError>({ url: '/projects/', ...options });
+
+/**
+ * Get Project
+ */
+export const getProjectProjectsProjectIdGet = <ThrowOnError extends boolean = false>(options: Options<GetProjectProjectsProjectIdGetData, ThrowOnError>) => (options.client ?? client).get<GetProjectProjectsProjectIdGetResponses, GetProjectProjectsProjectIdGetErrors, ThrowOnError>({ url: '/projects/{project_id}', ...options });
+
+/**
+ * List Label Classes
+ */
+export const listLabelClassesProjectsProjectIdLabelClassesGet = <ThrowOnError extends boolean = false>(options: Options<ListLabelClassesProjectsProjectIdLabelClassesGetData, ThrowOnError>) => (options.client ?? client).get<ListLabelClassesProjectsProjectIdLabelClassesGetResponses, ListLabelClassesProjectsProjectIdLabelClassesGetErrors, ThrowOnError>({ url: '/projects/{project_id}/label_classes/', ...options });
+
+/**
+ * Get Label Class
+ */
+export const getLabelClassProjectsProjectIdLabelClassesLabelClassIdGet = <ThrowOnError extends boolean = false>(options: Options<GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetData, ThrowOnError>) => (options.client ?? client).get<GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetResponses, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetErrors, ThrowOnError>({ url: '/projects/{project_id}/label_classes/{label_class_id}', ...options });
+
+/**
+ * List Patches
+ */
+export const listPatchesProjectsProjectIdPatchesGet = <ThrowOnError extends boolean = false>(options: Options<ListPatchesProjectsProjectIdPatchesGetData, ThrowOnError>) => (options.client ?? client).get<ListPatchesProjectsProjectIdPatchesGetResponses, ListPatchesProjectsProjectIdPatchesGetErrors, ThrowOnError>({ url: '/projects/{project_id}/patches/', ...options });
+
+/**
+ * Get Patch
+ */
+export const getPatchProjectsProjectIdPatchesPatchIdGet = <ThrowOnError extends boolean = false>(options: Options<GetPatchProjectsProjectIdPatchesPatchIdGetData, ThrowOnError>) => (options.client ?? client).get<GetPatchProjectsProjectIdPatchesPatchIdGetResponses, GetPatchProjectsProjectIdPatchesPatchIdGetErrors, ThrowOnError>({ url: '/projects/{project_id}/patches/{patch_id}', ...options });

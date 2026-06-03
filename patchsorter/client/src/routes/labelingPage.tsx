@@ -5,7 +5,8 @@ import './labelingPage.css'
 import Viewport, { type MapBounds } from '../components/viewport'
 import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatrix'
 import RefreshTimer from '../components/refreshTimer'
-import { getConfusionMatrixAggProjectsProjectIdConfusionMatrixGet, infoAggInfoGet, type WorldInfo } from '../api_client'
+import PatchGallery from '../components/PatchGallery'
+import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, type WorldInfo } from '../api_client'
 
 
 
@@ -55,7 +56,7 @@ export default function LabelingPage() {
     const [refreshIntervalMs, setRefreshIntervalMs] = useState<number | null>(5000)
 
     useEffect(() => {
-        infoAggInfoGet()
+        infoProjectsProjectIdInfoGet({ path: { project_id: projectId } })
             .then(({ data, error }) => {
                 if (data) setWorldInfo(data)
                 else console.error('Error fetching world info:', error)
@@ -73,7 +74,7 @@ export default function LabelingPage() {
 
     const { data: confusionData = null } = useQuery<ConfusionData | null>({
         queryKey: ['confusionMatrix', bounds, lp, refreshTick],
-        queryFn: () => getConfusionMatrixAggProjectsProjectIdConfusionMatrixGet({
+        queryFn: () => getConfusionMatrixProjectsProjectIdConfusionMatrixGet({
             path: { project_id: projectId },
             query: {
                 x_min: bounds!.left,
@@ -173,73 +174,80 @@ export default function LabelingPage() {
 
     return (
         <div className="labeling-page">
-            {/* Full-screen tile map */}
-            <Viewport
-                projectId={projectId}
-                colorBy={colorBy}
-                filterBy={filterBy}
-                selectedCells={selectedCells}
-                numClasses={NUM_CLASSES}
-                worldInfo={worldInfo}
-                refreshTick={refreshTick}
-                onBoundsChange={setBounds}
-                onZoomChange={handleZoomChange}
-            />
+            {/* Left column: map + overlays */}
+            <div className="labeling-column labeling-column-map">
+                <Viewport
+                    projectId={projectId}
+                    colorBy={colorBy}
+                    filterBy={filterBy}
+                    selectedCells={selectedCells}
+                    numClasses={NUM_CLASSES}
+                    worldInfo={worldInfo}
+                    refreshTick={refreshTick}
+                    onBoundsChange={setBounds}
+                    onZoomChange={handleZoomChange}
+                />
 
-            {/* OSM zoom info in bottom left */}
-            <div id="zoom-info-floating">{zoomInfo}</div>
+                {/* OSM zoom info in bottom left */}
+                <div id="zoom-info-floating">{zoomInfo}</div>
 
-            {/* Left controls overlay: reset, color by, filter by (flattened) */}
-            <div id="controls-left">
-                <div className="control-row flattened">
-                    <button onClick={handleReset} style={{ alignSelf: 'end', height: 32, marginRight: 8 }}>Reset</button>
-                    <div className="control-group">
-                        <label>Color scatter plot by</label>
-                        <select value={colorBy} onChange={e => setColorBy(e.target.value)}>
-                            <option value="gt">Ground Truth</option>
-                            <option value="pred">Prediction</option>
-                        </select>
+                {/* Left controls overlay: reset, color by, filter by (flattened) */}
+                <div id="controls-left">
+                    <div className="control-row flattened">
+                        <button onClick={handleReset} style={{ alignSelf: 'end', height: 32, marginRight: 8 }}>Reset</button>
+                        <div className="control-group">
+                            <label>Color scatter plot by</label>
+                            <select value={colorBy} onChange={e => setColorBy(e.target.value)}>
+                                <option value="gt">Ground Truth</option>
+                                <option value="pred">Prediction</option>
+                            </select>
+                        </div>
+                        <div className="control-group">
+                            <label>Filter by</label>
+                            <select value={filterBy} onChange={e => handleFilterChange(e.target.value)}>
+                                <option value="all">All</option>
+                                <option value="discordant">Discordant</option>
+                                <option value="concordant">Concordant</option>
+                                <option value="custom">Custom</option>
+                            </select>
+                        </div>
+                        <RefreshTimer
+                            intervalMs={refreshIntervalMs}
+                            onIntervalChange={setRefreshIntervalMs}
+                            onTick={() => setRefreshTick(t => t + 1)}
+                        />
                     </div>
-                    <div className="control-group">
-                        <label>Filter by</label>
-                        <select value={filterBy} onChange={e => handleFilterChange(e.target.value)}>
-                            <option value="all">All</option>
-                            <option value="discordant">Discordant</option>
-                            <option value="concordant">Concordant</option>
-                            <option value="custom">Custom</option>
-                        </select>
+                </div>
+
+                {/* Right controls overlay: pin + confusion matrix */}
+                <div id="controls-right">
+                    <div className={`cm-wrapper${cmPinned ? ' pinned' : ''}`}>
+                        <label className="cm-pin-label">
+                            <input
+                                type="checkbox"
+                                checked={cmPinned}
+                                onChange={e => setCmPinned(e.target.checked)}
+                            />
+                            Pin Confusion Matrix
+                        </label>
+                        <div className="cm-content">
+                            <ConfusionMatrix
+                                confusionData={confusionData}
+                                selectedCells={selectedCells}
+                                colorBy={colorBy}
+                                classLabels={CLASS_LABELS}
+                                classColors={CLASS_COLORS}
+                                onCellClick={handleCellClick}
+                                onHeaderClick={handleHeaderClick}
+                            />
+                        </div>
                     </div>
-                    <RefreshTimer
-                        intervalMs={refreshIntervalMs}
-                        onIntervalChange={setRefreshIntervalMs}
-                        onTick={() => setRefreshTick(t => t + 1)}
-                    />
                 </div>
             </div>
 
-            {/* Right controls overlay: pin + confusion matrix */}
-            <div id="controls-right">
-                <div className={`cm-wrapper${cmPinned ? ' pinned' : ''}`}>
-                    <label className="cm-pin-label">
-                        <input
-                            type="checkbox"
-                            checked={cmPinned}
-                            onChange={e => setCmPinned(e.target.checked)}
-                        />
-                        Pin Confusion Matrix
-                    </label>
-                    <div className="cm-content">
-                        <ConfusionMatrix
-                            confusionData={confusionData}
-                            selectedCells={selectedCells}
-                            colorBy={colorBy}
-                            classLabels={CLASS_LABELS}
-                            classColors={CLASS_COLORS}
-                            onCellClick={handleCellClick}
-                            onHeaderClick={handleHeaderClick}
-                        />
-                    </div>
-                </div>
+            {/* Right column: patch gallery */}
+            <div className="labeling-column labeling-column-gallery">
+                <PatchGallery projectId={projectId} />
             </div>
         </div>
     )

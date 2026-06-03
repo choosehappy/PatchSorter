@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { client } from '../api_client/client.gen'
-import { type ServeTileAggProjectsProjectIdTilesZxyPngGetData, type WorldInfo } from '../api_client'
+import { type ServeTileProjectsProjectIdTilesZxyPngGetData, type WorldInfo } from '../api_client'
 
 // GeoJS loaded via CDN in index.html
 declare const geo: any
@@ -58,7 +58,7 @@ export default function Viewport({
         const bounds = mapRef.current.bounds()
 
         // TypeScript will complain if this is no longer true due to changes in the API.
-        const tile_url = '/agg/projects/{project_id}/tiles/{z}/{x}/{y}.png' satisfies ServeTileAggProjectsProjectIdTilesZxyPngGetData['url']
+        const tile_url = '/projects/{project_id}/tiles/{z}/{x}/{y}.png' satisfies ServeTileProjectsProjectIdTilesZxyPngGetData['url']
 
         // Build query object without undefined properties
         const query: Record<string, any> = {
@@ -81,7 +81,7 @@ export default function Viewport({
             path: { z, x, y, project_id: projectId },
             query,
             url: tile_url
-        } as ServeTileAggProjectsProjectIdTilesZxyPngGetData
+        } as ServeTileProjectsProjectIdTilesZxyPngGetData
 
         return client.buildUrl(options)
     }
