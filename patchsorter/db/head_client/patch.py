@@ -181,26 +181,38 @@ class PatchStore:
                     copy.write_row(row)
         return len(records)
 
-    def fetch(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def fetch(
+        self,
+        limit: int = 10,
+        cursor: int = 0,
+        include_image: bool = True,
+    ) -> List[Dict[str, Any]]:
         """Fetch up to *limit* patches, ordered by ``patch_id``.
 
         Args:
             limit: Maximum number of rows to return.  Defaults to ``10``.
+            cursor: Exclusive lower-bound ``patch_id`` for keyset pagination.
+                Pass ``0`` (default) to fetch the first page.
+            include_image: When ``True`` (default), ``patch_image`` bytes are
+                included in each returned dict.  Set to ``False`` for
+                metadata-only results.
 
         Returns:
-            A list of dicts, one per patch row (excluding ``patch_image`` blob).
+            A list of dicts, one per patch row.
         """
+        image_col = ", patch_image" if include_image else ""
         rows = self._session.execute(
             text(
                 f"""
                 SELECT patch_id, patch_uid, label_class_id, image_id, downsample_factor,
-                       centroid_x, centroid_y, ST_AsGeoJSON(polygon) AS polygon
+                       centroid_x, centroid_y, ST_AsGeoJSON(polygon) AS polygon{image_col}
                 FROM {self.table_name}
+                WHERE patch_id > :cursor
                 ORDER BY patch_id
                 LIMIT :limit
                 """
             ),
-            {"limit": limit},
+            {"limit": limit, "cursor": cursor},
         ).mappings().all()
         return [dict(r) for r in rows]
 
@@ -292,6 +304,39 @@ class PatchStore:
     # ------------------------------------------------------------------ #
     # Paginated join queries                                               #
     # ------------------------------------------------------------------ #
+
+    def fetch_predicted(
+        self,
+        cursor: int = 0,
+        limit: int = 20,
+        include_image: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """Fetch a paginated page of patches that have predictions.
+
+        Only patches with at least one row in ``pred_patch_latest`` or
+        ``pred_patch_last`` are returned.  The best available prediction is
+        resolved by preferring ``pred_patch_latest`` (priority 1) over
+        ``pred_patch_last`` (priority 2).
+
+        Args:
+            cursor: Exclusive lower-bound ``patch_id`` for keyset pagination.
+                Pass ``0`` (default) to fetch the first page.
+            limit: Maximum number of rows to return.  Defaults to ``20``.
+            include_image: When ``True`` (default), ``patch_image`` bytes are
+                included in each returned dict.
+
+        Returns:
+            A list of flat dicts merging patch columns with pred columns
+            (``embed_x``, ``embed_y``, ``grid_cell_i``, ``grid_cell_j``,
+            ``pred_label_class_id``, ``event_ts``, ``priority``).
+        """
+        return self._paginated_pred_join(
+            pred_filter_sql="TRUE",
+            pred_params={},
+            cursor=cursor,
+            limit=limit,
+            include_image=include_image,
+        )
 
     def _paginated_pred_join(
         self,
