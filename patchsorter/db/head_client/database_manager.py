@@ -404,7 +404,7 @@ class DatabaseManager:
         # No TG_ARGV needed — CM shards are resolved dynamically inside the function.
         def _attach_insert_triggers_sql(table: str) -> str:
             return f"""
-            SELECT run_command_on_shards(
+            SELECT * FROM run_command_on_shards(
                 '{table}',
                 $cmd$
                     CREATE TRIGGER trg_update_cm_p{n} AFTER INSERT ON %s
@@ -417,7 +417,7 @@ class DatabaseManager:
 
         # Step 2b: Attach AFTER UPDATE trigger to each project{N}_patch shard.
         attach_update_triggers_sql = f"""
-            SELECT run_command_on_shards(
+            SELECT * FROM run_command_on_shards(
                 '{PatchStore.build_table_name(n)}',
                 $cmd$
                     CREATE TRIGGER trg_update_cm_on_patch_update_p{n} AFTER UPDATE ON %s
@@ -428,23 +428,58 @@ class DatabaseManager:
             );
             """
 
+        def _run_and_check_workers(cur, sql: str, label: str) -> None:
+            cur.execute(f"SELECT * FROM run_command_on_workers($outer${sql}$outer$);")
+            rows = cur.fetchall()
+            failures = [r for r in rows if not r[2]]
+            if failures:
+                for r in failures:
+                    print(f"  FAILED on worker {r[0]}:{r[1]}: {r[3]}")
+                raise RuntimeError(f"{label} failed on {len(failures)} worker(s)")
+            print(f"{label} succeeded on {len(rows)} worker(s).")
+
+        def _run_and_check_shards(cur, sql: str, label: str) -> None:
+            cur.execute(sql)
+            rows = cur.fetchall()
+            failures = [r for r in rows if not r[1]]
+            if failures:
+                for r in failures:
+                    print(f"  FAILED on shard {r[0]}: {r[2]}")
+                raise RuntimeError(f"{label} failed on {len(failures)} shard(s)")
+            print(f"{label} succeeded on {len(rows)} shard(s).")
+
+        # Phase 1: create trigger functions on coordinator (and workers).
+        # Must commit before Phase 2 so run_command_on_shards (which opens a
+        # fresh connection) can see the functions.
         with raw_conn.cursor() as cur:
             cur.execute(insert_trigger_fn_sql)
-            cur.execute(f"SELECT run_command_on_workers($outer${insert_trigger_fn_sql}$outer$);")
-            print(f"INSERT trigger function created on coordinator and workers for project {n}.")
+            _run_and_check_workers(cur, insert_trigger_fn_sql, f"INSERT trigger function (project {n}) on workers")
 
             cur.execute(update_trigger_fn_sql)
-            cur.execute(f"SELECT run_command_on_workers($outer${update_trigger_fn_sql}$outer$);")
-            print(f"UPDATE trigger function created on coordinator and workers for project {n}.")
+            _run_and_check_workers(cur, update_trigger_fn_sql, f"UPDATE trigger function (project {n}) on workers")
 
-            cur.execute(_attach_insert_triggers_sql(PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)))
-            print(f"Per-shard INSERT triggers installed on {PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)} shards.")
+        raw_conn.commit()
+        print(f"Trigger functions committed for project {n}.")
 
-            cur.execute(_attach_insert_triggers_sql(PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)))
-            print(f"Per-shard INSERT triggers installed on {PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)} shards.")
+        # Phase 2: attach triggers to shards via run_command_on_shards.
+        with raw_conn.cursor() as cur:
+            _run_and_check_shards(
+                cur,
+                _attach_insert_triggers_sql(PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)),
+                f"Per-shard INSERT triggers on {PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)}",
+            )
 
-            cur.execute(attach_update_triggers_sql)
-            print(f"Per-shard UPDATE triggers installed on project{n}_patch shards.")
+            _run_and_check_shards(
+                cur,
+                _attach_insert_triggers_sql(PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)),
+                f"Per-shard INSERT triggers on {PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)}",
+            )
+
+            _run_and_check_shards(
+                cur,
+                attach_update_triggers_sql,
+                f"Per-shard UPDATE triggers on project{n}_patch",
+            )
 
         print(f"\nAll per-shard triggers installed for project {n}.")
 
@@ -467,14 +502,16 @@ class DatabaseManager:
         with self.sm.get_connection() as conn:
             with conn.cursor() as cur:
                 try:
-                    cur.execute("SET LOCAL citus.multi_shard_modify_mode TO 'sequential';")
+                    cur.execute("SET citus.multi_shard_modify_mode TO 'sequential';")
                 except Exception:
-                    # If the setting is unavailable, proceed and let any DB error surface.
                     pass
 
             self.create_project_tables(project_id, conn)
+            # Commit table creation so shard tables and distribution metadata
+            # are visible to run_command_on_shards (which opens new connections).
+            conn.commit()
+
             self.setup_triggers(project_id, conn)
-            # Commit the transaction so DDL and trigger installation persist.
             conn.commit()
 
     def get_shard_map_for_patch_and_pred(self, project_id: int) -> CitusShardMap:
