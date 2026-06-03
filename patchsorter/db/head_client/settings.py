@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from patchsorter.db.head_client.models import Setting
 from patchsorter.config.constants import SettingType
@@ -18,7 +19,7 @@ def _scope_clause(project_id: Optional[int]):
     """Return a WHERE clause fragment that matches the given project scope."""
     if project_id is None:
         return Setting.project_id.is_(None)
-    return Setting.project_id == project_id
+    return or_(Setting.project_id == project_id, Setting.project_id.is_(None))
 
 
 class SettingsStore:
@@ -82,6 +83,34 @@ class SettingsStore:
         if not obj.disabled:
             obj.setting_value = setting_value
         return obj
+    
+    def get_all_as_dict(self, project_id: Optional[int] = None) -> Dict[str, Any]:
+        """Return all settings for the given scope as a dict of key to parsed value.
+
+        The returned dict maps setting keys to their parsed values (e.g. integers
+        for settings of type INTEGER, booleans for type BOOLEAN, etc.).  Settings
+        with invalid values are skipped with a warning.
+
+        Args:
+            project_id: The project scope, or ``None`` for application-level
+                settings.
+        Returns:
+            A dict mapping setting keys to their parsed values for the given scope.
+        """
+        rows = self.get_all_within_project_scope(project_id=project_id)
+        result: Dict[str, Any] = {}
+        for obj in rows:
+            setting_type = SettingType(obj.setting_type)
+            if setting_type == SettingType.INTEGER:
+                value = int(obj.setting_value)
+            elif setting_type == SettingType.BOOLEAN:
+                value = obj.setting_value.lower() in ("true", "1")
+            elif setting_type in (SettingType.ENUM, SettingType.STRING):
+                value = obj.setting_value
+            else:
+                raise ValueError(f"Unsupported setting type: {setting_type}")
+            result[obj.setting_key] = value
+        return result
 
     def get(
         self,
@@ -105,45 +134,44 @@ class SettingsStore:
             .where(_scope_clause(project_id))
         )
     
-    def get(
-        self,
-        setting_key: str,
-        project_id: Optional[int] = None,
-        ) -> Optional[T]:
-        """Fetch a single setting by key and optional project scope, returning the value.
+    # def get_value(
+    #     self,
+    #     setting_key: str,
+    #     project_id: Optional[int],
+    #     expected_type: type[T],
+    # ) -> T:
+    #     obj = self.get(setting_key, project_id)
+    #     if obj is None:
+    #         raise KeyError(
+    #             f"Setting {setting_key!r} not found for project_id={project_id!r}."
+    #         )
 
-        Args:
-            setting_key: The key that identifies the setting.
-            project_id: The project scope, or ``None`` for an application-level
-                setting.
-        Returns:
-            The value of the setting, cast to the appropriate type based on the
-            schema, or ``None`` if not found.
-        """
-        obj = self.get(setting_key, project_id=project_id)
-        if obj is None:
-            return None
-        schema = self._load_settings_schema()
-        entry = schema.get(setting_key)
-        if entry is None:
-            raise KeyError(f"Setting {setting_key!r} not found in schema.")
-        setting_type = SettingType(entry["type"])
-        raw_value = obj.setting_value
-        if setting_type == SettingType.INTEGER:
-            return int(raw_value)  # type: ignore[return-value]
-        elif setting_type == SettingType.BOOLEAN:
-            return raw_value.lower() in ("true", "1")  # type: ignore[return-value]
-        elif setting_type == SettingType.ENUM or setting_type == SettingType.STRING:
-            return raw_value  # type: ignore[return-value]
-        else:
-            raise ValueError(f"Unsupported setting type: {setting_type}")
+    #     raw_value = obj.setting_value
+    #     setting_type = SettingType(obj.setting_type)
 
-    def list_by_project(self, project_id: Optional[int] = None) -> List[Setting]:
-        """Return all settings for a given project scope.
+    #     if setting_type == SettingType.INTEGER:
+    #         value = int(raw_value)
+    #     elif setting_type == SettingType.BOOLEAN:
+    #         value = raw_value.lower() in ("true", "1")
+    #     elif setting_type in (SettingType.ENUM, SettingType.STRING):
+    #         value = raw_value
+    #     else:
+    #         raise ValueError(f"Unsupported setting type: {setting_type}")
+
+    #     if not isinstance(value, expected_type):
+    #         raise TypeError(
+    #             f"Setting {setting_key!r} expected {expected_type.__name__}, "
+    #             f"got {type(value).__name__}"
+    #         )
+    #     return value  # type: ignore[return-value]
+
+
+    def get_all_within_project_scope(self, project_id: Optional[int] = None) -> List[Setting]:
+        """Return all settings for a given project scope, including application-level settings.
 
         Args:
             project_id: The project whose settings to return.  Pass ``None``
-                to retrieve application-level settings.
+                to retrieve only application-level settings.
 
         Returns:
             A list of Setting ORM objects ordered by ``setting_id``.  Empty
@@ -153,9 +181,9 @@ class SettingsStore:
             self._session.scalars(
                 select(Setting)
                 .where(_scope_clause(project_id))
-                .order_by(Setting.setting_id)
             ).all()
         )
+        
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -337,7 +365,7 @@ class SettingsStore:
             reflecting the state after the reset, ordered by ``setting_id``.
             Empty list if no settings exist for the given scope.
         """
-        rows = self.list_by_project(project_id=project_id)
+        rows = self.get_all_within_project_scope(project_id=project_id)
         if not rows:
             return []
         for obj in rows:

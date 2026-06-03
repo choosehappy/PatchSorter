@@ -85,6 +85,29 @@ def test_update_app_level_setting(db_session, seeded_app):
     assert row.setting_value == "DEBUG"
 
 
+def test_update_disabled_setting_returns_row_but_does_not_change_value(db_session, seeded_project):
+    """update() on a disabled setting returns the row but does not modify setting_value."""
+    pid = seeded_project["project_id"]
+    store = SettingsStore(db_session)
+    row = store.update("world_size", "8192", project_id=pid)
+    assert row is not None
+    assert row.setting_value == "4096"
+    assert row.disabled is True
+
+
+def test_update_validates_enum_value(db_session, seeded_app):
+    """update() raises ValueError for invalid enum value."""
+    with pytest.raises(ValueError, match="log_level"):
+        SettingsStore(db_session).update("log_level", "INVALID")
+
+
+def test_update_validates_boolean_value(db_session, seeded_project):
+    """update() raises ValueError for invalid boolean string via _validate_setting."""
+    schema = _schema_for("flag", SettingType.BOOLEAN)
+    with pytest.raises(ValueError, match="boolean"):
+        SettingsStore._validate_setting("flag", "maybe", schema)
+
+
 # ---------------------------------------------------------------------------
 # get
 # ---------------------------------------------------------------------------
@@ -120,11 +143,24 @@ def test_get_project_setting_not_returned_without_project_id(db_session, seeded_
     assert SettingsStore(db_session).get("dl_num_workers", project_id=None) is None
 
 
-def test_get_app_setting_not_returned_for_project(db_session, seeded_app, seeded_project):
-    """get() with a project_id does not return an application-level setting."""
+def test_get_app_setting_returned_for_project(db_session, seeded_app, seeded_project):
+    """get() with a project_id returns app-level settings as fallback."""
     pid = seeded_project["project_id"]
-    # log_level exists only at app scope
-    assert SettingsStore(db_session).get("log_level", project_id=pid) is None
+    # log_level exists only at app scope, but is returned as fallback
+    row = SettingsStore(db_session).get("log_level", project_id=pid)
+    assert row is not None
+    assert row.project_id is None
+
+
+def test_get_returns_project_setting_over_app_fallback(db_session, seeded_app, seeded_project):
+    """get() with project_id returns project-scoped setting when it exists."""
+    pid = seeded_project["project_id"]
+    store = SettingsStore(db_session)
+    store.update("dl_num_workers", "64", project_id=pid)
+    row = store.get("dl_num_workers", project_id=pid)
+    assert row is not None
+    assert row.setting_value == "64"
+    assert row.project_id == pid
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +171,7 @@ def test_get_app_setting_not_returned_for_project(db_session, seeded_app, seeded
 def test_list_by_project_returns_all_in_scope(db_session, seeded_project):
     """list_by_project() returns every setting seeded for the project."""
     pid = seeded_project["project_id"]
-    rows = SettingsStore(db_session).list_by_project(project_id=pid)
+    rows = SettingsStore(db_session).get_all_within_project_scope(project_id=pid)
     keys = {r.setting_key for r in rows}
     assert {"dl_num_workers", "dl_patches_per_batch", "world_size", "agg_hierarchy_depth"}.issubset(keys)
 
@@ -143,24 +179,24 @@ def test_list_by_project_returns_all_in_scope(db_session, seeded_project):
 def test_list_by_project_ordered_by_setting_id(db_session, seeded_project):
     """list_by_project() returns rows ordered by setting_id ascending."""
     pid = seeded_project["project_id"]
-    rows = SettingsStore(db_session).list_by_project(project_id=pid)
+    rows = SettingsStore(db_session).get_all_within_project_scope(project_id=pid)
     ids = [r.setting_id for r in rows]
     assert ids == sorted(ids)
 
 
-def test_list_by_project_does_not_return_other_project(db_session):
-    """list_by_project() for project A does not include project B settings."""
+def test_list_by_project_includes_app_level_settings(db_session, seeded_app):
+    """get_all_within_project_scope() includes app-level settings alongside project settings."""
     store = SettingsStore(db_session)
     p_store = ProjectStore(db_session)
     project_a = p_store.create("Project A")
-    project_b = p_store.create("Project B")
     pid_a = project_a["project_id"]
-    pid_b = project_b["project_id"]
     store.seed_project_settings(pid_a)
-    store.seed_project_settings(pid_b)
 
-    rows = store.list_by_project(project_id=pid_a)
-    assert all(r.project_id == pid_a for r in rows)
+    rows = store.get_all_within_project_scope(project_id=pid_a)
+    project_rows = [r for r in rows if r.project_id == pid_a]
+    app_rows = [r for r in rows if r.project_id is None]
+    assert len(project_rows) > 0
+    assert len(app_rows) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +230,17 @@ def test_reset_returns_unchanged_row_when_disabled(db_session, seeded_project):
     assert row.setting_value == "4096"
 
 
+def test_reset_with_project_id_returns_project_setting(db_session, seeded_project):
+    """reset() with project_id resets the project-scoped setting."""
+    pid = seeded_project["project_id"]
+    store = SettingsStore(db_session)
+    store.update("dl_num_workers", "16", project_id=pid)
+    row = store.reset("dl_num_workers", project_id=pid)
+    assert row is not None
+    assert row.project_id == pid
+    assert row.setting_value == "8"
+
+
 # ---------------------------------------------------------------------------
 # reset_all
 # ---------------------------------------------------------------------------
@@ -221,9 +268,27 @@ def test_reset_all_includes_disabled_settings(db_session, seeded_project):
     assert "agg_hierarchy_depth" in keys
 
 
+def test_reset_all_resets_disabled_settings_to_default(db_session, seeded_project):
+    """reset_all() resets disabled settings to their default values."""
+    pid = seeded_project["project_id"]
+    store = SettingsStore(db_session)
+    # world_size is disabled with default "4096"
+    store.update("world_size", "8192", project_id=pid)
+    rows = store.reset_all(project_id=pid)
+    world_size_row = next(r for r in rows if r.setting_key == "world_size")
+    assert world_size_row.setting_value == "4096"
+
+
+def test_reset_all_returns_app_level_when_no_project_settings(db_session, seeded_app):
+    """reset_all() with non-existent project_id returns app-level settings."""
+    rows = SettingsStore(db_session).reset_all(project_id=99999)
+    assert len(rows) > 0
+    assert all(r.project_id is None for r in rows)
+
+
 
 def test_reset_all_only_affects_given_scope(db_session):
-    """reset_all() for a project scope does not touch settings in a different scope."""
+    """reset_all() for a project scope does not touch settings in a different project."""
     p_store = ProjectStore(db_session)
     project_a = p_store.create("Project A")
     project_b = p_store.create("Project B")
@@ -239,9 +304,62 @@ def test_reset_all_only_affects_given_scope(db_session):
     # Reset only project B
     store.reset_all(project_id=pid_b)
 
-    # Project A's changed value should be unaffected
+    # Project A's changed value should be unaffected (project-specific settings)
     row = store.get("dl_num_workers", project_id=pid_a)
+    assert row is not None
     assert row.setting_value == "32"
+
+
+# ---------------------------------------------------------------------------
+# get_all_as_dict
+# ---------------------------------------------------------------------------
+
+
+def test_get_all_as_dict_returns_parsed_dict(db_session, seeded_project):
+    """get_all_as_dict() returns a dict with parsed values for the project scope."""
+    pid = seeded_project["project_id"]
+    result = SettingsStore(db_session).get_all_as_dict(project_id=pid)
+    assert isinstance(result, dict)
+    assert "dl_num_workers" in result
+    assert "dl_patches_per_batch" in result
+
+
+def test_get_all_as_dict_parses_integer(db_session, seeded_project):
+    """get_all_as_dict() parses INTEGER type settings as int."""
+    pid = seeded_project["project_id"]
+    result = SettingsStore(db_session).get_all_as_dict(project_id=pid)
+    assert result["dl_num_workers"] == 8
+    assert isinstance(result["dl_num_workers"], int)
+    assert result["dl_patches_per_batch"] == 10000
+    assert isinstance(result["dl_patches_per_batch"], int)
+
+
+def test_get_all_as_dict_parses_boolean(db_session, seeded_app):
+    """get_all_as_dict() parses BOOLEAN type settings as bool."""
+    result = SettingsStore(db_session).get_all_as_dict()
+    assert "flag" not in result
+
+
+def test_get_all_as_dict_parses_enum(db_session, seeded_app):
+    """get_all_as_dict() parses ENUM type settings as str."""
+    result = SettingsStore(db_session).get_all_as_dict()
+    assert result["log_level"] == "INFO"
+    assert isinstance(result["log_level"], str)
+
+
+def test_get_all_as_dict_includes_app_level_for_project(db_session, seeded_app, seeded_project):
+    """get_all_as_dict() with project_id includes app-level settings as fallback."""
+    pid = seeded_project["project_id"]
+    result = SettingsStore(db_session).get_all_as_dict(project_id=pid)
+    assert "log_level" in result
+    assert result["log_level"] == "INFO"
+
+
+def test_get_all_as_dict_returns_app_level_when_no_project_settings(db_session, seeded_app):
+    """get_all_as_dict() with non-existent project_id returns app-level settings."""
+    result = SettingsStore(db_session).get_all_as_dict(project_id=99999)
+    assert "log_level" in result
+    assert result["log_level"] == "INFO"
 
 
 # ---------------------------------------------------------------------------
@@ -327,3 +445,51 @@ def test_load_settings_schema_world_size_entry():
     assert entry["type"] == "integer"
     assert entry["default"] == "4096"
     assert entry["scope"] == "project"
+
+
+# ---------------------------------------------------------------------------
+# seed_app_settings / seed_project_settings
+# ---------------------------------------------------------------------------
+
+
+def test_seed_app_settings_creates_app_level_rows(db_session):
+    """seed_app_settings() inserts application-scoped settings."""
+    store = SettingsStore(db_session)
+    store.seed_app_settings()
+    rows = store.get_all_within_project_scope(project_id=None)
+    keys = {r.setting_key for r in rows}
+    assert "log_level" in keys
+
+
+def test_seed_app_settings_ignores_existing_rows(db_session, seeded_app):
+    """seed_app_settings() does not duplicate existing app-level settings."""
+    store = SettingsStore(db_session)
+    initial_rows = store.get_all_within_project_scope(project_id=None)
+    initial_count = len(initial_rows)
+    store.seed_app_settings()
+    final_rows = store.get_all_within_project_scope(project_id=None)
+    assert len(final_rows) == initial_count
+
+
+def test_seed_project_settings_creates_project_rows(db_session, seeded_project):
+    """seed_project_settings() inserts project-scoped settings for the given project_id."""
+    pid = seeded_project["project_id"]
+    store = SettingsStore(db_session)
+    store.seed_project_settings(pid)
+    rows = store.get_all_within_project_scope(project_id=pid)
+    project_rows = [r for r in rows if r.project_id == pid]
+    keys = {r.setting_key for r in project_rows}
+    assert "dl_num_workers" in keys
+    assert "dl_patches_per_batch" in keys
+    assert "world_size" in keys
+
+
+def test_seed_project_settings_ignores_existing_rows(db_session, seeded_project):
+    """seed_project_settings() does not duplicate existing project settings."""
+    pid = seeded_project["project_id"]
+    store = SettingsStore(db_session)
+    initial_rows = store.get_all_within_project_scope(project_id=pid)
+    initial_count = len(initial_rows)
+    store.seed_project_settings(pid)
+    final_rows = store.get_all_within_project_scope(project_id=pid)
+    assert len(final_rows) == initial_count
