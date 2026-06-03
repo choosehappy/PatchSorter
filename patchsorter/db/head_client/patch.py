@@ -435,3 +435,14 @@ class PatchStore:
             limit=limit,
             include_image=include_image,
         )
+
+    def clear_predictions(self) -> None:
+        """Clear all rows from both pred_patch_latest and pred_patch_last for *project_id*.
+
+        Used when a user requests to clear model predictions for a project.  This is a
+        more efficient way to clear predictions than deleting rows from the patch table
+        because it does not require any trigger activity or vacuuming of the patch
+        shards.
+        """
+        self._session.execute(text(f"TRUNCATE TABLE {PatchStore.build_pred_table_name(self.project_id, PredPatchSuffix.LATEST)};"))
+        self._session.execute(text(f"TRUNCATE TABLE {PatchStore.build_pred_table_name(self.project_id, PredPatchSuffix.LAST)};"))

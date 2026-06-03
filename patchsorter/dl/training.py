@@ -130,7 +130,6 @@ def train_worker(config: Dict[str, Any]) -> None:
             - ``project_id`` (int)
             - ``patches_per_batch`` (int)
     """
-    breakpoint()
     project_id: int = config["project_id"]
     patches_per_batch: int = config["patches_per_batch"]
 
@@ -159,13 +158,12 @@ def train_worker(config: Dict[str, Any]) -> None:
         # Divide local shards among local workers. 
         # If shards are not divisible by the number of workers, some workers will process one more shard than others.
         assigned_shards = compute_shard_assignments(all_local_shards, context.get_local_world_size(), rank)
-        
+
         cycle += 1
         logger.info("[Worker %d] Starting cycle %d.", rank, cycle)
 
         dataset = ShardDataset(worker_sm, project_id, assigned_shards, patches_per_batch)
         for shard_id, batch in dataset:
-            breakpoint()
             records = _build_prediction_records(batch)
             pred_shard_id = shard_map.get_b_shard_for_a_shard(shard_id)
             with worker_sm.get_session() as session:

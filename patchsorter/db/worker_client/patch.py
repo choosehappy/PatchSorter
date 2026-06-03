@@ -57,11 +57,10 @@ class WorkerPatchStore:
             ``centroid_x``, ``centroid_y``.  Empty list when no more rows
             are available.
         """
-        shard_table = f"{self._patch_table}{shard_id}"
+        shard_table = PatchStore.build_table_name(self.project_id, shard_id)
         rows = self._session.execute(
             text(
-                f"SELECT patch_id, patch_uid, label_class_id, image_id, "
-                f"downsample_factor, centroid_x, centroid_y "
+                f"SELECT * "
                 f"FROM {shard_table} "
                 f"WHERE patch_id > :after_id "
                 f"ORDER BY patch_id "
@@ -97,8 +96,7 @@ class WorkerPatchStore:
         while True:
             rows = self._session.execute(
                 text(
-                    f"SELECT patch_id, patch_uid, label_class_id, image_id, "
-                    f"downsample_factor, centroid_x, centroid_y "
+                    f"SELECT * "
                     f"FROM {shard_table} "
                     f"WHERE patch_id > :cursor "
                     f"ORDER BY patch_id "

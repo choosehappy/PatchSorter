@@ -314,3 +314,14 @@ class ConfusionMatrixStore:
         for r in rows:
             out[r["gt_label"], r["pred_label"]] = r["max_count"]
         return out
+    
+    def clear_confusion_matrix(self):
+        """Delete all rows from this confusion matrix's table.
+
+         Used when resetting a project to clear out old confusion matrix data.
+          Note that the table itself (and its Citus shards) are retained and
+          will continue to be updated as new predictions come in; this method
+          just deletes existing rows.
+            """
+        self._session.execute(text(f"TRUNCATE TABLE {self.table_name};"))
+        self._session.commit()

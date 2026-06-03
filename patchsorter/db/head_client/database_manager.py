@@ -485,6 +485,23 @@ class DatabaseManager:
         with self.sm.get_session() as session:
             return CitusShardMap(session, PatchStore.build_table_name(project_id), PatchStore.build_pred_table_name(project_id, PredPatchSuffix.LATEST))
             
+    def clear_predictions(self, project_id: int) -> None:
+        """Clear all rows from all pred_patch tables across all projects.
+
+        This is used to free up space after a training epoch completes and the
+        latest predictions have been rotated to the last table.  It is safe to
+        call this method at any time — it will simply truncate all pred_patch
+        tables, which may be empty if no epochs have completed yet.
+
+        """
+        with self.sm.get_session() as session:
+            patch_store = PatchStore(project_id, session)
+            patch_store.clear_predictions()
+
+            for level in range(8, 13):
+                cm_store = ConfusionMatrixStore(project_id, level, session)
+                cm_store.clear_confusion_matrix()
+
 
 class CitusShardMap:
     def __init__(self, session, table_a: str, table_b: str):
