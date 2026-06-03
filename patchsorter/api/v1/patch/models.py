@@ -1,12 +1,13 @@
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
 from pydantic import BaseModel
 
 
 class PatchResponse(BaseModel):
     patch_id: int
-    patch_uid: str
+    patch_uid: UUID
     label_class_id: int
     image_id: int
     downsample_factor: float

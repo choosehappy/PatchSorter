@@ -185,7 +185,7 @@ class PatchStore:
         self,
         limit: int = 10,
         cursor: int = 0,
-        include_image: bool = True,
+        include_image: bool = False,
     ) -> List[Dict[str, Any]]:
         """Fetch up to *limit* patches, ordered by ``patch_id``.
 
