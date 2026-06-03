@@ -5,8 +5,6 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from patchsorter.db.head_client.table_names import patch_table, pred_patch_table
-
 from patchsorter.config.constants import PredPatchSuffix
 
 
@@ -30,8 +28,8 @@ class PatchStore:
         self.table_name = self.build_table_name(project_id)
 
     @staticmethod
-    def build_table_name(project_id: int, shard: Optional[int] = None) -> str:
-        tbl = patch_table(project_id)
+    def build_table_name(project_id: int, shard: int | None = None) -> str:
+        tbl = f"project{project_id}_patch"
         if shard is not None:
             tbl = f"{tbl}_{shard}"
         return tbl
@@ -45,7 +43,7 @@ class PatchStore:
             suffix: Either ``PredPatchSuffix.LATEST`` or ``PredPatchSuffix.LAST``.
             shard: Optional shard ID to append as a suffix.
         """
-        tbl = pred_patch_table(project_id, suffix)
+        tbl = f"project{project_id}_pred_patch_{suffix.value}"
         if shard is not None:
             tbl = f"{tbl}_{shard}"
         return tbl

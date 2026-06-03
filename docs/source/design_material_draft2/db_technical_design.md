@@ -99,17 +99,17 @@ Default values for all settings are seeded from `patchsorter/config/settings_def
 
 ## Code Conventions
 
-### Table Name Helpers (`patchsorter/db/head_client/table_names.py`)
+### Table Name Helpers
 
-All per-project table names are constructed via three helper functions — the single source of truth for naming conventions:
+All per-project table names are constructed via static methods on the store classes — the single source of truth for naming conventions:
 
-| Function | Returns |
+| Static Method | Returns |
 |---|---|
-| `patch_table(project_id)` | `project{N}_patch` |
-| `pred_patch_table(project_id, suffix)` | `project{N}_pred_patch_{suffix}` |
-| `confusion_matrix_table(project_id, level)` | `project{N}_confusion_matrix_l{level}` |
+| `PatchStore.build_table_name(project_id)` | `project{N}_patch` |
+| `PatchStore.build_pred_table_name(project_id, suffix)` | `project{N}_pred_patch_{suffix}` |
+| `ConfusionMatrixStore.build_table_name(project_id, level)` | `project{N}_confusion_matrix_l{level}` |
 
-All stores, ORM model factories, and schema management code import from this module rather than constructing names ad hoc.
+All stores, ORM model factories, and schema management code call these static methods directly rather than constructing names ad hoc.
 
 ### Constants (`patchsorter/config/constants.py`)
 

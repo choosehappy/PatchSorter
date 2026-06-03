@@ -6,9 +6,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from patchsorter.db.head_client.models import LabelClass
-from patchsorter.db.head_client.table_names import (
-    patch_table, pred_patch_table, confusion_matrix_table,
-)
+from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 
 from patchsorter.config.constants import PredPatchSuffix
 
@@ -113,13 +112,13 @@ class LabelClassStore:
         # Step 1: reset patch ground-truth labels.
         self._session.execute(
             text(
-                f"UPDATE {patch_table(n)} SET label_class_id = 1 WHERE label_class_id = :lcid"
+                f"UPDATE {PatchStore.build_table_name(n)} SET label_class_id = 1 WHERE label_class_id = :lcid"
             ),
             {"lcid": label_class_id},
         )
 
         # Steps 2 & 3: reset prediction labels.
-        for tbl in (pred_patch_table(n, PredPatchSuffix.LATEST), pred_patch_table(n, PredPatchSuffix.LAST)):
+        for tbl in (PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST), PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)):
             self._session.execute(
                 text(
                     f"UPDATE {tbl} SET label_class_id = 1 WHERE label_class_id = :lcid"
@@ -129,7 +128,7 @@ class LabelClassStore:
 
         # Step 4: reset confusion-matrix pred_label / gt_label references.
         for lvl in range(8, 13):
-            cm_tbl = confusion_matrix_table(n, lvl)
+            cm_tbl = ConfusionMatrixStore.build_table_name(n, lvl)
             self._session.execute(
                 text(
                     f"UPDATE {cm_tbl} SET pred_label = 1 WHERE pred_label = :lcid"

@@ -7,7 +7,6 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from patchsorter.db.head_client.patch import PatchStore
-from patchsorter.db.head_client.table_names import patch_table, pred_patch_table
 from patchsorter.config.constants import PredPatchSuffix
 
 
@@ -27,8 +26,8 @@ class WorkerPatchStore:
     def __init__(self, project_id: int, session: Session) -> None:
         self.project_id = project_id
         self._session = session
-        self._patch_table = patch_table(project_id)
-        self._pred_table_latest = pred_patch_table(project_id, PredPatchSuffix.LATEST)
+        self._patch_table = PatchStore.build_table_name(project_id)
+        self._pred_table_latest = PatchStore.build_pred_table_name(project_id, PredPatchSuffix.LATEST)
 
 
     # ------------------------------------------------------------------ #

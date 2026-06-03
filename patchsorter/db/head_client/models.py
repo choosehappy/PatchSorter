@@ -8,10 +8,8 @@ from sqlalchemy.sql import func, text
 from sqlalchemy.types import TIMESTAMP
 from typing import Dict, Tuple
 
-from patchsorter.db.head_client.table_names import (
-    patch_table, pred_patch_table, confusion_matrix_table,
-)
-
+from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 from patchsorter.config.constants import PredPatchSuffix, SettingType
 
 
@@ -130,7 +128,7 @@ def patch_model(project_id: int) -> type:
             f"Patch{project_id}",
             (Base,),
             {
-                "__tablename__": patch_table(project_id),
+                "__tablename__": PatchStore.build_table_name(project_id),
                 "patch_id":       Column(BigInteger, primary_key=True, autoincrement=True),
                 "patch_uid":         Column(Uuid, unique=False, nullable=False),
                 "label_class_id":    Column(SmallInteger, nullable=False),
@@ -158,7 +156,7 @@ def pred_patch_model(project_id: int, suffix: str) -> type:
             f"PredPatch{suffix.capitalize()}{project_id}",
             (Base,),
             {
-                "__tablename__": pred_patch_table(project_id, suffix),
+                "__tablename__": PatchStore.build_pred_table_name(project_id, suffix),
                 "patch_id":       Column(BigInteger, primary_key=True),
                 "embed_x":        Column(Float, nullable=False),
                 "embed_y":        Column(Float, nullable=False),
@@ -180,7 +178,7 @@ def confusion_matrix_model(project_id: int, level: int) -> type:
     """
     key = (project_id, level)
     if key not in _cm_cache:
-        table_name = confusion_matrix_table(project_id, level)
+        table_name = ConfusionMatrixStore.build_table_name(project_id, level)
         _cm_cache[key] = type(
             f"ConfusionMatrix{project_id}L{level}",
             (Base,),

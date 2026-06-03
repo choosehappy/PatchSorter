@@ -15,9 +15,6 @@ from patchsorter.db.head_client.models import (
     _patch_cache,
     _pred_patch_last_cache,
     _pred_patch_latest_cache,
-    confusion_matrix_table,
-    patch_table,
-    pred_patch_table,
 )
 
 from typing import Any, Dict, List
@@ -79,15 +76,15 @@ class DatabaseManager:
         """
 
         for key in list(_patch_cache):
-            del Base.metadata.tables[patch_table(key)]
+            del Base.metadata.tables[PatchStore.build_table_name(key)]
         _patch_cache.clear()
         for key in list(_pred_patch_latest_cache):
-            del Base.metadata.tables[pred_patch_table(key, "latest")]
-            del Base.metadata.tables[pred_patch_table(key, "last")]
+            del Base.metadata.tables[PatchStore.build_pred_table_name(key, PredPatchSuffix.LATEST)]
+            del Base.metadata.tables[PatchStore.build_pred_table_name(key, PredPatchSuffix.LAST)]
         _pred_patch_latest_cache.clear()
         _pred_patch_last_cache.clear()
         for (pid, lvl) in list(_cm_cache):
-            del Base.metadata.tables[confusion_matrix_table(pid, lvl)]
+            del Base.metadata.tables[ConfusionMatrixStore.build_table_name(pid, lvl)]
         _cm_cache.clear()
 
         Base.metadata.create_all(self.sm.engine)
@@ -486,7 +483,7 @@ class DatabaseManager:
         This is used by the application to route queries to the correct shard when joining patch and pred_patch tables together.
         """
         with self.sm.get_session() as session:
-            return CitusShardMap(session, patch_table(project_id), pred_patch_table(project_id, PredPatchSuffix.LATEST))
+            return CitusShardMap(session, PatchStore.build_table_name(project_id), PatchStore.build_pred_table_name(project_id, PredPatchSuffix.LATEST))
             
 
 class CitusShardMap:
