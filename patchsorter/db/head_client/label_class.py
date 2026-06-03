@@ -68,9 +68,11 @@ class LabelClassStore:
             A list of LabelClass ORM objects.
         """
         return (
-            self._session.query(LabelClass)
-            .filter(LabelClass.project_id == project_id)
-            .order_by(LabelClass.label_class_id)
+            self._session.scalars(
+                self._session.query(LabelClass)
+                .filter(LabelClass.project_id == project_id)
+                .order_by(LabelClass.label_class_id)
+            )
             .all()
         )
 

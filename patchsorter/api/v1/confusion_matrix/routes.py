@@ -67,12 +67,13 @@ def serve_tile(
         max_level = int(settings_store.get("max_level", project_id).setting_value)
         label_store = LabelClassStore(session)
         label_classes = label_store.list_by_project(project_id)
+        session.expunge_all()
 
-    label_pairs = _parse_label_pairs(lp) or [
-        (lc1.label_class_id, lc2.label_class_id)
-        for lc1 in label_classes
-        for lc2 in label_classes
-    ]
+        label_pairs = _parse_label_pairs(lp) or [
+            (lc1.label_class_id, lc2.label_class_id)
+            for lc1 in label_classes
+            for lc2 in label_classes
+        ]
     sum_over_gt = sum_over == "gt"
 
     level = max(osm_zoom_offset, min(max_level, z + osm_zoom_offset))
@@ -123,11 +124,11 @@ def get_confusion_matrix(
             label_store = LabelClassStore(session)
             label_classes = label_store.list_by_project(project_id)
 
-        label_pairs = _parse_label_pairs(lp) or [
-            (lc1.label_class_id, lc2.label_class_id)
-            for lc1 in label_classes
-            for lc2 in label_classes
-        ]
+            label_pairs = _parse_label_pairs(lp) or [
+                (lc1.label_class_id, lc2.label_class_id)
+                for lc1 in label_classes
+                for lc2 in label_classes
+            ]
 
         coarsest_level = osm_zoom_offset
         i_min, j_min, i_max, j_max = _world_to_grid_bbox(
