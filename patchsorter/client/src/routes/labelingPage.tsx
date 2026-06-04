@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import './labelingPage.css'
 import Viewport, { type MapBounds } from '../components/viewport'
 import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatrix'
@@ -54,13 +54,9 @@ export default function LabelingPage() {
     const [worldInfo, setWorldInfo] = useState<WorldInfo | null>(null)
     const [refreshTick, setRefreshTick] = useState(0)
     const [refreshIntervalMs, setRefreshIntervalMs] = useState<number | null>(5000)
-    const [patchGalleryItems, setPatchGalleryItems] = useState<PatchResponse[] | null>(null)
     const [pageSize, setPageSize] = useState(24)
     const [lassoPolygon, setLassoPolygon] = useState<number[][] | null>(null)
-    const [totalPatches, setTotalPatches] = useState<number | null>(null)
-    const [hasNext, setHasNext] = useState(true)
-    const [galleryCursor, setGalleryCursor] = useState(0)
-    const [currentPage, setCurrentPage] = useState(0)
+    const [activePage, setActivePage] = useState(0)
 
     useEffect(() => {
         infoProjectsProjectIdInfoGet({ path: { project_id: projectId } })
@@ -97,6 +93,60 @@ export default function LabelingPage() {
         enabled: bounds !== null,
         staleTime: Infinity,
     })
+
+    const { data: galleryTotal = null } = useQuery<number | null>({
+        queryKey: ['galleryTotal', projectId, lassoPolygon],
+        queryFn: async () => {
+            const bbox = computeBboxFromPolygon(lassoPolygon!)
+            const { data, error } = await getConfusionMatrixProjectsProjectIdConfusionMatrixGet({
+                path: { project_id: projectId },
+                query: {
+                    x_min: bbox.x_min,
+                    y_min: bbox.y_min,
+                    x_max: bbox.x_max,
+                    y_max: bbox.y_max,
+                },
+            })
+            if (error) throw error
+            return data?.matrix
+                ? (data.matrix as number[][]).flat().reduce((s, v) => s + v, 0)
+                : null
+        },
+        enabled: lassoPolygon !== null,
+        staleTime: Infinity,
+    })
+
+    const {
+        data: patchesData,
+        hasNextPage,
+        fetchNextPage,
+        isFetchingNextPage,
+        isLoading: patchesLoading,
+    } = useInfiniteQuery({
+        queryKey: ['patches', projectId, lassoPolygon, pageSize],
+        queryFn: async ({ pageParam }: { pageParam: number }) => {
+            const bbox = computeBboxFromPolygon(lassoPolygon!)
+            const res = await listPatchesProjectsProjectIdPatchesGet({
+                path: { project_id: projectId },
+                query: {
+                    cursor: pageParam,
+                    limit: pageSize,
+                    ...bbox,
+                },
+            })
+            if (res.error) throw res.error
+            return (res.data ?? []) as PatchResponse[]
+        },
+        initialPageParam: 0,
+        getNextPageParam: (lastPage: PatchResponse[]) =>
+            lastPage.length >= pageSize ? lastPage[lastPage.length - 1].patch_id : undefined,
+        enabled: lassoPolygon !== null,
+    })
+
+    const currentPatches = patchesData?.pages[activePage] ?? []
+    const totalPatches = galleryTotal
+    const canGoNext = lassoPolygon !== null && (activePage < (patchesData?.pages.length ?? 0) - 1 || hasNextPage)
+    const canGoPrev = lassoPolygon !== null && activePage > 0
 
     // ---- Selection helpers ----
 
@@ -181,86 +231,30 @@ export default function LabelingPage() {
 
     function handleClearLassoPolygon() {
         setLassoPolygon(null)
-        setTotalPatches(null)
-        setPatchGalleryItems([])
+        setActivePage(0)
     }
 
-    async function handlePolygonPatchQuery(polygon: number[][], pageSize: number) {
+    function handlePolygonPatchQuery(polygon: number[][], _pageSize: number) {
         setLassoPolygon(polygon)
-        setGalleryCursor(0)
-        setCurrentPage(0)
+        setActivePage(0)
+    }
 
-        const bbox = computeBboxFromPolygon(polygon)
-
-        try {
-            const [patchesRes, confusionRes] = await Promise.all([
-                listPatchesProjectsProjectIdPatchesGet({
-                    path: { project_id: projectId },
-                    query: {
-                        x_min: bbox.x_min,
-                        y_min: bbox.y_min,
-                        x_max: bbox.x_max,
-                        y_max: bbox.y_max,
-                        limit: pageSize,
-                    },
-                }),
-                getConfusionMatrixProjectsProjectIdConfusionMatrixGet({
-                    path: { project_id: projectId },
-                    query: {
-                        x_min: bbox.x_min,
-                        y_min: bbox.y_min,
-                        x_max: bbox.x_max,
-                        y_max: bbox.y_max,
-                        lp: undefined,
-                    }
-                }),
-            ])
-
-            if (patchesRes.data && Array.isArray(patchesRes.data)) {
-                setPatchGalleryItems(patchesRes.data as PatchResponse[])
-                setHasNext(patchesRes.data.length >= pageSize)
-            }
-
-            if (confusionRes.data?.matrix) {
-                const total = confusionRes.data.matrix.flat().reduce((sum: number, val: number) => sum + val, 0)
-                setTotalPatches(total)
-            }
-        } catch (err) {
-            console.error('Failed to fetch patches by polygon bbox:', err)
+    async function handleNext() {
+        if (activePage < (patchesData?.pages.length ?? 0) - 1) {
+            setActivePage(p => p + 1)
+        } else if (hasNextPage) {
+            await fetchNextPage()
+            setActivePage(p => p + 1)
         }
     }
 
-    async function handlePaginate(pageCursor: number, delta: number) {
-        setGalleryCursor(pageCursor)
-        setCurrentPage(prev => prev + delta)
-        try {
-            const res = await listPatchesProjectsProjectIdPatchesGet({
-                path: { project_id: projectId },
-                query: { cursor: pageCursor, limit: pageSize },
-            })
-
-            if (res.data && Array.isArray(res.data)) {
-                setPatchGalleryItems(res.data as PatchResponse[])
-                setHasNext(res.data.length >= pageSize)
-            } else {
-                setPatchGalleryItems([])
-                setHasNext(false)
-            }
-        } catch (err) {
-            console.error('Failed to fetch patches by cursor:', err)
-        }
+    function handlePrev() {
+        if (activePage > 0) setActivePage(p => p - 1)
     }
 
     function handlePageSizeChange(newSize: number) {
         setPageSize(newSize)
-        setGalleryCursor(0)
-        setCurrentPage(0)
-        if (lassoPolygon) {
-            setPatchGalleryItems(null)
-            setTotalPatches(null)
-            setHasNext(true)
-            handlePolygonPatchQuery(lassoPolygon, newSize)
-        }
+        setActivePage(0)
     }
 
     function computeBboxFromPolygon(ring: number[][]): { x_min: number; x_max: number; y_min: number; y_max: number } {
@@ -354,15 +348,18 @@ export default function LabelingPage() {
             <div className="labeling-column labeling-column-gallery">
                 <PatchGallery
                     projectId={projectId}
-                    patchGalleryItems={patchGalleryItems}
+                    patches={currentPatches}
+                    isLoading={patchesLoading}
+                    isFetchingNextPage={isFetchingNextPage}
+                    canGoNext={canGoNext}
+                    canGoPrev={canGoPrev}
+                    onNext={handleNext}
+                    onPrev={handlePrev}
                     pageSize={pageSize}
                     setPageSize={handlePageSizeChange}
                     totalPatches={totalPatches}
-                    hasNext={hasNext}
-                    onHasNextChange={setHasNext}
-                    onPaginate={handlePaginate}
-                    galleryCursor={galleryCursor}
-                    currentPage={currentPage}
+                    currentPage={activePage}
+                    hasLasso={lassoPolygon !== null}
                 />
             </div>
         </div>

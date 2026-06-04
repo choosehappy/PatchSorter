@@ -1,5 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
-import { listPatchesProjectsProjectIdPatchesGet } from '../api_client'
+import { useState } from 'react'
 import PatchImage from './PatchImage'
 import './patchGallery.css'
 import type { PatchResponse } from '../api_client'
@@ -11,93 +10,38 @@ const DEFAULT_PATCH_SIZE = 80
 
 export default function PatchGallery({
     projectId,
-    patchGalleryItems,
+    patches,
+    isLoading,
+    isFetchingNextPage,
+    canGoNext,
+    canGoPrev,
+    onNext,
+    onPrev,
     pageSize,
     setPageSize,
     totalPatches,
-    hasNext,
-    onHasNextChange,
-    onPaginate,
-    galleryCursor,
     currentPage,
+    hasLasso,
 }: {
     projectId: number
-    patchGalleryItems: PatchResponse[] | null
+    patches: PatchResponse[]
+    isLoading: boolean
+    isFetchingNextPage: boolean
+    canGoNext: boolean
+    canGoPrev: boolean
+    onNext: () => void
+    onPrev: () => void
     pageSize: number
     setPageSize: (s: number) => void
     totalPatches: number | null
-    hasNext: boolean
-    onHasNextChange: (h: boolean) => void
-    onPaginate?: (cursor: number, delta: number) => void
-    galleryCursor: number
     currentPage: number
+    hasLasso: boolean
 }) {
-    const [patches, setPatches] = useState<PatchResponse[]>([])
-    const [cursor, setCursor] = useState(0)
-    const [loading, setLoading] = useState(false)
     const [selectAll, setSelectAll] = useState(false)
     const [patchSize, setPatchSize] = useState(DEFAULT_PATCH_SIZE)
 
-    const totalPages = totalPatches !== null ? Math.max(1, Math.ceil(totalPatches / pageSize)) : 0
-
-    const effectivePatches = patchGalleryItems ?? patches
-    const hasExternalItems = patchGalleryItems !== null
-
-    const fetchPatches = useCallback(async (pageCursor: number) => {
-        setLoading(true)
-        try {
-            const res = await listPatchesProjectsProjectIdPatchesGet({
-                path: { project_id: projectId },
-                query: { cursor: pageCursor, limit: pageSize },
-            })
-            if (res.data && Array.isArray(res.data)) {
-                setPatches(res.data as PatchResponse[])
-                onHasNextChange(res.data.length >= pageSize)
-            } else {
-                setPatches([])
-                onHasNextChange(false)
-            }
-        } catch (err) {
-            console.error('Failed to fetch patches:', err)
-            setPatches([])
-            onHasNextChange(false)
-        } finally {
-            setLoading(false)
-        }
-    }, [projectId, pageSize])
-
-    useEffect(() => {
-        if (!hasExternalItems) {
-            fetchPatches(0)
-        }
-    }, [fetchPatches, hasExternalItems])
-
-    function handlePrev() {
-        if (cursor <= 0) return
-        if (hasExternalItems) {
-            if (effectivePatches.length === 0) return
-            const newCursor = effectivePatches[0].patch_id - 1
-            onPaginate?.(newCursor, -1)
-            return
-        }
-        const newCursor = patches.length > 0 ? patches[patches.length - 1].patch_id : cursor
-        const nextCursor = Math.max(0, newCursor - 1)
-        setCursor(nextCursor)
-        fetchPatches(nextCursor)
-    }
-
-    function handleNext() {
-        if (!hasNext) return
-        if (effectivePatches.length === 0) return
-        if (hasExternalItems) {
-            const newCursor = effectivePatches[effectivePatches.length - 1].patch_id
-            onPaginate?.(newCursor, 1)
-            return
-        }
-        const newCursor = effectivePatches[effectivePatches.length - 1].patch_id
-        setCursor(newCursor)
-        fetchPatches(newCursor)
-    }
+    const totalPages = totalPatches !== null ? Math.max(1, Math.ceil(totalPatches / pageSize)) : null
+    const loading = isLoading || isFetchingNextPage
 
     const gridStyle = {
         gridTemplateColumns: `repeat(auto-fill, minmax(${patchSize}px, 1fr))`,
@@ -107,7 +51,6 @@ export default function PatchGallery({
     return (
         <div className="patch-gallery">
             <div className="gallery-toolbar">
-
 
                 <label className="toolbar-group checkbox-group">
                     <input
@@ -143,34 +86,27 @@ export default function PatchGallery({
                 </div>
 
                 <div className="toolbar-group">
-                    {hasExternalItems && totalPatches !== null ? (
-                        <>
-                            <span>
-                                Page {currentPage + 1} of {totalPages} · {totalPatches} patches
-                            </span>
-                            <button onClick={handlePrev} disabled={cursor <= 0 || loading}>
-                                Prev
-                            </button>
-                            <button onClick={handleNext} disabled={!hasNext || loading || !hasExternalItems}>
-                                Next
-                            </button>
-                        </>
-                    ) : hasExternalItems ? (
-                        <span>{effectivePatches.length} patches</span>
-                    ) : (
-                        <span>
-                            {patches.length > 0 ? `Page ${Math.floor(cursor / pageSize) + 1}` : 'Page 1'} of {totalPages > 0 ? totalPages : '?'}
-                        </span>
-                    )}
+                    <span>
+                        Page {currentPage + 1}{totalPages !== null ? ` of ${totalPages}` : ''}
+                        {totalPatches !== null ? ` · ${totalPatches} patches` : ''}
+                    </span>
+                    <button onClick={onPrev} disabled={!canGoPrev || loading}>
+                        Prev
+                    </button>
+                    <button onClick={onNext} disabled={!canGoNext || loading}>
+                        Next
+                    </button>
                 </div>
             </div>
 
             <div className="gallery-scroll">
-                {loading && patches.length === 0 ? (
+                {!hasLasso ? (
+                    <div className="gallery-loading">Draw a lasso on the map to browse patches.</div>
+                ) : isLoading && patches.length === 0 ? (
                     <div className="gallery-loading">Loading patches...</div>
                 ) : (
                     <div className="gallery-grid" style={gridStyle}>
-                        {effectivePatches.map(patch => (
+                        {patches.map(patch => (
                             <PatchImage
                                 key={patch.patch_id}
                                 projectId={projectId}
