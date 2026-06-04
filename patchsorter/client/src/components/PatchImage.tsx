@@ -50,20 +50,18 @@ export default function PatchImage({ projectId, patch, labelClasses, isSelected 
     const outerBorderColor = getLabelColor(patch.pred_label_class_id ?? null, labelClasses)
     const innerBorderColor = getLabelColor(patch.label_class_id, labelClasses)
 
-    const outerShadow = `0 0 0 3px ${outerBorderColor}`
-    const outerShadowSelected = `0 0 0 9px ${outerBorderColor}`
-    const innerBorder = `3px solid ${innerBorderColor}`
-    const selectionOutline = isSelected ? '6px dotted #4a90d9' : 'none'
+    const outerBorder = isSelected ? `3px dashed ${outerBorderColor}` : `3px solid ${outerBorderColor}`
+    const innerBorder = isSelected ? `3px dashed ${innerBorderColor}` : `3px solid ${innerBorderColor}`
 
     const wrapperStyle = {
-        borderRadius: '4px',
+        border: outerBorder,
+        borderRadius: '0px',
         background: '#f0f0f0',
-        boxShadow: isSelected ? outerShadowSelected : outerShadow,
     }
 
     const middleStyle = {
         border: '1px solid #ffffff',
-        borderRadius: '4px',
+        borderRadius: '0px',
         width: '100%',
         aspectRatio: '1',
         display: 'flex',
@@ -75,9 +73,7 @@ export default function PatchImage({ projectId, patch, labelClasses, isSelected 
 
     const innerWrapperStyle = {
         border: innerBorder,
-        outline: selectionOutline,
-        outlineOffset: isSelected ? '3px' : '0',
-        borderRadius: '4px',
+        borderRadius: '0px',
         width: '100%',
         aspectRatio: '1',
         display: 'flex',
