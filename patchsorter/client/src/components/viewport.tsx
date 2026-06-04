@@ -20,6 +20,7 @@ interface ViewportProps {
     filterBy: string
     selectedCells: Set<string>
     numClasses: number
+    classIds: number[]
     worldInfo: WorldInfo | null
     refreshTick: number
     onBoundsChange: (bounds: MapBounds) => void
@@ -35,6 +36,7 @@ export default function Viewport({
     filterBy,
     selectedCells,
     numClasses,
+    classIds,
     worldInfo,
     refreshTick,
     onBoundsChange,
@@ -147,13 +149,13 @@ export default function Viewport({
 
     // Keep a mutable ref for tile-URL state so the GeoJS callback always reads
     // the latest values without needing to re-register it.
-    const tileStateRef = useRef({ colorBy, filterBy, selectedCells, numClasses })
-    tileStateRef.current = { colorBy, filterBy, selectedCells, numClasses }
+    const tileStateRef = useRef({ colorBy, filterBy, selectedCells, numClasses, classIds })
+    tileStateRef.current = { colorBy, filterBy, selectedCells, numClasses, classIds }
 
     const cacheKeyRef = useRef(Date.now())
 
     function buildTileUrl(x: number, y: number, z: number): string {
-        const { colorBy, filterBy, selectedCells, numClasses } = tileStateRef.current
+        const { colorBy, filterBy, selectedCells, numClasses, classIds } = tileStateRef.current
         const sumOver = colorBy !== 'gt' ? 'gt' : 'pred'
         const bounds = mapRef.current.bounds()
 
@@ -170,8 +172,11 @@ export default function Viewport({
 
         if (filterBy !== 'all' || selectedCells.size < numClasses * numClasses) {
             const pairs = Array.from(selectedCells)
-            if (pairs.length > 0 && pairs.length < numClasses * numClasses) {
-                query.lp = pairs
+            if (pairs.length > 0 && pairs.length < numClasses * numClasses && classIds.length === numClasses) {
+                query.lp = pairs.map(p => {
+                    const [gtIdx, predIdx] = p.split(',').map(Number)
+                    return `${classIds[gtIdx]},${classIds[predIdx]}`
+                })
             }
         }
 

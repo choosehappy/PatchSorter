@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 class LabelClassResponse(BaseModel):
     label_class_id: int
-    project_id: int
+    project_id: int | None
     name: str
     color_code: Optional[str] = None
     event_ts: datetime

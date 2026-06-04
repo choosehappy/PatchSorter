@@ -10,6 +10,7 @@ interface ConfusionMatrixProps {
     colorBy: string
     classLabels: string[]
     classColors: string[]
+    classIds: number[]
     onCellClick: (gt: number, pred: number, multiSelect: boolean) => void
     onHeaderClick: (axis: 'gt' | 'pred', index: number, multiSelect: boolean) => void
 }
@@ -20,6 +21,7 @@ export default function ConfusionMatrix({
     colorBy,
     classLabels,
     classColors,
+    classIds,
     onCellClick,
     onHeaderClick,
 }: ConfusionMatrixProps) {
@@ -27,7 +29,7 @@ export default function ConfusionMatrix({
 
     // Pre-compute matrix values from confusionData
     const { cellValues, rowTotals, colTotals, grandTotal } = computeValues(
-        confusionData, numClasses
+        confusionData, numClasses, classIds
     )
 
     function formatPct(val: number, total: number): string {
@@ -71,7 +73,9 @@ export default function ConfusionMatrix({
                         </tr>
 
                         {/* Data rows */}
-                        {classLabels.map((label, pred) => (
+                        {classLabels.map((label, pred) => {
+                            if (label === 'unassigned') return null
+                            return (
                             <tr key={pred}>
                                 <th
                                     className="pred-header"
@@ -104,7 +108,8 @@ export default function ConfusionMatrix({
                                     {formatPct(rowTotals[pred], grandTotal)}
                                 </td>
                             </tr>
-                        ))}
+                            )
+                        })}
 
                         {/* Totals row */}
                         <tr>
@@ -127,7 +132,8 @@ export default function ConfusionMatrix({
 
 function computeValues(
     confusionData: ConfusionData | null,
-    numClasses: number
+    numClasses: number,
+    classIds: number[]
 ): {
     cellValues: number[][]
     rowTotals: number[]
@@ -149,8 +155,8 @@ function computeValues(
 
     for (let gt = 0; gt < numClasses; gt++) {
         for (let pred = 0; pred < numClasses; pred++) {
-            const gtIdx = gtIndexMap[gt]
-            const predIdx = predIndexMap[pred]
+            const gtIdx = gtIndexMap[classIds[gt]]
+            const predIdx = predIndexMap[classIds[pred]]
             const val = (gtIdx !== undefined && predIdx !== undefined)
                 ? matrix[gtIdx][predIdx]
                 : 0

@@ -471,6 +471,12 @@ export type ListPatchesProjectsProjectIdPatchesGetData = {
          * Y Max
          */
         y_max?: number | null;
+        /**
+         * Lp
+         *
+         * Label pair filter: repeat for each pair as 'gt,pred' (e.g. lp=0,1&lp=2,2)
+         */
+        lp?: Array<string> | null;
     };
     url: '/projects/{project_id}/patches/';
 };

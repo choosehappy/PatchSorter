@@ -10,32 +10,10 @@ import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProj
 
 
 
-const CLASS_LABELS = [
-    'Unlabeled',
-    'Label Class 1', 'Label Class 2', 'Label Class 3',
-    'Label Class 4', 'Label Class 5', 'Label Class 6',
-    'Label Class 7', 'Label Class 8', 'Label Class 9',
-]
-
-const CLASS_COLORS = [
-    '#222222',  // Unlabeled
-    '#e41a1c',  // Class 1
-    '#377eb8',  // Class 2
-    '#ff7f00',  // Class 3
-    '#984ea3',  // Class 4
-    '#4daf4a',  // Class 5
-    '#ffff33',  // Class 6
-    '#a65628',  // Class 7
-    '#f781bf',  // Class 8
-    '#999999',  // Class 9
-]
-
-const NUM_CLASSES = CLASS_LABELS.length
-
-function makeAllCells(): Set<string> {
+function makeAllCells(n: number): Set<string> {
     const s = new Set<string>()
-    for (let gt = 0; gt < NUM_CLASSES; gt++)
-        for (let pred = 0; pred < NUM_CLASSES; pred++)
+    for (let gt = 0; gt < n; gt++)
+        for (let pred = 0; pred < n; pred++)
             s.add(`${gt},${pred}`)
     return s
 }
@@ -47,7 +25,7 @@ export default function LabelingPage() {
     const projectId = Number(projectIdParam)
     const [colorBy, setColorBy] = useState<string>('gt')
     const [filterBy, setFilterBy] = useState<string>('all')
-    const [selectedCells, setSelectedCells] = useState<Set<string>>(makeAllCells)
+    const [selectedCells, setSelectedCells] = useState<Set<string>>(() => new Set<string>())
     const [cmPinned, setCmPinned] = useState<boolean>(true)
     const [bounds, setBounds] = useState<MapBounds | null>(null)
     const [zoomInfo, setZoomInfo] = useState<string>('')
@@ -67,13 +45,40 @@ export default function LabelingPage() {
             .catch(err => console.error('Error fetching world info:', err))
     }, [])
 
+    const { data: labelClassesData = [] } = useQuery<LabelClassResponse[]>({
+        queryKey: ['labelClasses', projectId],
+        queryFn: () => listLabelClassesProjectsProjectIdLabelClassesGet({ path: { project_id: projectId } })
+            .then(({ data, error }) => {
+                if (error) throw error
+                return data ?? []
+            }),
+        staleTime: Infinity,
+    })
+
+    const sortedLabelClasses = useMemo(
+        () => [...labelClassesData].sort((a, b) => a.label_class_id - b.label_class_id),
+        [labelClassesData]
+    )
+    const classLabels = useMemo(() => sortedLabelClasses.map(lc => lc.name), [sortedLabelClasses])
+    const classColors = useMemo(() => sortedLabelClasses.map(lc => lc.color_code ?? '#222222'), [sortedLabelClasses])
+    const classIds = useMemo(() => sortedLabelClasses.map(lc => lc.label_class_id), [sortedLabelClasses])
+    const numClasses = classLabels.length
+
+    useEffect(() => {
+        if (numClasses > 0) setSelectedCells(makeAllCells(numClasses))
+    }, [numClasses])
+
     const lp = useMemo(() => {
+        if (classIds.length === 0) return undefined
         const pairs = Array.from(selectedCells).sort()
-        if ((filterBy !== 'all' || selectedCells.size < NUM_CLASSES * NUM_CLASSES)
-            && pairs.length > 0 && pairs.length < NUM_CLASSES * NUM_CLASSES)
-            return pairs
+        if ((filterBy !== 'all' || selectedCells.size < numClasses * numClasses)
+            && pairs.length > 0 && pairs.length < numClasses * numClasses)
+            return pairs.map(p => {
+                const [gtIdx, predIdx] = p.split(',').map(Number)
+                return `${classIds[gtIdx]},${classIds[predIdx]}`
+            })
         return undefined
-    }, [selectedCells, filterBy])
+    }, [selectedCells, filterBy, classIds])
 
     const { data: confusionData = null } = useQuery<ConfusionData | null>({
         queryKey: ['confusionMatrix', bounds, lp, refreshTick],
@@ -154,14 +159,14 @@ export default function LabelingPage() {
     function applyFilter(filter: string, currentSelected = selectedCells): Set<string> {
         const s = new Set<string>()
         if (filter === 'all') {
-            for (let gt = 0; gt < NUM_CLASSES; gt++)
-                for (let pred = 0; pred < NUM_CLASSES; pred++)
+            for (let gt = 0; gt < numClasses; gt++)
+                for (let pred = 0; pred < numClasses; pred++)
                     s.add(`${gt},${pred}`)
         } else if (filter === 'concordant') {
-            for (let i = 0; i < NUM_CLASSES; i++) s.add(`${i},${i}`)
+            for (let i = 0; i < numClasses; i++) s.add(`${i},${i}`)
         } else if (filter === 'discordant') {
-            for (let gt = 0; gt < NUM_CLASSES; gt++)
-                for (let pred = 0; pred < NUM_CLASSES; pred++)
+            for (let gt = 0; gt < numClasses; gt++)
+                for (let pred = 0; pred < numClasses; pred++)
                     if (gt !== pred) s.add(`${gt},${pred}`)
         } else {
             // custom — keep current
@@ -172,7 +177,7 @@ export default function LabelingPage() {
 
     function ensureNonEmpty(s: Set<string>): { cells: Set<string>; filter: string } {
         if (s.size > 0) return { cells: s, filter: 'custom' }
-        const cells = makeAllCells()
+        const cells = makeAllCells(numClasses)
         return { cells, filter: 'all' }
     }
 
@@ -196,7 +201,7 @@ export default function LabelingPage() {
     function handleHeaderClick(axis: 'gt' | 'pred', index: number, multiSelect: boolean) {
         setSelectedCells(prev => {
             const keysToToggle: string[] = []
-            for (let i = 0; i < NUM_CLASSES; i++) {
+            for (let i = 0; i < numClasses; i++) {
                 keysToToggle.push(axis === 'gt' ? `${index},${i}` : `${i},${index}`)
             }
             const next = new Set(prev)
@@ -223,7 +228,7 @@ export default function LabelingPage() {
     function handleReset() {
         setColorBy('gt')
         setFilterBy('all')
-        setSelectedCells(makeAllCells())
+        setSelectedCells(makeAllCells(numClasses))
     }
 
     function handleZoomChange(osmZoom: number, level: number) {
@@ -278,7 +283,8 @@ export default function LabelingPage() {
                     colorBy={colorBy}
                     filterBy={filterBy}
                     selectedCells={selectedCells}
-                    numClasses={NUM_CLASSES}
+                    numClasses={numClasses}
+                    classIds={classIds}
                     worldInfo={worldInfo}
                     refreshTick={refreshTick}
                     onBoundsChange={setBounds}
@@ -335,8 +341,9 @@ export default function LabelingPage() {
                                 confusionData={confusionData}
                                 selectedCells={selectedCells}
                                 colorBy={colorBy}
-                                classLabels={CLASS_LABELS}
-                                classColors={CLASS_COLORS}
+                                classLabels={classLabels}
+                                classColors={classColors}
+                                classIds={classIds}
                                 onCellClick={handleCellClick}
                                 onHeaderClick={handleHeaderClick}
                             />

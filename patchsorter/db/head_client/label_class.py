@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import text
+from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
 from patchsorter.db.head_client.models import LabelClass
@@ -11,7 +11,7 @@ from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 
 from patchsorter.config.constants import PredPatchSuffix
 
-_UNLABELED_CLASS_ID = 1
+_UNASSIGNED_CLASS_ID = 1
 """Reserved ``label_class_id`` for the "Unlabeled" class.  Cannot be deleted."""
 
 
@@ -67,10 +67,12 @@ class LabelClassStore:
         Returns:
             A list of LabelClass ORM objects.
         """
+        project_filter = or_(LabelClass.project_id == project_id, LabelClass.project_id.is_(None))
+
         return (
             self._session.scalars(
                 self._session.query(LabelClass)
-                .filter(LabelClass.project_id == project_id)
+                .filter(project_filter)
                 .order_by(LabelClass.label_class_id)
             )
             .all()
@@ -104,7 +106,7 @@ class LabelClassStore:
             ValueError: If *label_class_id* is ``1`` (the reserved Unlabeled
                 class).
         """
-        if label_class_id == _UNLABELED_CLASS_ID:
+        if label_class_id == _UNASSIGNED_CLASS_ID:
             raise ValueError(
                 "The 'Unlabeled' label class (id=1) is reserved and cannot be deleted."
             )
