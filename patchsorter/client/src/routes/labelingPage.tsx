@@ -182,9 +182,10 @@ export default function LabelingPage() {
         setPatchGalleryItems([])
     }
 
-    async function handlePolygonComplete(data: { polygon: number[][][]; bbox: { x_min: number; x_max: number; y_min: number; y_max: number } }) {
-        const { polygon, bbox } = data
-        setLassoPolygon(polygon[0])
+    async function handlePolygonPatchQuery(polygon: number[][], pageSize: number) {
+        setLassoPolygon(polygon)
+
+        const bbox = computeBboxFromPolygon(polygon)
 
         try {
             const [patchesRes, confusionRes] = await Promise.all([
@@ -228,10 +229,7 @@ export default function LabelingPage() {
         if (lassoPolygon) {
             setPatchGalleryItems(null)
             setTotalPatches(null)
-            handlePolygonComplete({
-                polygon: [lassoPolygon],
-                bbox: computeBboxFromPolygon(lassoPolygon),
-            })
+            handlePolygonPatchQuery(lassoPolygon, newSize)
         }
     }
 
@@ -260,8 +258,9 @@ export default function LabelingPage() {
                     refreshTick={refreshTick}
                     onBoundsChange={setBounds}
                     onZoomChange={handleZoomChange}
-                    onLassoComplete={handlePolygonComplete}
+                    onLassoComplete={handlePolygonPatchQuery}
                     onViewportClick={handleClearLassoPolygon}
+                    pageSize={pageSize}
                 />
 
                 {/* OSM zoom info in bottom left */}

@@ -24,8 +24,9 @@ interface ViewportProps {
     refreshTick: number
     onBoundsChange: (bounds: MapBounds) => void
     onZoomChange: (osmZoom: number, level: number) => void
-    onLassoComplete: (data: { polygon: number[][][]; bbox: { x_min: number; x_max: number; y_min: number; y_max: number } }) => void
+    onLassoComplete: (polygon: number[][], pageSize: number) => void
     onViewportClick: () => void
+    pageSize: number
 }
 
 export default function Viewport({
@@ -40,6 +41,7 @@ export default function Viewport({
     onZoomChange,
     onLassoComplete,
     onViewportClick,
+    pageSize,
 }: ViewportProps) {
     const osmZoomOffset = worldInfo?.osm_zoom_offset ?? 8
     const maxOsmZoom = (worldInfo?.max_level ?? 12) - osmZoomOffset
@@ -112,7 +114,7 @@ export default function Viewport({
 
         const bbox = computeBboxFromPolygon(coordinates)
         if (bbox) {
-            onLassoComplete({ polygon: coordinates, bbox })
+            onLassoComplete(coordinates[0], pageSize)
         }
 
         // Add the polygon as a feature in the feature layer
