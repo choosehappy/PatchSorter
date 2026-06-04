@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -22,3 +22,11 @@ class PatchResponse(BaseModel):
     pred_label_class_id: Optional[int] = None
     event_ts: Optional[datetime] = None
     priority: Optional[int] = None
+
+
+class LabelAssignByPolygonRequest(BaseModel):
+    polygon: Dict[str, Any]
+
+
+class LabelAssignResponse(BaseModel):
+    updated: int

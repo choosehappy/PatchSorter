@@ -1,11 +1,17 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Response
+from shapely.geometry import shape
 
 from patchsorter.db.head_client import get_client as get_head_client
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.settings import SettingsStore
-from patchsorter.api.v1.patch.models import PatchResponse
+from patchsorter.db.grid_index import HierarchicalGridIndexIJPair
+from patchsorter.api.v1.patch.models import (
+    LabelAssignByPolygonRequest,
+    LabelAssignResponse,
+    PatchResponse,
+)
 from patchsorter.api.v1.confusion_matrix.utils import _parse_label_pairs, _world_to_grid_bbox
 
 
@@ -94,3 +100,38 @@ def get_patch_image(project_id: int, patch_id: int) -> Response:
             "Cache-Control": "public, max-age=31536000",
         },
     )
+
+
+@router.post("/projects/{project_id}/patches/", response_model=LabelAssignResponse)
+def assign_labels_by_ids(
+    project_id: int,
+    patch_ids: List[int] = Query(..., description="Patch IDs to relabel"),
+    label_class_id: int = Query(..., description="Ground-truth label class to assign"),
+) -> LabelAssignResponse:
+    client = get_head_client()
+    with client.get_session() as session:
+        store = PatchStore(project_id, session)
+        updated = store.bulk_update_labels_by_ids(patch_ids, label_class_id)
+    return LabelAssignResponse(updated=updated)
+
+
+@router.post("/projects/{project_id}/patches/polygonassign", response_model=LabelAssignResponse)
+def assign_labels_by_polygon(
+    project_id: int,
+    body: LabelAssignByPolygonRequest,
+    label_class_id: int = Query(..., description="Ground-truth label class to assign"),
+    lp: Optional[List[str]] = Query(default=None, description="Label pair filter: repeat for each pair as 'gt,pred' (e.g. lp=0,1&lp=2,2)"),
+) -> LabelAssignResponse:
+    polygon = shape(body.polygon)
+    label_pairs = _parse_label_pairs(lp)
+    client = get_head_client()
+    with client.get_session() as session:
+        settings_store = SettingsStore(session)
+        max_level = int(settings_store.get("max_level", project_id).setting_value)
+        world_size = int(settings_store.get("world_size", project_id).setting_value)
+        grid = HierarchicalGridIndexIJPair(cell_size=world_size)
+        cells = grid.polygon_to_cells(polygon, max_level)
+        store = PatchStore(project_id, session)
+        updated = store.bulk_update_labels_by_cells(cells, label_class_id, label_pairs)
+    return LabelAssignResponse(updated=updated)
+

@@ -261,6 +261,114 @@ class PatchStore:
             {"patch_id": patch_id, "label_class_id": label_class_id},
         )
 
+    def bulk_update_labels_by_ids(
+        self,
+        patch_ids: List[int],
+        label_class_id: int,
+    ) -> int:
+        """Bulk-update the ground-truth label for a list of patch IDs.
+
+        Uses a single ``UPDATE … WHERE patch_id IN (…)`` statement, which
+        Citus distributes by routing each shard independently via the
+        ``patch_id`` distribution column.
+
+        Args:
+            patch_ids: List of patch IDs to relabel.
+            label_class_id: New ground-truth label class to assign.
+
+        Returns:
+            Number of rows updated.
+        """
+        if not patch_ids:
+            return 0
+        placeholders = ", ".join(f":pid_{i}" for i in range(len(patch_ids)))
+        params: Dict[str, Any] = {"label_class_id": label_class_id}
+        for i, pid in enumerate(patch_ids):
+            params[f"pid_{i}"] = pid
+        result = self._session.execute(
+            text(
+                f"UPDATE {self.table_name}"
+                f" SET label_class_id = :label_class_id"
+                f" WHERE patch_id IN ({placeholders})"
+            ),
+            params,
+        )
+        return result.rowcount
+
+    def bulk_update_labels_by_cells(
+        self,
+        cells: "List[Any]",
+        label_class_id: int,
+        label_pairs: Optional[List[Tuple[int, int]]] = None,
+    ) -> int:
+        """Bulk-update ground-truth labels for all patches whose best
+        prediction falls in one of the given grid cells.
+
+        Resolves the best prediction per patch (``pred_patch_latest`` first,
+        falling back to ``pred_patch_last``) then updates ``label_class_id``
+        on the patch table for every matching patch.
+
+        Args:
+            cells: List of :class:`~patchsorter.db.grid_index.GridCell`
+                objects identifying the target grid cells.
+            label_class_id: New ground-truth label class to assign.
+            label_pairs: Optional ``(gt, pred)`` filter applied to the
+                resolved prediction before updating.  ``None`` means no
+                filter.
+
+        Returns:
+            Number of rows updated.
+        """
+        if not cells:
+            return 0
+
+        # Build (grid_cell_i, grid_cell_j) IN (VALUES …) clause
+        cell_placeholders = ", ".join(
+            f"(:ci_{k}, :cj_{k})" for k in range(len(cells))
+        )
+        params: Dict[str, Any] = {"label_class_id": label_class_id}
+        for k, cell in enumerate(cells):
+            params[f"ci_{k}"] = cell.i
+            params[f"cj_{k}"] = cell.j
+
+        # Optional label-pair filter
+        pairs_where = ""
+        if label_pairs:
+            lp_placeholders = ", ".join(
+                f"(:lp_gt_{i}, :lp_pred_{i})" for i in range(len(label_pairs))
+            )
+            pairs_where = (
+                f" AND (p.label_class_id, pu.label_class_id)"
+                f" IN (VALUES {lp_placeholders})"
+            )
+            for i, (gt, pred) in enumerate(label_pairs):
+                params[f"lp_gt_{i}"] = gt
+                params[f"lp_pred_{i}"] = pred
+
+        sql = text(
+            f"""
+            UPDATE {self.table_name} AS p
+            SET label_class_id = :label_class_id
+            FROM (
+                SELECT DISTINCT ON (pu.patch_id) pu.patch_id, pu.label_class_id
+                FROM (
+                    SELECT *, 1 AS priority
+                    FROM {self.pred_table_latest}
+                    WHERE (grid_cell_i, grid_cell_j) IN (VALUES {cell_placeholders})
+                    UNION ALL
+                    SELECT *, 2 AS priority
+                    FROM {self.pred_table_last}
+                    WHERE (grid_cell_i, grid_cell_j) IN (VALUES {cell_placeholders})
+                      AND patch_id NOT IN (SELECT patch_id FROM {self.pred_table_latest})
+                ) pu
+                ORDER BY pu.patch_id, pu.priority
+            ) best
+            WHERE p.patch_id = best.patch_id{pairs_where}
+            """
+        )
+        result = self._session.execute(sql, params)
+        return result.rowcount
+
     # ------------------------------------------------------------------ #
     # Prediction methods (project{N}_pred_patch_latest / _last)           #
     # ------------------------------------------------------------------ #

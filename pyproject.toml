@@ -21,6 +21,7 @@ dependencies = [
     "large-image[common]>=1.34.1",
     "gdal==3.12.3",
     "geoalchemy2>=0.16",
+    "shapely>=2.0",
 ]
 dynamic = ["version"]  # ← version comes from setuptools_scm
 
