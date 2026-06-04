@@ -41,5 +41,15 @@
         "PYTHONPATH": "${workspaceFolder}"
       }
     }
+    ,
+    {
+      "name": "PatchSorter: UI (Chrome)",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/patchsorter/client",
+      "breakOnLoad": true,
+      "sourceMaps": true
+    }
   ]
 }
