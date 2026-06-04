@@ -6,7 +6,7 @@ from patchsorter.db.head_client import get_client as get_head_client
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.api.v1.patch.models import PatchResponse
-from patchsorter.api.v1.confusion_matrix.utils import _world_to_grid_bbox
+from patchsorter.api.v1.confusion_matrix.utils import _parse_label_pairs, _world_to_grid_bbox
 
 
 router = APIRouter()
@@ -21,8 +21,10 @@ def list_patches(
     y_min: Optional[float] = Query(default=None),
     x_max: Optional[float] = Query(default=None),
     y_max: Optional[float] = Query(default=None),
+    lp: Optional[List[str]] = Query(default=None, description="Label pair filter: repeat for each pair as 'gt,pred' (e.g. lp=0,1&lp=2,2)"),
 ) -> List[PatchResponse]:
     use_bbox = all(v is not None for v in (x_min, y_min, x_max, y_max))
+    label_pairs = _parse_label_pairs(lp)
     client = get_head_client()
     with client.get_session() as session:
         store = PatchStore(project_id, session)
@@ -38,9 +40,10 @@ def list_patches(
                 cursor=cursor,
                 limit=limit,
                 include_image=False,
+                label_pairs=label_pairs,
             )
         else:
-            rows = store.fetch_predicted(cursor=cursor, limit=limit, include_image=False)
+            rows = store.fetch_predicted(cursor=cursor, limit=limit, include_image=False, label_pairs=label_pairs)
     return [PatchResponse(**r) for r in rows]
 
 

@@ -6,7 +6,7 @@ import Viewport, { type MapBounds } from '../components/viewport'
 import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatrix'
 import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
-import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listPatchesProjectsProjectIdPatchesGet, type PatchResponse, type WorldInfo } from '../api_client'
+import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
 
 
 
@@ -123,7 +123,7 @@ export default function LabelingPage() {
         isFetchingNextPage,
         isLoading: patchesLoading,
     } = useInfiniteQuery({
-        queryKey: ['patches', projectId, lassoPolygon, pageSize],
+        queryKey: ['patches', projectId, lassoPolygon, pageSize, lp],
         queryFn: async ({ pageParam }: { pageParam: number }) => {
             const bbox = computeBboxFromPolygon(lassoPolygon!)
             const res = await listPatchesProjectsProjectIdPatchesGet({
@@ -132,6 +132,7 @@ export default function LabelingPage() {
                     cursor: pageParam,
                     limit: pageSize,
                     ...bbox,
+                    lp,
                 },
             })
             if (res.error) throw res.error

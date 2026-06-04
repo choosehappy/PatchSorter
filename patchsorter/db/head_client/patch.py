@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -310,6 +310,7 @@ class PatchStore:
         cursor: int = 0,
         limit: int = 20,
         include_image: bool = True,
+        label_pairs: Optional[List[Tuple[int, int]]] = None,
     ) -> List[Dict[str, Any]]:
         """Fetch a paginated page of patches that have predictions.
 
@@ -324,6 +325,9 @@ class PatchStore:
             limit: Maximum number of rows to return.  Defaults to ``20``.
             include_image: When ``True`` (default), ``patch_image`` bytes are
                 included in each returned dict.
+            label_pairs: Optional list of ``(gt_label, pred_label)`` tuples.
+                When provided, only patches whose ground-truth label and
+                predicted label match one of the given pairs are returned.
 
         Returns:
             A list of flat dicts merging patch columns with pred columns
@@ -336,6 +340,7 @@ class PatchStore:
             cursor=cursor,
             limit=limit,
             include_image=include_image,
+            label_pairs=label_pairs,
         )
 
     def _paginated_pred_join(
@@ -346,6 +351,7 @@ class PatchStore:
         cursor: int = 0,
         limit: int = 20,
         include_image: bool = True,
+        label_pairs: Optional[List[Tuple[int, int]]] = None,
     ) -> List[Dict[str, Any]]:
         """Return a paginated, keyset-cursor page of patches joined with their
         best available prediction.
@@ -354,6 +360,10 @@ class PatchStore:
         ``pred_patch_latest`` (priority 1) over ``pred_patch_last`` (priority 2)
         using ``DISTINCT ON``.  Only patches whose ``patch_id > cursor`` are
         returned, ordered ascending — suitable for stable forward pagination.
+
+        The patch JOIN is performed *inside* the CTE so that ``LIMIT`` is
+        applied after both the prediction resolution and the optional
+        label-pair filter, avoiding over-fetching from the pred tables.
 
         Args:
             pred_filter_sql: A SQL fragment that will be injected verbatim into
@@ -375,12 +385,22 @@ class PatchStore:
             include_image: When ``True`` (default), ``patch_image`` bytes are
                 included in each returned dict.  Set to ``False`` for
                 metadata-only queries.
+            label_pairs: Optional list of ``(gt_label, pred_label)`` tuples.
+                When provided, results are restricted to patches whose
+                ground-truth label (``patch.label_class_id``) and **resolved**
+                predicted label (after ``DISTINCT ON`` picks the best
+                ``pred_patch`` row) match one of the given pairs.  Filtering
+                happens in the outer SELECT so that stale ``_last`` rows cannot
+                satisfy a pair that the current best prediction does not.
+                ``None`` (default) applies no pair filter.
 
         Returns:
-            A list of flat dicts merging all columns from ``project{N}_patch``
-            and the resolved ``pred_patch`` row.  Columns from the pred tables
-            shadow patch columns with identical names (only ``patch_id``
-            overlaps — it is deduplicated in the SELECT).
+            A list of flat dicts with keys: ``patch_id``, ``patch_uid``,
+            ``label_class_id`` (GT), ``image_id``, ``downsample_factor``,
+            ``centroid_x``, ``centroid_y``, ``polygon``, ``embed_x``,
+            ``embed_y``, ``grid_cell_i``, ``grid_cell_j``,
+            ``pred_label_class_id``, ``event_ts``, ``priority``
+            (and ``patch_image`` when *include_image* is ``True``).
         """
         if "_cursor" in pred_params or "_limit" in pred_params:
             raise ValueError(
@@ -388,17 +408,40 @@ class PatchStore:
                 "these are reserved for internal pagination binds."
             )
 
-        patch_cols = (
-            "p.patch_id, p.patch_uid, p.label_class_id, p.image_id, p.downsample_factor,"
-            " p.centroid_x, p.centroid_y, ST_AsGeoJSON(p.polygon) AS polygon"
-        )
-        if include_image:
-            patch_cols += ", p.patch_image"
+        # Build optional WHERE clause to filter by (gt, pred) label-class pairs.
+        # Applied in the outer SELECT (after DISTINCT ON resolves the best prediction)
+        # so that stale _last rows can't leak through when a patch's resolved
+        # prediction doesn't match the requested pair.
+        pairs_where = ""
+        lp_params: Dict[str, Any] = {}
+        if label_pairs:
+            placeholders = ", ".join(
+                f"(:lp_gt_{i}, :lp_pred_{i})" for i in range(len(label_pairs))
+            )
+            pairs_where = (
+                f"WHERE (patch_label_class_id, label_class_id) IN (VALUES {placeholders})"
+            )
+            for i, (gt, pred) in enumerate(label_pairs):
+                lp_params[f"lp_gt_{i}"] = gt
+                lp_params[f"lp_pred_{i}"] = pred
+
+        image_cte_col = ",\n               p.patch_image" if include_image else ""
+        image_outer_col = ",\n       patch_image" if include_image else ""
 
         sql = text(
             f"""
             WITH result AS (
-                SELECT DISTINCT ON (patch_id) *
+                SELECT DISTINCT ON (pu.patch_id)
+                    pu.*,
+
+                    p.patch_uid,
+                    p.label_class_id AS patch_label_class_id,
+                    p.image_id,
+                    p.downsample_factor,
+                    p.centroid_x,
+                    p.centroid_y,
+                    ST_AsGeoJSON(p.polygon) AS polygon{image_cte_col}
+
                 FROM (
                     SELECT *, 1 AS priority
                     FROM {self.pred_table_latest}
@@ -409,24 +452,38 @@ class PatchStore:
                     SELECT *, 2 AS priority
                     FROM {self.pred_table_last}
                     WHERE {pred_filter_sql}
-                ) pred_union
-                WHERE patch_id > :_cursor
-                ORDER BY patch_id, priority
+                ) pu
+
+                JOIN {self.table_name} p ON p.patch_id = pu.patch_id
+
+                WHERE pu.patch_id > :_cursor
+                ORDER BY pu.patch_id, pu.priority
                 LIMIT :_limit
             )
-            SELECT {patch_cols},
-                   r.embed_x, r.embed_y,
-                   r.grid_cell_i, r.grid_cell_j,
-                   r.label_class_id AS pred_label_class_id,
-                   r.event_ts,
-                   r.priority
-            FROM result r
-            JOIN {self.table_name} p ON p.patch_id = r.patch_id
-            ORDER BY r.patch_id
+            SELECT
+                patch_id,
+                patch_uid,
+                patch_label_class_id AS label_class_id,
+                image_id,
+                downsample_factor,
+                centroid_x,
+                centroid_y,
+                polygon{image_outer_col},
+
+                embed_x,
+                embed_y,
+                grid_cell_i,
+                grid_cell_j,
+                label_class_id AS pred_label_class_id,
+                event_ts,
+                priority
+            FROM result
+            {pairs_where}
+            ORDER BY patch_id
             """
         )
 
-        params: Dict[str, Any] = {**pred_params, "_cursor": cursor, "_limit": limit}
+        params: Dict[str, Any] = {**pred_params, **lp_params, "_cursor": cursor, "_limit": limit}
         rows = self._session.execute(sql, params).mappings().all()
         return [dict(r) for r in rows]
 
@@ -440,6 +497,7 @@ class PatchStore:
         cursor: int = 0,
         limit: int = 20,
         include_image: bool = True,
+        label_pairs: Optional[List[Tuple[int, int]]] = None,
     ) -> List[Dict[str, Any]]:
         """Return a paginated page of patches whose predictions fall within a
         grid bounding box.
@@ -460,6 +518,8 @@ class PatchStore:
             limit: Maximum number of rows to return.  Defaults to ``20``.
             include_image: When ``True`` (default), ``patch_image`` bytes are
                 included.  Set to ``False`` for metadata-only results.
+            label_pairs: Optional list of ``(gt_label, pred_label)`` tuples
+                to filter by.  ``None`` (default) applies no pair filter.
 
         Returns:
             A list of flat dicts as described in
@@ -479,6 +539,7 @@ class PatchStore:
             cursor=cursor,
             limit=limit,
             include_image=include_image,
+            label_pairs=label_pairs,
         )
 
     def clear_predictions(self) -> None:

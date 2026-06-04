@@ -397,3 +397,204 @@ class TestGetPatchesWithinGridBbox:
         rows = store.get_patches_within_grid_bbox(**self.BBOX)
         ids = [r["patch_id"] for r in rows]
         assert ids == sorted(ids)
+
+
+# ---------------------------------------------------------------------------
+# Label-pair filtering
+#
+# Fixture layout (project_id=1, 5 patches from example_project):
+#
+#   patch | GT label  | pred table   | pred label | grid (i, j)
+#   ------|-----------|--------------|------------|------------
+#   p0    | tumor (0) | latest       | tumor (0)  | (2, 3)   ← concordant, in bbox
+#   p1    | tumor (0) | latest       | normal (1) | (2, 4)   ← discordant, in bbox
+#   p2    | normal(1) | latest       | tumor (0)  | (5, 5)   ← discordant, outside bbox
+#   p3    | normal(1) | last only    | normal (1) | (2, 3)   ← concordant, in bbox
+#   p4    | tumor (0) | latest+last  | tumor (0)  | (2, 3)   ← concordant, in bbox
+#
+# p2 and p3 have their GT label updated to "Normal" via update_label.
+# Test bbox: i in [2,3], j in [3,4] → in-bbox patches: p0, p1, p3, p4
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def seeded_preds_lp(example_project: Dict[str, Any], db_session: Session) -> Dict[str, Any]:
+    """Seed predictions with mixed (gt, pred) label-class combinations."""
+    project_id: int = example_project["project"]["project_id"]
+    tumor_id: int = example_project["label_classes"][0]["label_class_id"]
+    normal_id: int = example_project["label_classes"][1]["label_class_id"]
+
+    patch_ids = _get_patch_ids(db_session, project_id)
+    assert len(patch_ids) == 5
+    p0, p1, p2, p3, p4 = patch_ids
+
+    store = PatchStore(project_id, db_session)
+
+    # Update GT labels for p2 and p3 to Normal
+    store.update_label(p2, normal_id)
+    store.update_label(p3, normal_id)
+
+    # pred_patch_latest
+    _insert_latest(
+        db_session, project_id,
+        [
+            (p0, 0.10, 0.20, 2, 3, tumor_id),   # GT=tumor, pred=tumor, in bbox
+            (p1, 0.11, 0.21, 2, 4, normal_id),  # GT=tumor, pred=normal, in bbox
+            (p2, 0.12, 0.22, 5, 5, tumor_id),   # GT=normal, pred=tumor, outside bbox
+            (p4, 0.14, 0.24, 2, 3, tumor_id),   # GT=tumor, pred=tumor, in bbox
+        ],
+    )
+
+    # pred_patch_last
+    _insert_last(
+        db_session, project_id,
+        [
+            (p3, 0.30, 0.31, 2, 3, normal_id),  # GT=normal, pred=normal, in bbox (last only)
+            (p4, 99.9, 99.9, 9, 9, normal_id),  # stale; latest wins for p4
+        ],
+    )
+
+    db_session.flush()
+
+    return {
+        **example_project,
+        "patch_ids": patch_ids,
+        "tumor_id": tumor_id,
+        "normal_id": normal_id,
+        # Expected patch sets by (gt, pred) pair
+        "tumor_tumor": {p0, p4},
+        "tumor_normal": {p1},
+        "normal_tumor": {p2},
+        "normal_normal": {p3},
+    }
+
+
+class TestLabelPairsFilter:
+    """Tests for label_pairs filtering in _paginated_pred_join, fetch_predicted,
+    and get_patches_within_grid_bbox."""
+
+    BBOX = dict(i_min=2, i_max=3, j_min=3, j_max=4)
+
+    def test_single_concordant_pair(self, seeded_preds_lp, db_session):
+        """label_pairs=[(tumor, tumor)] returns only concordant tumor patches."""
+        project_id = seeded_preds_lp["project"]["project_id"]
+        store = PatchStore(project_id, db_session)
+        tid = seeded_preds_lp["tumor_id"]
+
+        rows = store.fetch_predicted(label_pairs=[(tid, tid)], include_image=False)
+        returned_ids = {r["patch_id"] for r in rows}
+
+        assert returned_ids == seeded_preds_lp["tumor_tumor"]
+
+    def test_single_discordant_pair(self, seeded_preds_lp, db_session):
+        """label_pairs=[(tumor, normal)] returns only the misclassified tumor patch."""
+        project_id = seeded_preds_lp["project"]["project_id"]
+        store = PatchStore(project_id, db_session)
+        tid = seeded_preds_lp["tumor_id"]
+        nid = seeded_preds_lp["normal_id"]
+
+        rows = store.fetch_predicted(label_pairs=[(tid, nid)], include_image=False)
+        returned_ids = {r["patch_id"] for r in rows}
+
+        assert returned_ids == seeded_preds_lp["tumor_normal"]
+
+    def test_multiple_pairs_union(self, seeded_preds_lp, db_session):
+        """Multiple pairs return the union of matching patches."""
+        project_id = seeded_preds_lp["project"]["project_id"]
+        store = PatchStore(project_id, db_session)
+        tid = seeded_preds_lp["tumor_id"]
+        nid = seeded_preds_lp["normal_id"]
+
+        rows = store.fetch_predicted(
+            label_pairs=[(tid, tid), (tid, nid)],
+            include_image=False,
+        )
+        returned_ids = {r["patch_id"] for r in rows}
+
+        expected = seeded_preds_lp["tumor_tumor"] | seeded_preds_lp["tumor_normal"]
+        assert returned_ids == expected
+
+    def test_none_label_pairs_returns_all(self, seeded_preds_lp, db_session):
+        """label_pairs=None applies no filter; all 5 patches are returned."""
+        project_id = seeded_preds_lp["project"]["project_id"]
+        store = PatchStore(project_id, db_session)
+
+        rows = store.fetch_predicted(label_pairs=None, include_image=False)
+        returned_ids = {r["patch_id"] for r in rows}
+
+        all_ids = set(seeded_preds_lp["patch_ids"])
+        assert returned_ids == all_ids
+
+    def test_empty_list_returns_all(self, seeded_preds_lp, db_session):
+        """label_pairs=[] (empty) is treated the same as None — no filtering."""
+        project_id = seeded_preds_lp["project"]["project_id"]
+        store = PatchStore(project_id, db_session)
+
+        rows = store.fetch_predicted(label_pairs=[], include_image=False)
+        returned_ids = {r["patch_id"] for r in rows}
+
+        all_ids = set(seeded_preds_lp["patch_ids"])
+        assert returned_ids == all_ids
+
+    def test_no_matching_pair_returns_empty(self, seeded_preds_lp, db_session):
+        """A pair that matches no patch yields an empty result."""
+        project_id = seeded_preds_lp["project"]["project_id"]
+        store = PatchStore(project_id, db_session)
+
+        rows = store.fetch_predicted(label_pairs=[(99, 99)], include_image=False)
+        assert rows == []
+
+    def test_label_pairs_with_bbox_intersection(self, seeded_preds_lp, db_session):
+        """get_patches_within_grid_bbox + label_pairs filters by both bbox and pair."""
+        project_id = seeded_preds_lp["project"]["project_id"]
+        store = PatchStore(project_id, db_session)
+        tid = seeded_preds_lp["tumor_id"]
+
+        # In-bbox concordant tumor patches are p0 and p4; p2 (normal→tumor) is outside bbox
+        rows = store.get_patches_within_grid_bbox(
+            **self.BBOX,
+            label_pairs=[(tid, tid)],
+            include_image=False,
+        )
+        returned_ids = {r["patch_id"] for r in rows}
+
+        assert returned_ids == seeded_preds_lp["tumor_tumor"]
+
+    def test_label_pairs_bbox_no_match(self, seeded_preds_lp, db_session):
+        """Bbox + pair that has no intersection returns empty."""
+        project_id = seeded_preds_lp["project"]["project_id"]
+        store = PatchStore(project_id, db_session)
+        tid = seeded_preds_lp["tumor_id"]
+        nid = seeded_preds_lp["normal_id"]
+
+        # normal→tumor pair: only p2 matches, which is outside the bbox
+        rows = store.get_patches_within_grid_bbox(
+            **self.BBOX,
+            label_pairs=[(nid, tid)],
+            include_image=False,
+        )
+        assert rows == []
+
+    def test_gt_and_pred_label_class_id_values(self, seeded_preds_lp, db_session):
+        """Verify label_class_id (GT) and pred_label_class_id are correctly returned."""
+        project_id = seeded_preds_lp["project"]["project_id"]
+        store = PatchStore(project_id, db_session)
+        tid = seeded_preds_lp["tumor_id"]
+        nid = seeded_preds_lp["normal_id"]
+
+        rows = store.fetch_predicted(label_pairs=[(tid, nid)], include_image=False)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["label_class_id"] == tid,      "GT label should be tumor"
+        assert row["pred_label_class_id"] == nid, "Pred label should be normal"
+
+    def test_last_only_patch_included_in_pair_filter(self, seeded_preds_lp, db_session):
+        """A patch with only a pred_patch_last row is returned when its pair matches."""
+        project_id = seeded_preds_lp["project"]["project_id"]
+        store = PatchStore(project_id, db_session)
+        nid = seeded_preds_lp["normal_id"]
+        p3 = seeded_preds_lp["patch_ids"][3]
+
+        rows = store.fetch_predicted(label_pairs=[(nid, nid)], include_image=False)
+        returned_ids = {r["patch_id"] for r in rows}
+
+        assert p3 in returned_ids, "last-only patch p3 should be in (normal, normal) results"
