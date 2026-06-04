@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { GetConfusionMatrixProjectsProjectIdConfusionMatrixGetData, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetErrors, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetResponses, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetData, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetErrors, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetResponses, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetData, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetErrors, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetResponses, GetPatchProjectsProjectIdPatchesPatchIdGetData, GetPatchProjectsProjectIdPatchesPatchIdGetErrors, GetPatchProjectsProjectIdPatchesPatchIdGetResponses, GetProjectProjectsProjectIdGetData, GetProjectProjectsProjectIdGetErrors, GetProjectProjectsProjectIdGetResponses, InfoProjectsProjectIdInfoGetData, InfoProjectsProjectIdInfoGetErrors, InfoProjectsProjectIdInfoGetResponses, ListLabelClassesProjectsProjectIdLabelClassesGetData, ListLabelClassesProjectsProjectIdLabelClassesGetErrors, ListLabelClassesProjectsProjectIdLabelClassesGetResponses, ListPatchesProjectsProjectIdPatchesGetData, ListPatchesProjectsProjectIdPatchesGetErrors, ListPatchesProjectsProjectIdPatchesGetResponses, ListProjectsProjectsGetData, ListProjectsProjectsGetResponses, ServeTileProjectsProjectIdTilesZxyPngGetData, ServeTileProjectsProjectIdTilesZxyPngGetErrors, ServeTileProjectsProjectIdTilesZxyPngGetResponses } from './types.gen';
+import type { AssignLabelsByIdsProjectsProjectIdPatchesPostData, AssignLabelsByIdsProjectsProjectIdPatchesPostErrors, AssignLabelsByIdsProjectsProjectIdPatchesPostResponses, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostData, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostErrors, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetData, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetErrors, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetResponses, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetData, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetErrors, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetResponses, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetData, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetErrors, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetResponses, GetPatchProjectsProjectIdPatchesPatchIdGetData, GetPatchProjectsProjectIdPatchesPatchIdGetErrors, GetPatchProjectsProjectIdPatchesPatchIdGetResponses, GetProjectProjectsProjectIdGetData, GetProjectProjectsProjectIdGetErrors, GetProjectProjectsProjectIdGetResponses, InfoProjectsProjectIdInfoGetData, InfoProjectsProjectIdInfoGetErrors, InfoProjectsProjectIdInfoGetResponses, ListLabelClassesProjectsProjectIdLabelClassesGetData, ListLabelClassesProjectsProjectIdLabelClassesGetErrors, ListLabelClassesProjectsProjectIdLabelClassesGetResponses, ListPatchesProjectsProjectIdPatchesGetData, ListPatchesProjectsProjectIdPatchesGetErrors, ListPatchesProjectsProjectIdPatchesGetResponses, ListProjectsProjectsGetData, ListProjectsProjectsGetResponses, ServeTileProjectsProjectIdTilesZxyPngGetData, ServeTileProjectsProjectIdTilesZxyPngGetErrors, ServeTileProjectsProjectIdTilesZxyPngGetResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -59,6 +59,11 @@ export const getLabelClassProjectsProjectIdLabelClassesLabelClassIdGet = <ThrowO
 export const listPatchesProjectsProjectIdPatchesGet = <ThrowOnError extends boolean = false>(options: Options<ListPatchesProjectsProjectIdPatchesGetData, ThrowOnError>) => (options.client ?? client).get<ListPatchesProjectsProjectIdPatchesGetResponses, ListPatchesProjectsProjectIdPatchesGetErrors, ThrowOnError>({ url: '/projects/{project_id}/patches/', ...options });
 
 /**
+ * Assign Labels By Ids
+ */
+export const assignLabelsByIdsProjectsProjectIdPatchesPost = <ThrowOnError extends boolean = false>(options: Options<AssignLabelsByIdsProjectsProjectIdPatchesPostData, ThrowOnError>) => (options.client ?? client).post<AssignLabelsByIdsProjectsProjectIdPatchesPostResponses, AssignLabelsByIdsProjectsProjectIdPatchesPostErrors, ThrowOnError>({ url: '/projects/{project_id}/patches/', ...options });
+
+/**
  * Get Patch
  */
 export const getPatchProjectsProjectIdPatchesPatchIdGet = <ThrowOnError extends boolean = false>(options: Options<GetPatchProjectsProjectIdPatchesPatchIdGetData, ThrowOnError>) => (options.client ?? client).get<GetPatchProjectsProjectIdPatchesPatchIdGetResponses, GetPatchProjectsProjectIdPatchesPatchIdGetErrors, ThrowOnError>({ url: '/projects/{project_id}/patches/{patch_id}', ...options });
@@ -67,3 +72,15 @@ export const getPatchProjectsProjectIdPatchesPatchIdGet = <ThrowOnError extends 
  * Get Patch Image
  */
 export const getPatchImageProjectsProjectIdPatchesPatchIdImageGet = <ThrowOnError extends boolean = false>(options: Options<GetPatchImageProjectsProjectIdPatchesPatchIdImageGetData, ThrowOnError>) => (options.client ?? client).get<GetPatchImageProjectsProjectIdPatchesPatchIdImageGetResponses, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetErrors, ThrowOnError>({ url: '/projects/{project_id}/patches/{patch_id}/image', ...options });
+
+/**
+ * Assign Labels By Polygon
+ */
+export const assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost = <ThrowOnError extends boolean = false>(options: Options<AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostData, ThrowOnError>) => (options.client ?? client).post<AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostErrors, ThrowOnError>({
+    url: '/projects/{project_id}/patches/polygonassign',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});

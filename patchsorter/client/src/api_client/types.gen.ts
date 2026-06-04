@@ -33,6 +33,28 @@ export type HttpValidationError = {
 };
 
 /**
+ * LabelAssignByPolygonRequest
+ */
+export type LabelAssignByPolygonRequest = {
+    /**
+     * Polygon
+     */
+    polygon: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * LabelAssignResponse
+ */
+export type LabelAssignResponse = {
+    /**
+     * Updated
+     */
+    updated: number;
+};
+
+/**
  * LabelClassResponse
  */
 export type LabelClassResponse = {
@@ -43,7 +65,7 @@ export type LabelClassResponse = {
     /**
      * Project Id
      */
-    project_id: number;
+    project_id: number | null;
     /**
      * Name
      */
@@ -501,6 +523,49 @@ export type ListPatchesProjectsProjectIdPatchesGetResponses = {
 
 export type ListPatchesProjectsProjectIdPatchesGetResponse = ListPatchesProjectsProjectIdPatchesGetResponses[keyof ListPatchesProjectsProjectIdPatchesGetResponses];
 
+export type AssignLabelsByIdsProjectsProjectIdPatchesPostData = {
+    body?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+    };
+    query: {
+        /**
+         * Patch Ids
+         *
+         * Patch IDs to relabel
+         */
+        patch_ids: Array<number>;
+        /**
+         * Label Class Id
+         *
+         * Ground-truth label class to assign
+         */
+        label_class_id: number;
+    };
+    url: '/projects/{project_id}/patches/';
+};
+
+export type AssignLabelsByIdsProjectsProjectIdPatchesPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AssignLabelsByIdsProjectsProjectIdPatchesPostError = AssignLabelsByIdsProjectsProjectIdPatchesPostErrors[keyof AssignLabelsByIdsProjectsProjectIdPatchesPostErrors];
+
+export type AssignLabelsByIdsProjectsProjectIdPatchesPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: LabelAssignResponse;
+};
+
+export type AssignLabelsByIdsProjectsProjectIdPatchesPostResponse = AssignLabelsByIdsProjectsProjectIdPatchesPostResponses[keyof AssignLabelsByIdsProjectsProjectIdPatchesPostResponses];
+
 export type GetPatchProjectsProjectIdPatchesPatchIdGetData = {
     body?: never;
     path: {
@@ -566,3 +631,46 @@ export type GetPatchImageProjectsProjectIdPatchesPatchIdImageGetResponses = {
      */
     200: unknown;
 };
+
+export type AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostData = {
+    body: LabelAssignByPolygonRequest;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+    };
+    query: {
+        /**
+         * Label Class Id
+         *
+         * Ground-truth label class to assign
+         */
+        label_class_id: number;
+        /**
+         * Lp
+         *
+         * Label pair filter: repeat for each pair as 'gt,pred' (e.g. lp=0,1&lp=2,2)
+         */
+        lp?: Array<string> | null;
+    };
+    url: '/projects/{project_id}/patches/polygonassign';
+};
+
+export type AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostError = AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostErrors[keyof AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostErrors];
+
+export type AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: LabelAssignResponse;
+};
+
+export type AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponse = AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses[keyof AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses];
