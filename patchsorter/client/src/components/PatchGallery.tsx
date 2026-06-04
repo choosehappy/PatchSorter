@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import PatchImage from './PatchImage'
 import './patchGallery.css'
-import type { PatchResponse } from '../api_client'
+import type { PatchResponse, LabelClassResponse } from '../api_client'
 
 const PAGE_SIZE_OPTIONS = [12, 24, 48, 96]
 const MIN_PATCH_SIZE = 40
@@ -22,6 +22,7 @@ export default function PatchGallery({
     totalPatches,
     currentPage,
     hasLasso,
+    labelClasses,
 }: {
     projectId: number
     patches: PatchResponse[]
@@ -36,6 +37,7 @@ export default function PatchGallery({
     totalPatches: number | null
     currentPage: number
     hasLasso: boolean
+    labelClasses: LabelClassResponse[]
 }) {
     const [selectAll, setSelectAll] = useState(false)
     const [patchSize, setPatchSize] = useState(DEFAULT_PATCH_SIZE)
@@ -110,9 +112,8 @@ export default function PatchGallery({
                             <PatchImage
                                 key={patch.patch_id}
                                 projectId={projectId}
-                                patchId={patch.patch_id}
-                                gtLabelClassId={patch.label_class_id}
-                                predLabelClassId={patch.pred_label_class_id ?? null}
+                                patch={patch}
+                                labelClasses={labelClasses}
                                 isSelected={selectAll}
                             />
                         ))}

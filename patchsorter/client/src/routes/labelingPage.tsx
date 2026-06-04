@@ -368,6 +368,7 @@ export default function LabelingPage() {
                     totalPatches={totalPatches}
                     currentPage={activePage}
                     hasLasso={lassoPolygon !== null}
+                    labelClasses={sortedLabelClasses}
                 />
             </div>
         </div>
