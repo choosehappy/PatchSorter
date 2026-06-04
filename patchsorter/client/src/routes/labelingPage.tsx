@@ -35,6 +35,7 @@ export default function LabelingPage() {
     const [pageSize, setPageSize] = useState(24)
     const [lassoPolygon, setLassoPolygon] = useState<number[][] | null>(null)
     const [activePage, setActivePage] = useState(0)
+    const [selectedPatches, setSelectedPatches] = useState<PatchResponse[]>([])
 
     useEffect(() => {
         infoProjectsProjectIdInfoGet({ path: { project_id: projectId } })
@@ -238,11 +239,13 @@ export default function LabelingPage() {
     function handleClearLassoPolygon() {
         setLassoPolygon(null)
         setActivePage(0)
+        setSelectedPatches([])
     }
 
     function handlePolygonPatchQuery(polygon: number[][], _pageSize: number) {
         setLassoPolygon(polygon)
         setActivePage(0)
+        setSelectedPatches([])
     }
 
     async function handleNext() {
@@ -369,6 +372,8 @@ export default function LabelingPage() {
                     currentPage={activePage}
                     hasLasso={lassoPolygon !== null}
                     labelClasses={sortedLabelClasses}
+                    selectedPatches={selectedPatches}
+                    onSelectionChange={setSelectedPatches}
                 />
             </div>
         </div>

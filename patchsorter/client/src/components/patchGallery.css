@@ -126,3 +126,26 @@
     font-size: 13px;
     color: #999;
 }
+
+/* ---- Grid wrapper (needed for selection rect overlay) ---- */
+
+.gallery-grid-wrapper {
+    position: relative;
+}
+
+/* ---- Per-patch cell ---- */
+
+.patch-grid-cell {
+    cursor: default;
+}
+
+/* ---- Ctrl+drag rubber-band selection rect ---- */
+
+.gallery-selection-rect {
+    position: absolute;
+    pointer-events: none;
+    border: 1.5px dashed #4a90d9;
+    background: rgba(74, 144, 217, 0.08);
+    box-sizing: border-box;
+    z-index: 10;
+}
