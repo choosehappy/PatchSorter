@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { client } from '../api_client/client.gen'
+import { listPatchesProjectsProjectIdPatchesGet } from '../api_client'
 import PatchImage from './PatchImage'
 import './patchGallery.css'
 import type { PatchResponse } from '../api_client'
@@ -37,10 +37,9 @@ export default function PatchGallery({
     const fetchPatches = useCallback(async (pageCursor: number) => {
         setLoading(true)
         try {
-            const res = await client.get({
+            const res = await listPatchesProjectsProjectIdPatchesGet({
                 path: { project_id: projectId },
                 query: { cursor: pageCursor, limit: pageSize },
-                url: '/projects/{project_id}/patches/',
             })
             if (res.data && Array.isArray(res.data)) {
                 setPatches(res.data as PatchResponse[])

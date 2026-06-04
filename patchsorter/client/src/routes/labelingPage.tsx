@@ -1,13 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { client } from '../api_client/client.gen'
 import './labelingPage.css'
 import Viewport, { type MapBounds } from '../components/viewport'
 import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatrix'
 import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
-import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, type PatchResponse, type WorldInfo } from '../api_client'
+import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listPatchesProjectsProjectIdPatchesGet, type PatchResponse, type WorldInfo } from '../api_client'
 
 
 
@@ -189,7 +188,7 @@ export default function LabelingPage() {
 
         try {
             const [patchesRes, confusionRes] = await Promise.all([
-                client.get({
+                listPatchesProjectsProjectIdPatchesGet({
                     path: { project_id: projectId },
                     query: {
                         x_min: bbox.x_min,
@@ -198,7 +197,6 @@ export default function LabelingPage() {
                         y_max: bbox.y_max,
                         limit: pageSize,
                     },
-                    url: '/projects/{project_id}/patches/',
                 }),
                 getConfusionMatrixProjectsProjectIdConfusionMatrixGet({
                     path: { project_id: projectId },

@@ -456,21 +456,21 @@ export type ListPatchesProjectsProjectIdPatchesGetData = {
          */
         limit?: number;
         /**
-         * I Min
+         * X Min
          */
-        i_min?: number | null;
+        x_min?: number | null;
         /**
-         * I Max
+         * Y Min
          */
-        i_max?: number | null;
+        y_min?: number | null;
         /**
-         * J Min
+         * X Max
          */
-        j_min?: number | null;
+        x_max?: number | null;
         /**
-         * J Max
+         * Y Max
          */
-        j_max?: number | null;
+        y_max?: number | null;
     };
     url: '/projects/{project_id}/patches/';
 };
