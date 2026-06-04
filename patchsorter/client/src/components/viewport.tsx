@@ -48,9 +48,9 @@ export default function Viewport({
     const overlayLayerRef = useRef<any>(null)
     const paramsRef = useRef<any>(null)
     const annotationLayerRef = useRef<any>(null)
+    const featureLayerRef = useRef<any>(null)
     const isDrawingRef = useRef(false)
     const justCompletedRef = useRef(false)
-    const activeModeRef = useRef<'lasso' | 'polygon'>('lasso')
     const isCtrlHeldRef = useRef(false)
     const [isCtrlHeld, setIsCtrlHeld] = useState(false)
 
@@ -69,8 +69,38 @@ export default function Viewport({
         return null
     }
 
+    function createLassoFeature(layer: any, coordinates: number[][][]) {
+        const feature = layer.createFeature('polygon')
+        feature.props = { type: 'lasso' }
+
+        feature
+            .position((d: number[][]) => ({ x: d[0], y: d[1] }))
+            .polygon((a: number[][][]) => ({
+                outer: a[0],
+                inner: a.slice(1)
+            }))
+            .data([coordinates])
+            .style('fill', true)
+            .style('fillColor', 'rgba(0, 165, 255, 0.3)')
+            .style('fillOpacity', 0.3)
+            .style('strokeColor', 'blue')
+            .style('strokeWidth', 2)
+            .style('stroke', true)
+            .style('uniformPolygon', true)
+
+        const originalDraw = feature.draw
+        feature.draw = function () {
+            originalDraw.call(this)
+            return this
+        }
+
+        feature.draw()
+
+        return feature
+    }
+
     function handleNewAnnotation(e: any) {
-        if (e.type !== 'create') return
+        if (e.annotation?.state() !== geo.annotation.state.done) return
         isDrawingRef.current = false
         justCompletedRef.current = true
 
@@ -80,47 +110,37 @@ export default function Viewport({
         const coordinates: number[][][] | null = geometry?.type === 'Polygon' ? geometry.coordinates : null
         if (!coordinates || coordinates.length === 0) return
 
-        // Remove any previous polygon annotations, keeping only this new one
-        const allAnnotations = annotationLayerRef.current.annotations()
-        for (const ann of allAnnotations) {
-            if (ann !== annotation) {
-                annotationLayerRef.current.removeAnnotation(ann)
-            }
-        }
-
         const bbox = computeBboxFromPolygon(coordinates)
         if (bbox) {
             onLassoComplete({ polygon: coordinates, bbox })
         }
 
+        // Add the polygon as a feature in the feature layer
+        createLassoFeature(featureLayerRef.current, coordinates)
+
         // Keep annotation visible; restore drawing mode for next lasso
-        annotationLayerRef.current.mode('lasso')
+        annotationLayerRef.current.mode('polygon')
         annotationLayerRef.current.draw()
     }
 
-    function setAnnotationMode(mode: 'lasso' | 'polygon') {
+    function toggleLassoMode(isOn: boolean) {
         if (!annotationLayerRef.current || !mapRef.current) return
-        activeModeRef.current = mode
-        annotationLayerRef.current.mode(mode, undefined, {
-            createStyle: {
-                fillColor: 'rgba(255, 165, 0, 0.3)',
-                strokeColor: 'orange',
-                strokeWidth: 2,
-                pointSize: 5,
-                pointFillColor: 'orange',
-                pointBorderColor: 'darkorange',
-                pointBorderWidth: 1,
-            },
-        })
-        annotationLayerRef.current.draw()
-    }
-
-    function clearLassoPolygon() {
-        if (annotationLayerRef.current) {
-            annotationLayerRef.current.removeAllAnnotations()
-            annotationLayerRef.current.draw()
+        if (isOn) {
+            annotationLayerRef.current.mode('polygon', undefined, {
+                createStyle: {
+                    fillColor: 'rgba(255, 165, 0, 0.3)',
+                    strokeColor: 'orange',
+                    strokeWidth: 2,
+                    pointSize: 5,
+                    pointFillColor: 'orange',
+                    pointBorderColor: 'darkorange',
+                    pointBorderWidth: 1,
+                },
+            })
+        } else {
+            annotationLayerRef.current.mode(null)
         }
-        onViewportClick()
+        annotationLayerRef.current.draw()
     }
 
     // Keep a mutable ref for tile-URL state so the GeoJS callback always reads
@@ -200,34 +220,38 @@ export default function Viewport({
         overlayLayerRef.current = map.createLayer('osm', { ...params.layer, zIndex: 0 })
 
         // Create annotation layer on init
-        annotationLayerRef.current = map.createLayer('annotation', { zIndex: 1 })
-        setAnnotationMode('lasso')
-
-        // When a new annotation drawing starts, mark as drawing and clear old annotations
-        annotationLayerRef.current.geoOn(geo.event.annotation.add, (e: any) => {
-            isDrawingRef.current = true
-            justCompletedRef.current = false
-            const newAnnotation = e.annotation
-            const existingAnnotations = annotationLayerRef.current.annotations()
-            for (const ann of existingAnnotations) {
-                if (ann !== newAnnotation) {
-                    annotationLayerRef.current.removeAnnotation(ann)
-                }
-            }
+        annotationLayerRef.current = map.createLayer('annotation', {
+            zIndex: 1,
+            finalPointProximity: 1000,
+            continuousCloseProximity: true,
         })
+
+        // Create feature layer for lasso polygons
+        featureLayerRef.current = map.createLayer('feature', {
+            zIndex: 2,
+        })
+        toggleLassoMode(true)
 
         // Register annotation completion event listener
         annotationLayerRef.current.geoOn(geo.event.annotation.state, handleNewAnnotation)
 
+        // Remove lasso features on mousedown
+        function handleMousedown() {
+            featureLayerRef.current.clear()
+            featureLayerRef.current.draw()
+            onViewportClick()
+        }
+        featureLayerRef.current.geoOn(geo.event.mousedown, handleMousedown)
+
         // Use GeoJS mouseclick to clear polygon; skip the click that ends a lasso
-        map.geoOn(geo.event.mouseclick, () => {
-            if (isDrawingRef.current) return
-            if (justCompletedRef.current) {
-                justCompletedRef.current = false
-                return
-            }
-            clearLassoPolygon()
-        })
+        // map.geoOn(geo.event.mouseclick, () => {
+        //     if (isDrawingRef.current) return
+        //     if (justCompletedRef.current) {
+        //         justCompletedRef.current = false
+        //         return
+        //     }
+        //     clearLassoPolygon()
+        // })
 
         map.geoOn(geo.event.zoom, () => {
             const z = Math.round(map.zoom())
@@ -248,13 +272,13 @@ export default function Viewport({
 
         // Track Ctrl key state via mouse events on the map div
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Control' || e.key === 'Meta') {
+            if (e.key === 'Control') {
                 isCtrlHeldRef.current = true
                 setIsCtrlHeld(true)
             }
         }
         const handleKeyUp = (e: KeyboardEvent) => {
-            if (e.key === 'Control' || e.key === 'Meta') {
+            if (e.key === 'Control') {
                 isCtrlHeldRef.current = false
                 setIsCtrlHeld(false)
             }
@@ -264,7 +288,10 @@ export default function Viewport({
         document.addEventListener('keyup', handleKeyUp)
 
         return () => {
-            map.exit()
+            annotationLayerRef.current?.geoOff(geo.event.annotation.state, handleNewAnnotation)
+            featureLayerRef.current?.geoOff(geo.event.mousedown, handleMousedown)
+            map.geoOff(geo.event.zoom)
+            map.geoOff(geo.event.pan, onMapIdle)
             document.removeEventListener('keydown', handleKeyDown)
             document.removeEventListener('keyup', handleKeyUp)
         }
@@ -288,9 +315,9 @@ export default function Viewport({
     // Change annotation mode based on Ctrl state
     useEffect(() => {
         if (isCtrlHeld) {
-            setAnnotationMode('polygon')
+            toggleLassoMode(true)
         } else {
-            setAnnotationMode('lasso')
+            toggleLassoMode(false)
         }
     }, [isCtrlHeld])
 
