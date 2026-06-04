@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { client } from '../api_client/client.gen'
-import { type ServeTileProjectsProjectIdTilesZxyPngGetData, type WorldInfo } from '../api_client'
+import { type ServeTileProjectsProjectIdTilesZxyPngGetData, type WorldInfo, type PatchResponse } from '../api_client'
 
 // GeoJS loaded via CDN in index.html
 declare const geo: any
@@ -28,6 +28,8 @@ interface ViewportProps {
     onLassoComplete: (polygon: number[][], pageSize: number) => void
     onViewportClick: () => void
     pageSize: number
+    selectedPatches: PatchResponse[]
+    hoveredPatch: PatchResponse | null
 }
 
 export default function Viewport({
@@ -44,6 +46,8 @@ export default function Viewport({
     onLassoComplete,
     onViewportClick,
     pageSize,
+    selectedPatches,
+    hoveredPatch,
 }: ViewportProps) {
     const osmZoomOffset = worldInfo?.osm_zoom_offset ?? 8
     const maxOsmZoom = (worldInfo?.max_level ?? 12) - osmZoomOffset
@@ -53,6 +57,8 @@ export default function Viewport({
     const paramsRef = useRef<any>(null)
     const annotationLayerRef = useRef<any>(null)
     const featureLayerRef = useRef<any>(null)
+    const pointLayerRef = useRef<any>(null)
+    const pointFeatureRef = useRef<any>(null)
     const isDrawingRef = useRef(false)
     const justCompletedRef = useRef(false)
     const isCtrlHeldRef = useRef(false)
@@ -237,6 +243,22 @@ export default function Viewport({
         featureLayerRef.current = map.createLayer('feature', {
             zIndex: 2,
         })
+
+        // Create point layer for selected/hovered patches
+        pointLayerRef.current = map.createLayer('feature', {
+            zIndex: 3,
+        })
+        pointFeatureRef.current = pointLayerRef.current
+            .createFeature('point', { primitiveShape: 'circle' })
+            .data([])
+            .position((p: PatchResponse) => ({ x: p.grid_cell_i!, y: p.grid_cell_j! }))
+            .style('radius', 5)
+            .style('fillColor', '#ff4444')
+            .style('fillOpacity', 0.9)
+            .style('stroke', true)
+            .style('strokeColor', 'white')
+            .style('strokeWidth', 1.5)
+        pointLayerRef.current.draw()
         toggleLassoMode(true)
 
         // Register annotation completion event listener
@@ -327,6 +349,30 @@ export default function Viewport({
             toggleLassoMode(false)
         }
     }, [isCtrlHeld])
+
+    // Update point layer whenever selected patches or hovered patch changes
+    useEffect(() => {
+        if (!pointFeatureRef.current) return
+        const withCentroid = selectedPatches.filter(
+            p => p.grid_cell_i != null && p.grid_cell_j != null
+        )
+        const hoveredId = hoveredPatch?.patch_id ?? null
+        const extra =
+            hoveredPatch &&
+            hoveredPatch.grid_cell_i != null &&
+            hoveredPatch.grid_cell_j != null &&
+            !withCentroid.some(p => p.patch_id === hoveredPatch.patch_id)
+                ? [hoveredPatch]
+                : []
+        const data = [...withCentroid, ...extra]
+        console.debug('[pointLayer] data length:', data.length, data[0] && { cx: data[0].grid_cell_i, cy: data[0].grid_cell_j })
+        const feat = pointFeatureRef.current
+        feat.data(data)
+        feat.style('radius', (p: PatchResponse) => p.patch_id === hoveredId ? 9 : 5)
+        feat.style('fillColor', (p: PatchResponse) => p.patch_id === hoveredId ? '#000000' : '#000000')
+        feat.modified()
+        pointLayerRef.current.draw()
+    }, [selectedPatches, hoveredPatch])
 
     return <div ref={mapDivRef} style={{ width: '100%', height: '100%' }} />
 }

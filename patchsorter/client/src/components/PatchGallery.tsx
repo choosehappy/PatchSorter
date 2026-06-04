@@ -32,6 +32,7 @@ export default function PatchGallery({
     labelClasses,
     selectedPatches,
     onSelectionChange,
+    onHoverChange,
 }: {
     projectId: number
     patches: PatchResponse[]
@@ -49,6 +50,7 @@ export default function PatchGallery({
     labelClasses: LabelClassResponse[]
     selectedPatches: PatchResponse[]
     onSelectionChange: (patches: PatchResponse[]) => void
+    onHoverChange: (patch: PatchResponse | null) => void
 }) {
     const [selectAll, setSelectAll] = useState(false)
     const [patchSize, setPatchSize] = useState(DEFAULT_PATCH_SIZE)
@@ -226,6 +228,8 @@ export default function PatchGallery({
                                     key={patch.patch_id}
                                     data-patch-id={patch.patch_id}
                                     className="patch-grid-cell"
+                                    onMouseEnter={() => onHoverChange(patch)}
+                                    onMouseLeave={() => onHoverChange(null)}
                                     onMouseDown={e => {
                                         if (e.button !== 0 || !(e.ctrlKey || e.metaKey)) return
                                         e.preventDefault()

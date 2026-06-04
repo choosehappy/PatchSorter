@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import './labelingPage.css'
@@ -6,6 +6,7 @@ import Viewport, { type MapBounds } from '../components/viewport'
 import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatrix'
 import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
+import LabelPicker from '../components/LabelPicker'
 import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
 
 
@@ -36,6 +37,9 @@ export default function LabelingPage() {
     const [lassoPolygon, setLassoPolygon] = useState<number[][] | null>(null)
     const [activePage, setActivePage] = useState(0)
     const [selectedPatches, setSelectedPatches] = useState<PatchResponse[]>([])
+    const [hoveredPatch, setHoveredPatch] = useState<PatchResponse | null>(null)
+    const [showPicker, setShowPicker] = useState(false)
+    const [pickedLabelClassId, setPickedLabelClassId] = useState<number | null>(null)
 
     useEffect(() => {
         infoProjectsProjectIdInfoGet({ path: { project_id: projectId } })
@@ -44,6 +48,20 @@ export default function LabelingPage() {
                 else console.error('Error fetching world info:', error)
             })
             .catch(err => console.error('Error fetching world info:', err))
+    }, [])
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Enter') {
+                setShowPicker(true)
+            }
+        }
+        document.addEventListener('keydown', handleKeyDown)
+        return () => document.removeEventListener('keydown', handleKeyDown)
+    }, [])
+
+    const handleLabelSelect = useCallback((labelClassId: number) => {
+        setPickedLabelClassId(labelClassId)
     }, [])
 
     const { data: labelClassesData = [] } = useQuery<LabelClassResponse[]>({
@@ -295,6 +313,8 @@ export default function LabelingPage() {
                     onLassoComplete={handlePolygonPatchQuery}
                     onViewportClick={handleClearLassoPolygon}
                     pageSize={pageSize}
+                    selectedPatches={selectedPatches}
+                    hoveredPatch={hoveredPatch}
                 />
 
                 {/* OSM zoom info in bottom left */}
@@ -374,8 +394,15 @@ export default function LabelingPage() {
                     labelClasses={sortedLabelClasses}
                     selectedPatches={selectedPatches}
                     onSelectionChange={setSelectedPatches}
+                    onHoverChange={setHoveredPatch}
                 />
             </div>
+            <LabelPicker
+                isOpen={showPicker}
+                labelClasses={sortedLabelClasses}
+                onSelect={handleLabelSelect}
+                onClose={() => setShowPicker(false)}
+            />
         </div>
     )
 }

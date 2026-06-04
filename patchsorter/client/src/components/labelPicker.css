@@ -1,0 +1,99 @@
+.label-picker-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.label-picker-card {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+    padding: 8px 0;
+    min-width: 260px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.label-picker-hint {
+    display: block;
+    padding: 4px 16px 10px;
+    font-size: 11px;
+    color: #999;
+    text-align: right;
+}
+
+.label-picker-hint-bottom {
+    display: block;
+    padding: 10px 16px 4px;
+    font-size: 11px;
+    color: #999;
+    text-align: left;
+}
+
+.label-picker-hint-bottom kbd {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #f5f5f5;
+    border: 1px solid #ccc;
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 600;
+    color: #666;
+}
+
+.label-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    border: none;
+    background: none;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-family: sans-serif;
+    color: #222;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.1s;
+}
+
+.label-picker-row:hover {
+    background: #f0f0f0;
+}
+
+.label-picker-index {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    background: #f5f5f5;
+    font-size: 12px;
+    font-weight: 600;
+    color: #666;
+    flex-shrink: 0;
+}
+
+.label-picker-swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    border: 1px solid #ddd;
+}
+
+.label-picker-name {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
