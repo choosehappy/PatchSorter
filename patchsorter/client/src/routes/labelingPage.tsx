@@ -58,6 +58,9 @@ export default function LabelingPage() {
     const [pageSize, setPageSize] = useState(24)
     const [lassoPolygon, setLassoPolygon] = useState<number[][] | null>(null)
     const [totalPatches, setTotalPatches] = useState<number | null>(null)
+    const [hasNext, setHasNext] = useState(true)
+    const [galleryCursor, setGalleryCursor] = useState(0)
+    const [currentPage, setCurrentPage] = useState(0)
 
     useEffect(() => {
         infoProjectsProjectIdInfoGet({ path: { project_id: projectId } })
@@ -184,6 +187,8 @@ export default function LabelingPage() {
 
     async function handlePolygonPatchQuery(polygon: number[][], pageSize: number) {
         setLassoPolygon(polygon)
+        setGalleryCursor(0)
+        setCurrentPage(0)
 
         const bbox = computeBboxFromPolygon(polygon)
 
@@ -213,6 +218,7 @@ export default function LabelingPage() {
 
             if (patchesRes.data && Array.isArray(patchesRes.data)) {
                 setPatchGalleryItems(patchesRes.data as PatchResponse[])
+                setHasNext(patchesRes.data.length >= pageSize)
             }
 
             if (confusionRes.data?.matrix) {
@@ -224,11 +230,35 @@ export default function LabelingPage() {
         }
     }
 
+    async function handlePaginate(pageCursor: number, delta: number) {
+        setGalleryCursor(pageCursor)
+        setCurrentPage(prev => prev + delta)
+        try {
+            const res = await listPatchesProjectsProjectIdPatchesGet({
+                path: { project_id: projectId },
+                query: { cursor: pageCursor, limit: pageSize },
+            })
+
+            if (res.data && Array.isArray(res.data)) {
+                setPatchGalleryItems(res.data as PatchResponse[])
+                setHasNext(res.data.length >= pageSize)
+            } else {
+                setPatchGalleryItems([])
+                setHasNext(false)
+            }
+        } catch (err) {
+            console.error('Failed to fetch patches by cursor:', err)
+        }
+    }
+
     function handlePageSizeChange(newSize: number) {
         setPageSize(newSize)
+        setGalleryCursor(0)
+        setCurrentPage(0)
         if (lassoPolygon) {
             setPatchGalleryItems(null)
             setTotalPatches(null)
+            setHasNext(true)
             handlePolygonPatchQuery(lassoPolygon, newSize)
         }
     }
@@ -328,6 +358,11 @@ export default function LabelingPage() {
                     pageSize={pageSize}
                     setPageSize={handlePageSizeChange}
                     totalPatches={totalPatches}
+                    hasNext={hasNext}
+                    onHasNextChange={setHasNext}
+                    onPaginate={handlePaginate}
+                    galleryCursor={galleryCursor}
+                    currentPage={currentPage}
                 />
             </div>
         </div>

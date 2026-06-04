@@ -15,24 +15,33 @@ export default function PatchGallery({
     pageSize,
     setPageSize,
     totalPatches,
+    hasNext,
+    onHasNextChange,
+    onPaginate,
+    galleryCursor,
+    currentPage,
 }: {
     projectId: number
     patchGalleryItems: PatchResponse[] | null
     pageSize: number
     setPageSize: (s: number) => void
     totalPatches: number | null
+    hasNext: boolean
+    onHasNextChange: (h: boolean) => void
+    onPaginate?: (cursor: number, delta: number) => void
+    galleryCursor: number
+    currentPage: number
 }) {
     const [patches, setPatches] = useState<PatchResponse[]>([])
     const [cursor, setCursor] = useState(0)
     const [loading, setLoading] = useState(false)
     const [selectAll, setSelectAll] = useState(false)
     const [patchSize, setPatchSize] = useState(DEFAULT_PATCH_SIZE)
-    const [hasNext, setHasNext] = useState(true)
+
+    const totalPages = totalPatches !== null ? Math.max(1, Math.ceil(totalPatches / pageSize)) : 0
 
     const effectivePatches = patchGalleryItems ?? patches
     const hasExternalItems = patchGalleryItems !== null
-
-    const totalPages = totalPatches !== null ? Math.max(1, Math.ceil(totalPatches / pageSize)) : 0
 
     const fetchPatches = useCallback(async (pageCursor: number) => {
         setLoading(true)
@@ -43,15 +52,15 @@ export default function PatchGallery({
             })
             if (res.data && Array.isArray(res.data)) {
                 setPatches(res.data as PatchResponse[])
-                setHasNext(res.data.length >= pageSize)
+                onHasNextChange(res.data.length >= pageSize)
             } else {
                 setPatches([])
-                setHasNext(false)
+                onHasNextChange(false)
             }
         } catch (err) {
             console.error('Failed to fetch patches:', err)
             setPatches([])
-            setHasNext(false)
+            onHasNextChange(false)
         } finally {
             setLoading(false)
         }
@@ -64,7 +73,13 @@ export default function PatchGallery({
     }, [fetchPatches, hasExternalItems])
 
     function handlePrev() {
-        if (cursor <= 0 || hasExternalItems) return
+        if (cursor <= 0) return
+        if (hasExternalItems) {
+            if (effectivePatches.length === 0) return
+            const newCursor = effectivePatches[0].patch_id - 1
+            onPaginate?.(newCursor, -1)
+            return
+        }
         const newCursor = patches.length > 0 ? patches[patches.length - 1].patch_id : cursor
         const nextCursor = Math.max(0, newCursor - 1)
         setCursor(nextCursor)
@@ -72,8 +87,14 @@ export default function PatchGallery({
     }
 
     function handleNext() {
-        if (!hasNext || patches.length === 0 || hasExternalItems) return
-        const newCursor = patches[patches.length - 1].patch_id
+        if (!hasNext) return
+        if (effectivePatches.length === 0) return
+        if (hasExternalItems) {
+            const newCursor = effectivePatches[effectivePatches.length - 1].patch_id
+            onPaginate?.(newCursor, 1)
+            return
+        }
+        const newCursor = effectivePatches[effectivePatches.length - 1].patch_id
         setCursor(newCursor)
         fetchPatches(newCursor)
     }
@@ -86,14 +107,7 @@ export default function PatchGallery({
     return (
         <div className="patch-gallery">
             <div className="gallery-toolbar">
-                <div className="toolbar-group">
-                    <button onClick={handlePrev} disabled={cursor <= 0 || loading || hasExternalItems}>
-                        Prev
-                    </button>
-                    <button onClick={handleNext} disabled={!hasNext || loading || hasExternalItems}>
-                        Next
-                    </button>
-                </div>
+
 
                 <label className="toolbar-group checkbox-group">
                     <input
@@ -130,9 +144,17 @@ export default function PatchGallery({
 
                 <div className="toolbar-group">
                     {hasExternalItems && totalPatches !== null ? (
-                        <span>
-                            Page {cursor / pageSize + 1} of {totalPages} · {totalPatches} patches
-                        </span>
+                        <>
+                            <span>
+                                Page {currentPage + 1} of {totalPages} · {totalPatches} patches
+                            </span>
+                            <button onClick={handlePrev} disabled={cursor <= 0 || loading}>
+                                Prev
+                            </button>
+                            <button onClick={handleNext} disabled={!hasNext || loading || !hasExternalItems}>
+                                Next
+                            </button>
+                        </>
                     ) : hasExternalItems ? (
                         <span>{effectivePatches.length} patches</span>
                     ) : (
