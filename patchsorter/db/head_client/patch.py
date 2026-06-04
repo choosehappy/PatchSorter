@@ -352,6 +352,7 @@ class PatchStore:
         limit: int = 20,
         include_image: bool = True,
         label_pairs: Optional[List[Tuple[int, int]]] = None,
+        last_additional_filter: str = "",
     ) -> List[Dict[str, Any]]:
         """Return a paginated, keyset-cursor page of patches joined with their
         best available prediction.
@@ -451,7 +452,7 @@ class PatchStore:
 
                     SELECT *, 2 AS priority
                     FROM {self.pred_table_last}
-                    WHERE {pred_filter_sql}
+                    WHERE {pred_filter_sql} {last_additional_filter}
                 ) pu
 
                 JOIN {self.table_name} p ON p.patch_id = pu.patch_id
@@ -540,6 +541,9 @@ class PatchStore:
             limit=limit,
             include_image=include_image,
             label_pairs=label_pairs,
+            last_additional_filter=(
+                f"AND patch_id NOT IN (SELECT patch_id FROM {self.pred_table_latest})"
+            ),
         )
 
     def clear_predictions(self) -> None:

@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple
 import io
+import math
 
 import numpy as np
 import matplotlib.colors as mcolors
@@ -82,9 +83,9 @@ def _osm_tile_to_bbox(
 
     grid_scale = 2 ** (max_level - level)
     i_min = int(wx0 / grid_scale)
-    i_max = int(wx1 / grid_scale)
+    i_max = math.ceil(wx1 / grid_scale) - 1
     j_min = int(wy0 / grid_scale)
-    j_max = int(wy1 / grid_scale)
+    j_max = math.ceil(wy1 / grid_scale) - 1
 
     return i_min, j_min, i_max, j_max, wx0, wy0, wx1, wy1
 
