@@ -33,6 +33,7 @@ export default function PatchGallery({
     selectedPatches,
     onSelectionChange,
     onHoverChange,
+    onSelectAllChange,
 }: {
     projectId: number
     patches: PatchResponse[]
@@ -51,6 +52,7 @@ export default function PatchGallery({
     selectedPatches: PatchResponse[]
     onSelectionChange: (patches: PatchResponse[]) => void
     onHoverChange: (patch: PatchResponse | null) => void
+    onSelectAllChange?: (selectAll: boolean) => void
 }) {
     const [selectAll, setSelectAll] = useState(false)
     const [patchSize, setPatchSize] = useState(DEFAULT_PATCH_SIZE)
@@ -168,7 +170,10 @@ export default function PatchGallery({
                     <input
                         type="checkbox"
                         checked={selectAll}
-                        onChange={e => setSelectAll(e.target.checked)}
+                        onChange={e => {
+                            setSelectAll(e.target.checked)
+                            onSelectAllChange?.(e.target.checked)
+                        }}
                     />
                     Select All
                 </label>

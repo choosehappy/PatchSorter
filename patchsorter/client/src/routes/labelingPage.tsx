@@ -1,13 +1,13 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
-import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
+import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import './labelingPage.css'
 import Viewport, { type MapBounds } from '../components/viewport'
 import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatrix'
 import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
 import LabelPicker from '../components/LabelPicker'
-import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
+import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, assignLabelsByIdsProjectsProjectIdPatchesPost, assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
 
 
 
@@ -24,6 +24,7 @@ function makeAllCells(n: number): Set<string> {
 export default function LabelingPage() {
     const { projectId: projectIdParam } = useParams<{ projectId: string }>()
     const projectId = Number(projectIdParam)
+    const queryClient = useQueryClient()
     const [colorBy, setColorBy] = useState<string>('gt')
     const [filterBy, setFilterBy] = useState<string>('all')
     const [selectedCells, setSelectedCells] = useState<Set<string>>(() => new Set<string>())
@@ -40,6 +41,7 @@ export default function LabelingPage() {
     const [hoveredPatch, setHoveredPatch] = useState<PatchResponse | null>(null)
     const [showPicker, setShowPicker] = useState(false)
     const [pickedLabelClassId, setPickedLabelClassId] = useState<number | null>(null)
+    const [gallerySelectAll, setGallerySelectAll] = useState(false)
 
     useEffect(() => {
         infoProjectsProjectIdInfoGet({ path: { project_id: projectId } })
@@ -63,6 +65,33 @@ export default function LabelingPage() {
     const handleLabelSelect = useCallback((labelClassId: number) => {
         setPickedLabelClassId(labelClassId)
     }, [])
+
+    const handlePickerClose = useCallback(async (labelClassId: number | null) => {
+        setShowPicker(false)
+        const pickedId = labelClassId ?? pickedLabelClassId
+        if (pickedId === null) return
+
+        if (selectedPatches.length > 0) {
+            await assignLabelsByIdsProjectsProjectIdPatchesPost({
+                path: { project_id: projectId },
+                query: { patch_ids: selectedPatches.map(p => p.patch_id), label_class_id: pickedId },
+            })
+            setSelectedPatches([])
+            queryClient.invalidateQueries({ queryKey: ['patches'] })
+            queryClient.invalidateQueries({ queryKey: ['galleryTotal'] })
+            setRefreshTick(t => t + 1)
+        } else if (gallerySelectAll && lassoPolygon) {
+            await assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost({
+                path: { project_id: projectId },
+                query: { label_class_id: pickedId },
+                body: { polygon: { type: 'Polygon', coordinates: [lassoPolygon] } },
+            })
+            queryClient.invalidateQueries({ queryKey: ['patches'] })
+            queryClient.invalidateQueries({ queryKey: ['galleryTotal'] })
+            setRefreshTick(t => t + 1)
+        }
+        setPickedLabelClassId(null)
+    }, [selectedPatches, gallerySelectAll, lassoPolygon, projectId, queryClient, pickedLabelClassId])
 
     const { data: labelClassesData = [] } = useQuery<LabelClassResponse[]>({
         queryKey: ['labelClasses', projectId],
@@ -395,13 +424,14 @@ export default function LabelingPage() {
                     selectedPatches={selectedPatches}
                     onSelectionChange={setSelectedPatches}
                     onHoverChange={setHoveredPatch}
+                    onSelectAllChange={setGallerySelectAll}
                 />
             </div>
             <LabelPicker
                 isOpen={showPicker}
                 labelClasses={sortedLabelClasses}
                 onSelect={handleLabelSelect}
-                onClose={() => setShowPicker(false)}
+                onClose={handlePickerClose}
             />
         </div>
     )

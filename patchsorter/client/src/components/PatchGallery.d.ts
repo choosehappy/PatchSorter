@@ -1,0 +1,22 @@
+import './patchGallery.css';
+import type { PatchResponse, LabelClassResponse } from '../api_client';
+export default function PatchGallery({ projectId, patches, isLoading, isFetchingNextPage, canGoNext, canGoPrev, onNext, onPrev, pageSize, setPageSize, totalPatches, currentPage, hasLasso, labelClasses, selectedPatches, onSelectionChange, onHoverChange, onSelectAllChange, }: {
+    projectId: number;
+    patches: PatchResponse[];
+    isLoading: boolean;
+    isFetchingNextPage: boolean;
+    canGoNext: boolean;
+    canGoPrev: boolean;
+    onNext: () => void;
+    onPrev: () => void;
+    pageSize: number;
+    setPageSize: (s: number) => void;
+    totalPatches: number | null;
+    currentPage: number;
+    hasLasso: boolean;
+    labelClasses: LabelClassResponse[];
+    selectedPatches: PatchResponse[];
+    onSelectionChange: (patches: PatchResponse[]) => void;
+    onHoverChange: (patch: PatchResponse | null) => void;
+    onSelectAllChange?: (selectAll: boolean) => void;
+}): import("react/jsx-runtime").JSX.Element;

@@ -6,7 +6,7 @@ interface LabelPickerProps {
     isOpen: boolean
     labelClasses: LabelClassResponse[]
     onSelect: (labelClassId: number) => void
-    onClose: () => void
+    onClose: (labelClassId: number | null) => void
 }
 
 export default function LabelPicker({ isOpen, labelClasses, onSelect, onClose }: LabelPickerProps) {
@@ -16,21 +16,21 @@ export default function LabelPicker({ isOpen, labelClasses, onSelect, onClose }:
     )
 
     const handleBackdropClick = useCallback(() => {
-        onClose()
+        onClose(null)
     }, [onClose])
 
     const handleKeyDown = useCallback((e: KeyboardEvent) => {
         if (!isOpen) return
 
         if (e.key === 'Escape') {
-            onClose()
+            onClose(null)
             return
         }
 
         const num = parseInt(e.key, 10)
         if (num >= 1 && num <= 9 && num <= sorted.length) {
             onSelect(sorted[num - 1].label_class_id)
-            onClose()
+            onClose(sorted[num - 1].label_class_id)
         }
     }, [isOpen, onClose, onSelect, sorted])
 
@@ -53,7 +53,7 @@ export default function LabelPicker({ isOpen, labelClasses, onSelect, onClose }:
                         className="label-picker-row"
                         onClick={() => {
                             onSelect(lc.label_class_id)
-                            onClose()
+                            onClose(lc.label_class_id)
                         }}
                     >
                         <span className="label-picker-index">{i + 1}</span>
