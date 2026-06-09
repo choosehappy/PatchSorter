@@ -444,27 +444,28 @@ class PatchStore:
         limit: int = 20,
         include_image: bool = True,
         label_pairs: Optional[List[Tuple[int, int]]] = None,
-        last_additional_filter: str = "",
     ) -> List[Dict[str, Any]]:
         """Return a paginated, keyset-cursor page of patches joined with their
         best available prediction.
 
         The query resolves each ``patch_id``'s prediction by preferring
-        ``pred_patch_latest`` (priority 1) over ``pred_patch_last`` (priority 2)
-        using ``DISTINCT ON``.  Only patches whose ``patch_id > cursor`` are
-        returned, ordered ascending — suitable for stable forward pagination.
+        ``pred_patch_latest`` (priority 1) over ``pred_patch_last`` (priority 2).
+        ``pred_patch_last`` rows are excluded for any ``patch_id`` that already
+        appears in ``pred_patch_latest``, ensuring each ``patch_id`` appears at
+        most once in the union and making a ``DISTINCT ON`` unnecessary.
 
-        The patch JOIN is performed *inside* the CTE so that ``LIMIT`` is
-        applied after both the prediction resolution and the optional
-        label-pair filter, avoiding over-fetching from the pred tables.
+        Only patches whose ``patch_id > cursor`` are returned, ordered
+        ascending — suitable for stable forward pagination.  ``LIMIT`` is
+        applied after the optional label-pair filter so that each page contains
+        exactly ``limit`` matching rows rather than up to ``limit`` rows before
+        filtering.
 
         Args:
-            pred_filter_sql: A SQL fragment that will be injected verbatim into
-                the ``WHERE`` clause of **both** the ``pred_patch_latest`` and
-                ``pred_patch_last`` sub-selects.  It must not include the
-                ``WHERE`` keyword itself, and must not reference ``patch_id``
-                (the cursor filter is appended automatically).  Use named
-                bind-parameters that are supplied via *pred_params*.
+            pred_filter_sql: A SQL fragment injected verbatim into the
+                ``WHERE`` clause of **both** the ``pred_patch_latest`` and
+                ``pred_patch_last`` sub-selects.  Must not include the
+                ``WHERE`` keyword itself.  Use named bind-parameters supplied
+                via *pred_params*.
 
                 Example::
 
@@ -480,12 +481,10 @@ class PatchStore:
                 metadata-only queries.
             label_pairs: Optional list of ``(gt_label, pred_label)`` tuples.
                 When provided, results are restricted to patches whose
-                ground-truth label (``patch.label_class_id``) and **resolved**
-                predicted label (after ``DISTINCT ON`` picks the best
-                ``pred_patch`` row) match one of the given pairs.  Filtering
-                happens in the outer SELECT so that stale ``_last`` rows cannot
-                satisfy a pair that the current best prediction does not.
-                ``None`` (default) applies no pair filter.
+                ground-truth label (``patch.label_class_id``) and predicted
+                label (``pred_patch.label_class_id``) match one of the given
+                pairs.  Filtering is applied before ``LIMIT`` so pages are
+                fully populated.  ``None`` (default) applies no pair filter.
 
         Returns:
             A list of flat dicts with keys: ``patch_id``, ``patch_uid``,
@@ -501,78 +500,60 @@ class PatchStore:
                 "these are reserved for internal pagination binds."
             )
 
-        # Build optional WHERE clause to filter by (gt, pred) label-class pairs.
-        # Applied in the outer SELECT (after DISTINCT ON resolves the best prediction)
-        # so that stale _last rows can't leak through when a patch's resolved
-        # prediction doesn't match the requested pair.
-        pairs_where = ""
+        pairs_and = ""
         lp_params: Dict[str, Any] = {}
         if label_pairs:
             placeholders = ", ".join(
                 f"(:lp_gt_{i}, :lp_pred_{i})" for i in range(len(label_pairs))
             )
-            pairs_where = (
-                f"WHERE (patch_label_class_id, label_class_id) IN (VALUES {placeholders})"
+            pairs_and = (
+                f"AND (p.label_class_id, pu.label_class_id) IN (VALUES {placeholders})"
             )
             for i, (gt, pred) in enumerate(label_pairs):
                 lp_params[f"lp_gt_{i}"] = gt
                 lp_params[f"lp_pred_{i}"] = pred
 
-        image_cte_col = ",\n               p.patch_image" if include_image else ""
-        image_outer_col = ",\n       patch_image" if include_image else ""
+        image_col = ",\n               p.patch_image" if include_image else ""
 
         sql = text(
             f"""
-            WITH result AS (
-                SELECT DISTINCT ON (pu.patch_id)
-                    pu.*,
-
-                    p.patch_uid,
-                    p.label_class_id AS patch_label_class_id,
-                    p.image_id,
-                    p.downsample_factor,
-                    p.centroid_x,
-                    p.centroid_y,
-                    ST_AsGeoJSON(p.polygon) AS polygon{image_cte_col}
-
-                FROM (
-                    SELECT *, 1 AS priority
-                    FROM {self.pred_table_latest}
-                    WHERE {pred_filter_sql}
-
-                    UNION ALL
-
-                    SELECT *, 2 AS priority
-                    FROM {self.pred_table_last}
-                    WHERE {pred_filter_sql} {last_additional_filter}
-                ) pu
-
-                JOIN {self.table_name} p ON p.patch_id = pu.patch_id
-
-                WHERE pu.patch_id > :_cursor
-                ORDER BY pu.patch_id, pu.priority
-                LIMIT :_limit
-            )
             SELECT
-                patch_id,
-                patch_uid,
-                patch_label_class_id AS label_class_id,
-                image_id,
-                downsample_factor,
-                centroid_x,
-                centroid_y,
-                polygon{image_outer_col},
+                pu.patch_id,
+                p.patch_uid,
+                p.label_class_id,
+                p.image_id,
+                p.downsample_factor,
+                p.centroid_x,
+                p.centroid_y,
+                ST_AsGeoJSON(p.polygon) AS polygon{image_col},
 
-                embed_x,
-                embed_y,
-                grid_cell_i,
-                grid_cell_j,
-                label_class_id AS pred_label_class_id,
-                event_ts,
-                priority
-            FROM result
-            {pairs_where}
-            ORDER BY patch_id
+                pu.embed_x,
+                pu.embed_y,
+                pu.grid_cell_i,
+                pu.grid_cell_j,
+                pu.label_class_id         AS pred_label_class_id,
+                pu.event_ts,
+                pu.priority
+
+            FROM (
+                SELECT *, 1 AS priority
+                FROM {self.pred_table_latest}
+                WHERE {pred_filter_sql}
+
+                UNION ALL
+
+                SELECT *, 2 AS priority
+                FROM {self.pred_table_last}
+                WHERE {pred_filter_sql}
+                AND NOT EXISTS (SELECT 1 FROM {self.pred_table_latest} WHERE patch_id = {self.pred_table_last}.patch_id)
+            ) pu
+
+            JOIN {self.table_name} p ON p.patch_id = pu.patch_id
+
+            WHERE pu.patch_id > :_cursor
+            {pairs_and}
+            ORDER BY pu.patch_id
+            LIMIT :_limit
             """
         )
 
@@ -632,10 +613,7 @@ class PatchStore:
             cursor=cursor,
             limit=limit,
             include_image=include_image,
-            label_pairs=label_pairs,
-            last_additional_filter=(
-                f"AND patch_id NOT IN (SELECT patch_id FROM {self.pred_table_latest})"
-            ),
+            label_pairs=label_pairs
         )
 
     def get_patches_by_points(
