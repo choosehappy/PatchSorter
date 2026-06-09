@@ -1,36 +1,18 @@
 # %%
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-import random
-import torchvision.utils as vutils
-
+from albumentations.pytorch import ToTensorV2
+from torchvision.transforms.functional import center_crop
+from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 import logging
 
-from torchvision.transforms.functional import center_crop
-from tqdm import tqdm
-# +
-
-import albumentations as A
-
-from albumentations.pytorch import ToTensorV2
-import cv2
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-
-# from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
-
 from utils import *
 from patch_logging import *
-
 import timm
-from torch.utils.data import DataLoader
-
 from configs import *
-# -
+
+# +
 
 num_bins = GRID_SIZE**2  # 10000
 target_count = max(
@@ -88,6 +70,7 @@ class Dataset(object):
         return self.nitems
 
 
+# Initialize dataset with proper parameters
 dataset = Dataset(
     "mitosis_ps_labels.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
 )
@@ -103,9 +86,8 @@ dataloader = DataLoader(
     persistent_workers=True,
     prefetch_factor=4,
 )
-#prefetcher = cuda_prefetc[her(dataloader)
+# prefetcher = cuda_prefetc[her(dataloader)
 vram_prefetcher = threaded_vram_prefetcher(dataloader, buffer_size=4)
-
 
 
 #
@@ -113,7 +95,6 @@ vram_prefetcher = threaded_vram_prefetcher(dataloader, buffer_size=4)
 
 
 import matplotlib.pyplot as plt
-import numpy as np
 import math
 
 # obtenir un batch
@@ -121,7 +102,6 @@ batch_data = next(iter(dataloader))
 *views, batch_labels, original_imgs = batch_data
 batch_imgs = views[0]
 
-import matplotlib.pyplot as plt
 import torchvision.utils as vutils
 
 
@@ -247,7 +227,7 @@ for _ in range(10_000):
             *views, labels, orig = batch_data
             labels = labels.long().to(DEVICE)
 
-            #imgs = torch.cat(views, dim=0).half().to(DEVICE) / 255.0  # [B*V, C, H, W]
+            # imgs = torch.cat(views, dim=0).half().to(DEVICE) / 255.0  # [B*V, C, H, W]
             views = [v.half().to(DEVICE) for v in views]
 
             # Concatenate, convert to half-precision, and normalize
@@ -337,7 +317,6 @@ for _ in range(10_000):
                 sup_pred_loss + PSEUDO_PRED_LAMBDA * pseudo_pred_loss
             )  # report seperately
 
-
             labeled_rate, num_label, num_pseudo = label_tracker.update(
                 labels, pred_labels[high_conf] if high_conf is not None else None
             )  # update with current batch's true and pseudo labels
@@ -379,7 +358,7 @@ for _ in range(10_000):
             scaler.step(optimizer)
             scaler.update()
 
-            #mem_bank.add_candidates(z_batch.detach(), proj_coords.detach()) #___COMMENTED OUT
+            # mem_bank.add_candidates(z_batch.detach(), proj_coords.detach()) #___COMMENTED OUT
             mem_bank.age_all()
 
             if niter_total % LOG_EVERY == 0:

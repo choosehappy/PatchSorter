@@ -18,6 +18,7 @@ from albumentations.pytorch import ToTensorV2
 import cv2
 import torch
 import torch.nn as nn
+from typing import Optional, Union, Any
 from torch.utils.data import DataLoader
 from collections import Counter
 
@@ -34,11 +35,12 @@ import itertools
 
 import random
 
+
 class InfiniteDataset(Dataset):
     def __init__(self, dataset):
         self.dataset = dataset
-        self.indices = list(range(len(dataset)))
-        random.shuffle(self.indices) # Initial shuffle
+        self.indices = list(range(len(dataset))) #TODO: This is terrible? why not select an integer?
+        random.shuffle(self.indices)  # Initial shuffle
 
     def __len__(self):
         return 10**12
@@ -59,6 +61,7 @@ import torch
 
 import torch
 
+
 def to_cuda(obj, stream):
     """Recursively moves tensors to GPU in a specific stream."""
     if isinstance(obj, torch.Tensor):
@@ -70,10 +73,11 @@ def to_cuda(obj, stream):
         return tuple(to_cuda(v, stream) for v in obj)
     return obj
 
+
 def cuda_prefetcher(loader):
     stream = torch.cuda.Stream()
     loader_iter = iter(loader)
-    
+
     def bck_load():
         try:
             batch = next(loader_iter)
@@ -86,21 +90,22 @@ def cuda_prefetcher(loader):
 
     while next_batch is not None:
         torch.cuda.current_stream().wait_stream(stream)
-        
+
         current_batch = next_batch
-        
+
         # Record stream for every tensor in the batch to prevent memory corruption
         def record_all(obj):
             if isinstance(obj, torch.Tensor):
                 obj.record_stream(torch.cuda.current_stream())
             elif isinstance(obj, (list, tuple)):
-                for i in obj: record_all(i)
-        
+                for i in obj:
+                    record_all(i)
+
         record_all(current_batch)
-        
+
         # Start preloading the next set of views/labels
         next_batch = bck_load()
-        
+
         yield current_batch
 
 
@@ -111,6 +116,7 @@ import torch
 import threading
 from collections import deque
 from queue import Queue
+
 
 def threaded_vram_prefetcher(loader, buffer_size=10):
     stream = torch.cuda.Stream()
@@ -125,13 +131,13 @@ def threaded_vram_prefetcher(loader, buffer_size=10):
                 # 1. Move to GPU (This happens in the background stream)
                 with torch.cuda.stream(stream):
                     gpu_batch = to_cuda(batch, stream)
-                
-                # 2. Put it in the queue. 
+
+                # 2. Put it in the queue.
                 # If the queue is full (buffer_size reached), this thread sleeps.
                 gpu_queue.put(gpu_batch)
-                
+
         except StopIteration:
-            gpu_queue.put(None) # Signal end of data
+            gpu_queue.put(None)  # Signal end of data
 
     # Start the "Background Refiller" thread
     worker_thread = threading.Thread(target=producer, daemon=True)
@@ -140,27 +146,30 @@ def threaded_vram_prefetcher(loader, buffer_size=10):
     while True:
         # Get the next batch from our VRAM buffer
         batch = gpu_queue.get()
-        #print("\t\t" + str(gpu_queue.qsize()))
+        # print("\t\t" + str(gpu_queue.qsize()))
         if batch is None:
             break
-            
+
         # Ensure the background CUDA copy is finished before the model touches it
         torch.cuda.current_stream().wait_stream(stream)
-        
+
         # Record stream for memory safety
         def record_all(obj):
             if isinstance(obj, torch.Tensor):
                 obj.record_stream(torch.cuda.current_stream())
             elif isinstance(obj, (list, tuple)):
-                for i in obj: record_all(i)
+                for i in obj:
+                    record_all(i)
+
         record_all(batch)
-        
+
         yield batch
+
 
 # def cuda_prefetcher(loader):
 #     stream = torch.cuda.Stream()
 #     loader_iter = iter(loader)
-    
+
 #     def bck_load():
 #         try:
 #             input, target = next(loader_iter)
@@ -176,22 +185,22 @@ def threaded_vram_prefetcher(loader, buffer_size=10):
 #     next_input, next_target = bck_load()
 
 #     while next_input is not None:
-#         # 1. Sync the streams: Ensure the background copy is DONE 
+#         # 1. Sync the streams: Ensure the background copy is DONE
 #         # before the main stream tries to use it.
 #         torch.cuda.current_stream().wait_stream(stream)
-        
+
 #         current_input = next_input
 #         current_target = next_target
 
 #         # 2. IMPORTANT: Prevent premature memory recycling
-#         # This tells the allocator: "Wait until the compute stream is done 
+#         # This tells the allocator: "Wait until the compute stream is done
 #         # with this tensor before you let another batch overwrite its memory."
 #         current_input.record_stream(torch.cuda.current_stream())
 #         current_target.record_stream(torch.cuda.current_stream())
 
 #         # 3. Start preloading the NEXT batch immediately
 #         next_input, next_target = bck_load()
-        
+
 #         yield current_input, current_target
 
 # class CudaPrefetcher:
@@ -220,16 +229,15 @@ def threaded_vram_prefetcher(loader, buffer_size=10):
 #     def next(self):
 #         # Sync: ensure the background transfer is finished before returning
 #         torch.cuda.current_stream().wait_stream(self.stream)
-        
+
 #         inputs = self.next_input
 #         targets = self.next_target
-        
+
 #         # Immediately start preloading the NEXT batch
 #         if inputs is not None:
 #             self.preload()
-            
-#         return inputs, targets
 
+#         return inputs, targets
 
 
 class LabeledRateTracker:
@@ -699,15 +707,15 @@ def prediction_loss_pseudo(
         # conf_views: [V, B]
 
         # → passer en [B, V]
-        vp = view_preds.transpose(0, 1)      # [B, V]
-        cv = conf_views.transpose(0, 1)      # [B, V]
+        vp = view_preds.transpose(0, 1)  # [B, V]
+        cv = conf_views.transpose(0, 1)  # [B, V]
 
         # Comptage des labels par patch
         one_hot = torch.nn.functional.one_hot(vp, N_CLASS)  # [B, V, C]
-        counts = one_hot.sum(dim=1)                             # [B, C]
+        counts = one_hot.sum(dim=1)  # [B, C]
 
         # Label majoritaire et nombre d’occurrences
-        majority_count, majority_label = counts.max(dim=1)      # [B], [B]
+        majority_count, majority_label = counts.max(dim=1)  # [B], [B]
 
         # Conditions
         majority_mask = majority_count > (V // 2)
@@ -774,6 +782,7 @@ def prediction_loss_pseudo(
         num_pseudo = torch.zeros(N_CLASS, device=device)
 
     return pseudo_loss, pred_labels, high_conf
+
 
 def semantic_head_loss(coords, labels, margin=5.0):
     """
@@ -966,54 +975,106 @@ def max_mean_discrepancy(coords, grid_size=GRID_SIZE, n_samples=500):
 
 
 def simclr_loss(proj_emb, temperature=0.5):
-    V, B, D = proj_emb.shape
-    emb = F.normalize(proj_emb, dim=-1)
-    emb_flat = emb.view(V * B, D)
+    """
+    proj_emb: [N, D] or [V, B, D]
+    If [N, D], we assume it's already flattened view * batch
+    """
 
-    sim = torch.mm(emb_flat, emb_flat.T) / temperature
+    # Handle both shapes - either [N, D] or [V, B, D]
+    if len(proj_emb.shape) == 2:
+        # Assume flat shape [N, D]
+        emb = F.normalize(proj_emb, dim=-1)
+        N, D = proj_emb.shape
+        emb_flat = emb
 
-    mask_self = torch.eye(V * B, dtype=torch.bool, device=proj_emb.device)
-    labels = torch.arange(B, device=proj_emb.device).repeat(V)
-    mask_pos = (labels.unsqueeze(0) == labels.unsqueeze(1)) & ~mask_self
+        # Create labels for positive pairs (same samples across views)
+        # This assumes the input is already flattened from view * batch processing
+        sim = torch.mm(emb_flat, emb_flat.T) / temperature
 
-    sim.masked_fill_(mask_self, -9e3)
+        mask_self = torch.eye(N, dtype=torch.bool, device=proj_emb.device)
+        labels = torch.arange(N, device=proj_emb.device)
+        mask_pos = (labels.unsqueeze(0) == labels.unsqueeze(1)) & ~mask_self
 
-    exp_sim = torch.exp(sim)
-    log_prob = sim - torch.log(exp_sim.sum(dim=-1, keepdim=True))
+        sim.masked_fill_(mask_self, -9e3)
 
-    loss = -(log_prob[mask_pos]).mean()
-    return loss
+        exp_sim = torch.exp(sim)
+        log_prob = sim - torch.log(exp_sim.sum(dim=-1, keepdim=True))
+
+        loss = -(log_prob[mask_pos]).mean()
+        return loss
+    else:
+        # Handle [V, B, D] shape (original implementation)
+        V, B, D = proj_emb.shape
+        emb = F.normalize(proj_emb, dim=-1)
+        emb_flat = emb.view(V * B, D)
+
+        sim = torch.mm(emb_flat, emb_flat.T) / temperature
+
+        mask_self = torch.eye(V * B, dtype=torch.bool, device=proj_emb.device)
+        labels = torch.arange(B, device=proj_emb.device).repeat(V)
+        mask_pos = (labels.unsqueeze(0) == labels.unsqueeze(1)) & ~mask_self
+
+        sim.masked_fill_(mask_self, -9e3)
+
+        exp_sim = torch.exp(sim)
+        log_prob = sim - torch.log(exp_sim.sum(dim=-1, keepdim=True))
+
+        loss = -(log_prob[mask_pos]).mean()
+        return loss
 
 
 def vicreg_loss(proj_emb, sim_coeff=25.0, var_coeff=25.0, cov_coeff=1.0, epsilon=1e-4):
     """
-    proj_emb: [V, B, D]
-    VICReg: Variance-Invariance-Covariance Regularization
+    proj_emb: [N, D] or [V, B, D]
+    If [N, D], we assume it's already flattened view * batch
     """
-    V, B, D = proj_emb.shape
-    emb_flat = proj_emb.view(V * B, D).float()
 
-    # split back into views for pairwise invariance
-    views = proj_emb.unbind(dim=0)  # V x [B, D]
+    # Handle both shapes - either [N, D] or [V, B, D]
+    if len(proj_emb.shape) == 2:
+        # Assume flat shape [N, D]
+        emb = proj_emb.float()
+        N, D = proj_emb.shape
 
-    # --- Invariance: pull same sample together across views ---
-    inv_loss = sum(
-        F.mse_loss(views[i].float(), views[j].float())
-        for i in range(V)
-        for j in range(i + 1, V)
-    ) / (V * (V - 1) / 2)
+        # For flattened input, we can't do view-wise invariance
+        # Just compute variance and covariance loss for the whole tensor
+        # Compute variance loss (minimize variance of each feature dimension)
+        var_loss = torch.mean(torch.var(emb, dim=0))
 
-    # --- Variance: push std of each dim above epsilon ---
-    std = emb_flat.std(dim=0)  # [D]
-    var_loss = F.relu(1.0 - std).mean()
+        # Compute covariance loss (minimize covariances between features)
+        centered_emb = emb - torch.mean(emb, dim=0, keepdim=True)
+        cov_matrix = torch.matmul(centered_emb.T, centered_emb) / (N - 1 + epsilon)
+        cov_loss = torch.sum(cov_matrix**2) - torch.sum(torch.diag(cov_matrix) ** 2)
 
-    # --- Covariance: decorrelate dimensions ---
-    emb_centered = emb_flat - emb_flat.mean(dim=0)
-    cov = (emb_centered.T @ emb_centered) / (B * V - 1)  # [D, D]
-    off_diag = cov.pow(2).sum() - cov.diagonal().pow(2).sum()
-    cov_loss = off_diag / D
+        # Total loss
+        loss = sim_coeff * 0.0 + var_coeff * var_loss + cov_coeff * cov_loss
 
-    return sim_coeff * inv_loss + var_coeff * var_loss + cov_coeff * cov_loss
+        return loss
+    else:
+        # Handle [V, B, D] shape (original implementation)
+        V, B, D = proj_emb.shape
+        emb_flat = proj_emb.view(V * B, D).float()
+
+        # split back into views for pairwise invariance
+        views = proj_emb.unbind(dim=0)  # V x [B, D]
+
+        # --- Invariance: pull same sample together across views ---
+        inv_loss = sum(
+            F.mse_loss(views[i].float(), views[j].float())
+            for i in range(V)
+            for j in range(i + 1, V)
+        ) / (V * (V - 1) // 2)
+
+        # --- Variance: push std of each dim above epsilon ---
+        std = emb_flat.std(dim=0)  # [D]
+        var_loss = F.relu(1.0 - std).mean()
+
+        # --- Covariance: decorrelate dimensions ---
+        emb_centered = emb_flat - emb_flat.mean(dim=0)
+        cov = (emb_centered.T @ emb_centered) / (B * V - 1)  # [D, D]
+        off_diag = cov.pow(2).sum() - cov.diagonal().pow(2).sum()
+        cov_loss = off_diag / D
+
+        return sim_coeff * inv_loss + var_coeff * var_loss + cov_coeff * cov_loss
 
 
 # def log_nearest_neighbors(writer, img_aug, orig, proj_emb, proj_coords, niter_total,
