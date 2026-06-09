@@ -66,7 +66,7 @@ def get_patch(project_id: int, patch_id: int) -> PatchResponse:
     with client.get_session() as session:
         store = PatchStore(project_id, session)
         rows = store._paginated_pred_join(
-            pred_filter_sql="patch_id = :patch_id_filter",
+            pred_filter_sql="pu.patch_id = :patch_id_filter",
             pred_params={"patch_id_filter": patch_id},
             cursor=0,
             limit=1,
