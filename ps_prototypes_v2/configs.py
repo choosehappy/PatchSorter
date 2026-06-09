@@ -51,3 +51,11 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 PATCH_SIZE = 60  # 64 #this should allow for some local translation
 N_CLASS = 5
+# Loss selection: 'simclr' or 'swav'
+LOSS_TYPE = "swav"
+
+# SwAV-specific defaults
+SWAV_PROTOTYPES = 300
+SWAV_KMEANS_ITERS = 10
+SWAV_SINKHORN_ITERS = 3
+SWAV_EPS = 0.05

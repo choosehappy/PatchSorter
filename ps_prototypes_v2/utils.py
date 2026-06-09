@@ -1139,6 +1139,7 @@ def simclr_loss(proj_emb, temperature=0.5):
 
         loss = -(log_prob[mask_pos]).mean()
         return loss
+
     else:
         # Handle [V, B, D] shape (original implementation)
         V, B, D = proj_emb.shape
@@ -1346,3 +1347,101 @@ def gaussian_mask(H, W, sigma=0.3):
 #     def forward(self, imgs):
 #         mask = self.encoder(imgs)  # [B, 1, H, W]
 #         return imgs * mask
+
+
+def _kmeans_prototypes(emb_flat: torch.Tensor, K: int, iters: int = 10) -> torch.Tensor:
+    """
+    Simple (batched) k-means on GPU to produce K prototypes from emb_flat [N, D].
+    Returns centroids tensor [K, D].
+    """
+    N, D = emb_flat.shape
+    K = min(int(K), N)
+    device = emb_flat.device
+
+    # init centroids by sampling K points
+    idx = torch.randperm(N, device=device)[:K]
+    centroids = emb_flat[idx].clone()
+
+    for _ in range(max(1, int(iters))):
+        # distances: [N, K]
+        dists = torch.cdist(emb_flat, centroids)
+        labels = dists.argmin(dim=1)
+        # recompute centroids
+        for k in range(K):
+            mask = labels == k
+            if mask.any():
+                centroids[k] = emb_flat[mask].mean(dim=0)
+
+    return centroids
+
+
+def _distributed_sinkhorn(out: torch.Tensor, iters: int = 3, eps: float = 0.05) -> torch.Tensor:
+    """
+    Sinkhorn-Knopp to produce balanced soft assignments.
+    `out` is [B, K] (scores). Returns Q of shape [B, K] that sums to 1 across all elements
+    and is approximately row/col normalized like SwAV.
+    """
+    with torch.no_grad():
+        Q = torch.exp(out / eps).t()  # K x B
+        sum_Q = Q.sum()
+        Q /= sum_Q
+
+        K, B = Q.shape
+        r = torch.ones(K, device=out.device) / K
+        c = torch.ones(B, device=out.device) / B
+
+        for _ in range(iters):
+            # normalize rows
+            u = Q.sum(dim=1)
+            Q = Q * (r / (u + 1e-12)).unsqueeze(1)
+            # normalize cols
+            Q = Q * (c / (Q.sum(dim=0) + 1e-12)).unsqueeze(0)
+
+        Q = (Q / Q.sum(dim=0, keepdim=True))
+        return Q.t()
+
+
+def swav_loss(proj_emb, K: int = SWAV_PROTOTYPES, kmeans_iters: int = SWAV_KMEANS_ITERS, sinkhorn_iters: int = SWAV_SINKHORN_ITERS, temp: float = 0.1, eps: float = SWAV_EPS):
+    """
+    Simplified in-batch SwAV-like loss.
+
+    proj_emb: [V, B, D]
+    Returns a scalar loss approximating the SwAV swapped prediction objective.
+    """
+    if len(proj_emb.shape) != 3:
+        raise ValueError("swav_loss expects proj_emb of shape [V, B, D]")
+
+    V, B, D = proj_emb.shape
+    device = proj_emb.device
+
+    emb_flat = F.normalize(proj_emb.view(V * B, D), dim=1)
+
+    # compute prototypes via lightweight k-means on normalized embeddings
+    prototypes = _kmeans_prototypes(emb_flat, K, iters=kmeans_iters)  # [K, D]
+    prototypes = F.normalize(prototypes, dim=1)
+
+    # scores: [V, B, K]
+    scores = torch.einsum("vbd,kd->vbk", F.normalize(proj_emb, dim=2), prototypes)
+
+    loss = 0.0
+    n_terms = 0
+
+    for v in range(V):
+        for v2 in range(V):
+            if v == v2:
+                continue
+
+            with torch.no_grad():
+                q = _distributed_sinkhorn(scores[v2].detach(), iters=sinkhorn_iters, eps=eps)  # [B, K]
+
+            log_probs = F.log_softmax(scores[v] / max(1e-8, temp), dim=2)  # [B, K]
+
+            # cross-entropy between soft targets q and log_probs
+            loss_term = -(q * log_probs).sum(dim=1).mean()
+            loss += loss_term
+            n_terms += 1
+
+    if n_terms == 0:
+        return torch.tensor(0.0, device=device)
+
+    return loss / n_terms
