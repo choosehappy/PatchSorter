@@ -338,10 +338,10 @@ def get_transforms(patch_size: int) -> A.Compose:
 
     photo_transforms = [
         A.Blur(p=0.3),  # Blur effect
-        #        A.GaussNoise(p=0.3, var_limit=(10.0, 50.0)),  # Gaussian noise
-        #        A.ISONoise(p=0.3, intensity=(0.1, 0.5), color_shift=(0.01, 0.05)),  # ISO noise
-        #        A.RandomBrightnessContrast(p=0.5, brightness_limit=(-0.2, 0.2), contrast_limit=(-0.2, 0.2), brightness_by_max=True),  # Brightness and contrast
-        #        A.RandomGamma(p=0.5, gamma_limit=(80, 120), eps=1e-7),  # Gamma correction
+        A.GaussNoise(p=0.3, var_limit=(10.0, 50.0)),  # Gaussian noise
+        A.ISONoise(p=0.3, intensity=(0.1, 0.5), color_shift=(0.01, 0.05)),  # ISO noise
+        A.RandomBrightnessContrast(p=0.5, brightness_limit=(-0.2, 0.2), contrast_limit=(-0.2, 0.2), brightness_by_max=True),  # Brightness and contrast
+        A.RandomGamma(p=0.5, gamma_limit=(80, 120), eps=1e-7),  # Gamma correction
         A.HueSaturationValue(
             hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.5
         ),  # Hue, saturation, and value adjustment
@@ -366,6 +366,18 @@ class JointHead(nn.Module):
             nn.BatchNorm1d(embed_dim),
             # nn.ReLU()
         )
+
+        self.proj_fc_nn = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(embed_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, embed_dim),
+        )
+        
         self.proj_fc = nn.Sequential(
             nn.Linear(embed_dim, proj_dim),
             nn.Hardtanh(min_val=0.0, max_val=grid_size),  # equivalent to clamp(0, 100)
@@ -383,7 +395,12 @@ class JointHead(nn.Module):
         shared = self.shared_fc(z)
         # proj     = (self.proj_fc(shared) + 1) / 2 * self.grid_size  # [0, grid_size]
         # proj = self.proj_fc(shared) *self.grid_size
+        
+        #proj_nn = self.proj_fc_nn(shared)
+        #proj = self.proj_fc(proj_nn)
+        
         proj = self.proj_fc(shared)
+        
         logits = self.pred_fc(shared)
         return shared, proj, logits
 
@@ -634,154 +651,207 @@ def prediction_loss_sup(
     return sup_loss
 
 
+
 def prediction_loss_pseudo(
-    logits,
-    labels,
-    pseudo_class_weights=None,
+    logits,          # [V*B, C]
+    labels,          # [V*B]  — labeled ≥ 0, unlabeled = -1
     pseudo_thresh=0.95,
+    pseudo_class_weights=None,
     views_per_patch=None,
 ):
-    device = logits.device
-    labeled_mask = labels >= 0
-    unlabeled_mask = ~labeled_mask
+    device  = logits.device
+    V, B, C = int(views_per_patch), logits.shape[0] // int(views_per_patch), logits.shape[1]
 
-    # pred_labels: argmax over all samples regardless of labeled/unlabeled
+    # ── per-view probs ────────────────────────────────────────────────
     with torch.no_grad():
-        probs = F.softmax(logits, dim=1)
-        conf, pred_labels = torch.max(probs, dim=1)
+        probs_vb  = F.softmax(logits.view(V, B, C), dim=2)   # [V, B, C]
+        conf_vb, pred_vb = probs_vb.max(dim=2)               # [V, B]
 
-    # high_conf: only meaningful for unlabeled points; labeled points are False
-    # For multi-view setup: consider patches as high-confidence if >50% of views agree on same label,
-    # AND at least one view has confidence >= pseudo_thresh
-    high_conf = torch.zeros(len(labels), dtype=torch.bool, device=device)
+    # ── majority vote across views ────────────────────────────────────
+    with torch.no_grad():
+        one_hot       = F.one_hot(pred_vb.T, N_CLASS)          # [B, V, C]
+        vote_counts   = one_hot.sum(dim=1)                    # [B, C]
+        maj_count, maj_label = vote_counts.max(dim=1)         # [B]
 
-    if unlabeled_mask.any() and views_per_patch is not None:
-        # Get the batch size (number of patches)
-        B = logits.shape[0] // int(views_per_patch)
-        V = int(views_per_patch)
+        majority_mask = maj_count  > (V // 2)                 # strict majority
+        conf_mask     = (conf_vb.T >= pseudo_thresh).any(dim=1) # [B]
+        high_conf_b   = majority_mask & conf_mask               # [B]
 
-        # Reshape logits to [V, B, num_classes] for per-view processing
-        pred_logits_reshaped = logits.view(V, B, -1)
+    # ── expand to [V*B] in original layout ───────────────────────────
+    # layout is [V, B] → flat order is v0_b0 v0_b1 ... v1_b0 v1_b1 ...
+    high_conf = high_conf_b.unsqueeze(0).expand(V, B).reshape(-1)    # [V*B]
+    agreed    = maj_label.unsqueeze(0).expand(V, B).reshape(-1)      # [V*B]
 
-        # Get predictions and confidence for each view
-        with torch.no_grad():
-            probs_views = F.softmax(pred_logits_reshaped, dim=2)  # [V, B, num_classes]
-            conf_views, pred_labels_views = torch.max(
-                probs_views, dim=2
-            )  # [V, B], [V, B]
+    # only apply pseudo-labels to unlabeled points
+    unlabeled_mask = (labels < 0)
+    pseudo_mask    = high_conf & unlabeled_mask                         # [V*B]
 
-        # For each patch b:
-        # 1. Find the most frequent label among its views (majority vote)
-        # 2. Check if >50% of views agree on that label
-        # 3. Check if at least one view has confidence >= pseudo_thresh
-        high_conf_per_patch = torch.zeros(B, dtype=torch.bool, device=device)
-        agreed_labels = torch.full((B,), -1, dtype=torch.long, device=device)
+    # ── pseudo loss ───────────────────────────────────────────────────
+    if not pseudo_mask.any():
+        return (torch.zeros((), device=device),agreed,high_conf)
 
-        # Process all patches in a vectorized way using bincount for majority vote
-        # For each patch b, we want to count label occurrences across its views
-        view_preds = pred_labels_views  # [V, B]
+    targets = agreed[pseudo_mask]
+    pseudo_loss = F.cross_entropy(
+        logits[pseudo_mask],
+        targets,
+        weight=pseudo_class_weights.to(device) if pseudo_class_weights is not None else None,
+        label_smoothing=0.1,
+    )
+    # num_pseudo = torch.bincount(targets, minlength=N_CLASS)
 
-        # Vectorized approach for majority voting
-        # for b in range(B):
-        #     # Get predictions for all views of this patch
-        #     view_predictions = view_preds[:, b]  # [V]
+    #return pseudo_loss, num_pseudo
+    return pseudo_loss, agreed, high_conf
 
-        #     # Count occurrences of each label (this gives us the majority vote)
-        #     unique_labels, counts = torch.unique(view_predictions, return_counts=True)
+# def prediction_loss_pseudo(
+#     logits,
+#     labels,
+#     pseudo_class_weights=None,
+#     pseudo_thresh=0.95,
+#     views_per_patch=None,
+# ):
+#     device = logits.device
+#     labeled_mask = labels >= 0
+#     unlabeled_mask = ~labeled_mask
 
-        #     if len(unique_labels) > 0:
-        #         max_count_idx = torch.argmax(counts)
-        #         majority_label = unique_labels[max_count_idx]
-        #         majority_count = counts[max_count_idx]
+#     # pred_labels: argmax over all samples regardless of labeled/unlabeled
+#     with torch.no_grad():
+#         probs = F.softmax(logits, dim=1)
+#         conf, pred_labels = torch.max(probs, dim=1)
 
-        #         # Check conditions:
-        #         # - More than half of views agree (majority count > V // 2)
-        #         # - At least one view has confidence >= pseudo_thresh
-        #         if (majority_count > V // 2) and (
-        #             conf_views[:, b] >= pseudo_thresh
-        #         ).any():
-        #             high_conf_per_patch[b] = True
-        #             agreed_labels[b] = majority_label
+#     # high_conf: only meaningful for unlabeled points; labeled points are False
+#     # For multi-view setup: consider patches as high-confidence if >50% of views agree on same label,
+#     # AND at least one view has confidence >= pseudo_thresh
+#     high_conf = torch.zeros(len(labels), dtype=torch.bool, device=device)
 
-        # view_preds: [V, B]
-        # conf_views: [V, B]
+#     if unlabeled_mask.any() and views_per_patch is not None:
+#         # Get the batch size (number of patches)
+#         B = logits.shape[0] // int(views_per_patch)
+#         V = int(views_per_patch)
 
-        # → passer en [B, V]
-        vp = view_preds.transpose(0, 1)  # [B, V]
-        cv = conf_views.transpose(0, 1)  # [B, V]
+#         # Reshape logits to [V, B, num_classes] for per-view processing
+#         pred_logits_reshaped = logits.view(V, B, -1)
 
-        # Comptage des labels par patch
-        one_hot = torch.nn.functional.one_hot(vp, N_CLASS)  # [B, V, C]
-        counts = one_hot.sum(dim=1)  # [B, C]
+#         # Get predictions and confidence for each view
+#         with torch.no_grad():
+#             probs_views = F.softmax(pred_logits_reshaped, dim=2)  # [V, B, num_classes]
+#             conf_views, pred_labels_views = torch.max(
+#                 probs_views, dim=2
+#             )  # [V, B], [V, B]
 
-        # Label majoritaire et nombre d’occurrences
-        majority_count, majority_label = counts.max(dim=1)  # [B], [B]
+#         # For each patch b:
+#         # 1. Find the most frequent label among its views (majority vote)
+#         # 2. Check if >50% of views agree on that label
+#         # 3. Check if at least one view has confidence >= pseudo_thresh
+#         high_conf_per_patch = torch.zeros(B, dtype=torch.bool, device=device)
+#         agreed_labels = torch.full((B,), -1, dtype=torch.long, device=device)
 
-        # Conditions
-        majority_mask = majority_count > (V // 2)
-        conf_mask = (cv >= pseudo_thresh).any(dim=1)
+#         # Process all patches in a vectorized way using bincount for majority vote
+#         # For each patch b, we want to count label occurrences across its views
+#         view_preds = pred_labels_views  # [V, B]
 
-        mask = majority_mask & conf_mask
+#         # Vectorized approach for majority voting
+#         # for b in range(B):
+#         #     # Get predictions for all views of this patch
+#         #     view_predictions = view_preds[:, b]  # [V]
 
-        # Mise à jour
-        high_conf_per_patch[mask] = True
-        agreed_labels[mask] = majority_label[mask]
+#         #     # Count occurrences of each label (this gives us the majority vote)
+#         #     unique_labels, counts = torch.unique(view_predictions, return_counts=True)
 
-        # Mark all views in high-confidence patches as high-confidence
-        # and assign the agreed label to all views of that patch
-        # for b in range(B):  # TODO: Is this correct?
-        #     if high_conf_per_patch[b]:
-        #         start_idx = b * V
-        #         end_idx = (b + 1) * V
-        #         high_conf[start_idx:end_idx] = True
+#         #     if len(unique_labels) > 0:
+#         #         max_count_idx = torch.argmax(counts)
+#         #         majority_label = unique_labels[max_count_idx]
+#         #         majority_count = counts[max_count_idx]
 
-        #         # Apply agreed label to ALL views of this patch
-        #         pred_labels[start_idx:end_idx] = agreed_labels[b]
+#         #         # Check conditions:
+#         #         # - More than half of views agree (majority count > V // 2)
+#         #         # - At least one view has confidence >= pseudo_thresh
+#         #         if (majority_count > V // 2) and (
+#         #             conf_views[:, b] >= pseudo_thresh
+#         #         ).any():
+#         #             high_conf_per_patch[b] = True
+#         #             agreed_labels[b] = majority_label
 
-        high_conf = high_conf_per_patch.repeat_interleave(V)
-        pred_labels = agreed_labels.repeat_interleave(V)
+#         # view_preds: [V, B]
+#         # conf_views: [V, B]
 
-    # # pseudo loss over high-confidence unlabeled points
-    # pseudo_loss = torch.tensor(0.0, device=device)
-    # if high_conf.any():
-    #     if pseudo_class_weights is not None:
-    #         pseudo_class_weights = pseudo_class_weights.to(device)
-    #         pseudo_loss = F.cross_entropy(
-    #             logits[high_conf],
-    #             pred_labels[high_conf],
-    #             weight=pseudo_class_weights,
-    #             label_smoothing=0.1,
-    #         )  # i don't thin k we actually want the weights..
-    #     else:
-    #         pseudo_loss = F.cross_entropy(
-    #             logits[high_conf], pred_labels[high_conf], label_smoothing=0.1
-    #         )
-    #     num_pseudo = Counter(pred_labels[high_conf].cpu().numpy())
+#         # → passer en [B, V]
+#         vp = view_preds.transpose(0, 1)  # [B, V]
+#         cv = conf_views.transpose(0, 1)  # [B, V]
 
-    # return pseudo_loss, pred_labels, high_conf
+#         # Comptage des labels par patch
+#         one_hot = torch.nn.functional.one_hot(vp, N_CLASS)  # [B, V, C]
+#         counts = one_hot.sum(dim=1)  # [B, C]
 
-    # pseudo loss over high-confidence unlabeled points
-    if high_conf.any():
-        targets = pred_labels[high_conf]
+#         # Label majoritaire et nombre d’occurrences
+#         majority_count, majority_label = counts.max(dim=1)  # [B], [B]
 
-        weight = None
-        if pseudo_class_weights is not None:
-            weight = pseudo_class_weights.to(device)
+#         # Conditions
+#         majority_mask = majority_count > (V // 2)
+#         conf_mask = (cv >= pseudo_thresh).any(dim=1)
 
-        pseudo_loss = F.cross_entropy(
-            logits[high_conf],
-            targets,
-            weight=weight,
-            label_smoothing=0.1,
-        )
+#         mask = majority_mask & conf_mask
 
-        # Comptage rapide sur GPU
-        num_pseudo = torch.bincount(targets, minlength=N_CLASS)
-    else:
-        pseudo_loss = torch.zeros((), device=device)
-        num_pseudo = torch.zeros(N_CLASS, device=device)
+#         # Mise à jour
+#         high_conf_per_patch[mask] = True
+#         agreed_labels[mask] = majority_label[mask]
 
-    return pseudo_loss, pred_labels, high_conf
+#         # Mark all views in high-confidence patches as high-confidence
+#         # and assign the agreed label to all views of that patch
+#         # for b in range(B):  # TODO: Is this correct?
+#         #     if high_conf_per_patch[b]:
+#         #         start_idx = b * V
+#         #         end_idx = (b + 1) * V
+#         #         high_conf[start_idx:end_idx] = True
+
+#         #         # Apply agreed label to ALL views of this patch
+#         #         pred_labels[start_idx:end_idx] = agreed_labels[b]
+
+#         high_conf = high_conf_per_patch.repeat_interleave(V)
+#         #pred_labels = agreed_labels.repeat_interleave(V)
+#         unlabeled_pred_labels = agreed_labels.repeat_interleave(V)
+#         pred_labels[unlabeled_mask] = unlabeled_pred_labels[unlabeled_mask]
+
+#     # # pseudo loss over high-confidence unlabeled points
+#     # pseudo_loss = torch.tensor(0.0, device=device)
+#     # if high_conf.any():
+#     #     if pseudo_class_weights is not None:
+#     #         pseudo_class_weights = pseudo_class_weights.to(device)
+#     #         pseudo_loss = F.cross_entropy(
+#     #             logits[high_conf],
+#     #             pred_labels[high_conf],
+#     #             weight=pseudo_class_weights,
+#     #             label_smoothing=0.1,
+#     #         )  # i don't thin k we actually want the weights..
+#     #     else:
+#     #         pseudo_loss = F.cross_entropy(
+#     #             logits[high_conf], pred_labels[high_conf], label_smoothing=0.1
+#     #         )
+#     #     num_pseudo = Counter(pred_labels[high_conf].cpu().numpy())
+
+#     # return pseudo_loss, pred_labels, high_conf
+
+#     # pseudo loss over high-confidence unlabeled points
+#     if high_conf.any():
+#         targets = pred_labels[high_conf]
+
+#         weight = None
+#         if pseudo_class_weights is not None:
+#             weight = pseudo_class_weights.to(device)
+
+#         pseudo_loss = F.cross_entropy(
+#             logits[high_conf],
+#             targets,
+#             weight=weight,
+#             label_smoothing=0.1,
+#         )
+
+#         # Comptage rapide sur GPU
+#         #num_pseudo = torch.bincount(targets, minlength=N_CLASS)
+#     else:
+#         pseudo_loss = torch.zeros((), device=device)
+#         #num_pseudo = torch.zeros(N_CLASS, device=device)
+
+#     return pseudo_loss, pred_labels, high_conf
 
 
 def semantic_head_loss(coords, labels, margin=5.0):
@@ -830,31 +900,98 @@ def semantic_head_loss(coords, labels, margin=5.0):
 # ------------------------
 # NEIGHBORHOOD LOSS (GPU kNN, approximate)
 # ------------------------
-def neighborhood_loss(z_batch, proj_coords, k=K_NEIGHBORS):
-    if z_batch.shape[0] <= 1:
-        return torch.tensor(0.0, device=DEVICE)
+def neighborhood_loss(z_batch, proj_coords, k=K_NEIGHBORS, temp=.1):
+#def soft_neighbor_loss(z_batch, proj_coords, k=10, temp=0.1):
+    # if z_batch.shape[0] <= 1:
+    #     return torch.tensor(0.0, device=DEVICE)
 
-    # find kNN in embedding space (no grad, just index selection)
-    with torch.no_grad():
-        emb_dists = torch.cdist(z_batch, z_batch)
-        _, idx = torch.topk(emb_dists, k=k + 1, largest=False)
-        idx = idx[:, 1:]  # [B, k] exclude self
-        # embedding distances to neighbors (for weighting)
-        emb_neighbor_dists = emb_dists.gather(1, idx)  # [B, k]
-        # weight by embedding closeness: closer in emb space = higher weight
-        weights = 1.0 / (emb_neighbor_dists + EPS)  # [B, k]
-        weights = weights / weights.sum(dim=1, keepdim=True)  # normalize
+    # # find kNN in embedding space (no grad, just index selection)
+    # with torch.no_grad():
+    #     emb_dists = torch.cdist(z_batch, z_batch)
+    #     _, idx = torch.topk(emb_dists, k=k + 1, largest=False)
+    #     idx = idx[:, 1:]  # [B, k] exclude self
+    #     # embedding distances to neighbors (for weighting)
+    #     emb_neighbor_dists = emb_dists.gather(1, idx)  # [B, k]
+    #     # weight by embedding closeness: closer in emb space = higher weight
+    #     weights = 1.0 / (emb_neighbor_dists + EPS)  # [B, k]
+    #     weights = weights / weights.sum(dim=1, keepdim=True)  # normalize
 
-    # projection distances to neighbors (grad flows through here)
-    neighbor_coords = proj_coords[idx]  # [B, k, 2]
-    proj_neighbor_dists = torch.norm(
-        proj_coords.unsqueeze(1) - neighbor_coords, dim=2
-    )  # [B, k]
+    # # projection distances to neighbors (grad flows through here)
+    # neighbor_coords = proj_coords[idx]  # [B, k, 2]
+    # proj_neighbor_dists = torch.norm(
+    #     proj_coords.unsqueeze(1) - neighbor_coords, dim=2
+    # )  # [B, k]
 
-    # weighted penalty: embedding-close neighbors should be proj-close too
-    loss = (weights * proj_neighbor_dists**2).sum(dim=1).mean()
-    return loss
+    # # weighted penalty: embedding-close neighbors should be proj-close too
+    # loss = (weights * proj_neighbor_dists**2).sum(dim=1).mean()
+    # return loss
+    # """
+    # z_batch:     [V, B, D]
+    # proj_coords: [V, B, 2]
+    # """
+    # V, B, D = z_batch.shape
 
+    # same_patch = (torch.arange(B, device=z_batch.device).unsqueeze(0) ==
+    #               torch.arange(B, device=z_batch.device).unsqueeze(1))  # [B, B]
+    # eye = torch.eye(B, dtype=torch.bool, device=z_batch.device)
+
+    # loss = 0.0
+    # for v in range(V):
+    #     # each view independently defines its own neighborhood target
+    #     with torch.no_grad():
+    #         emb_dists = torch.cdist(z_batch[v], z_batch[v])  # [B, B]
+    #         emb_dists = emb_dists.masked_fill(same_patch, float('inf'))
+    #         neighbor_idx = torch.topk(emb_dists, k, largest=False).indices  # [B, k]
+    #         target = torch.zeros(B, B, device=z_batch.device)
+    #         target.scatter_(1, neighbor_idx, 1.0 / k)
+
+    #     # projection loss for this view
+    #     proj_dists = torch.cdist(proj_coords[v], proj_coords[v])  # [B, B]
+    #     proj_dists = proj_dists.masked_fill(same_patch | eye, float('inf'))
+    #     log_probs = torch.log_softmax(-proj_dists / temp, dim=1)
+    #     loss += -(target * log_probs).sum(dim=1).mean()
+
+    # return loss / V
+
+    V, B, D = z_batch.shape
+    assert k < B, f"k={k} must be < batch size={B}"
+
+    diag_mask = torch.eye(B, dtype=torch.bool, device=z_batch.device)
+
+    loss = 0.0
+
+    for v in range(V):
+
+        # Build target neighborhood in embedding space (no gradient needed)
+        # with torch.no_grad():
+        #     emb_dists = torch.cdist(z_batch[v], z_batch[v])
+        #     emb_dists_masked = emb_dists.masked_fill(diag_mask, 1e9)
+        #     neighbor_idx = torch.topk(emb_dists_masked, k=k, largest=False).indices  # [B, k]
+
+        with torch.no_grad():
+            emb_dists = torch.cdist(z_batch[v], z_batch[v])  # [B, B]
+            emb_dists_masked = emb_dists.masked_fill(diag_mask, 1e9)
+            neighbor_idx = torch.topk(emb_dists_masked, k=k, largest=False).indices  # [B, k]
+
+            # optional inverse distance weights
+            neighbor_dists = emb_dists[torch.arange(B).unsqueeze(1), neighbor_idx]
+            weights = 1.0 / (neighbor_dists + 1e-8)
+            weights /= weights.sum(dim=1, keepdim=True)
+
+
+        # Projection distances (gradient flows here)
+        proj_dists = torch.cdist(proj_coords[v], proj_coords[v])
+        proj_dists_masked = proj_dists.masked_fill(diag_mask, 1e9)
+
+        log_probs = torch.log_softmax(-proj_dists_masked / temp, dim=1)  # [B, B]
+
+        # neighbor_log_probs = log_probs.gather(dim=1, index=neighbor_idx)  # [B, k]
+        # loss += -neighbor_log_probs.mean()
+
+        neighbor_log_probs = log_probs.gather(dim=1, index=neighbor_idx)
+        loss += -(weights * neighbor_log_probs).sum(dim=1).mean()
+
+    return loss / V
 
 def initialize_projection_from_batch(backbone, joint_head, imgs, writer, grid_size=100):
     device = imgs.device

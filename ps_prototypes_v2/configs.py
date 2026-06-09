@@ -26,7 +26,7 @@ SEMANTIC_LAMBDA = 1.0
 TEMPORAL_ALPHA = 0.05  # unchanged, decay rate is fine
 TEMPORAL_LAMBDA = 0.15
 BATCH_BIN_LAMBDA = 1.0
-NEIGHBOR_LAMBDA = 0.5
+NEIGHBOR_LAMBDA = .5 #need t oforce high trustworthyness
 INTRA_BIN_LAMBDA = 0.3
 PSEUDO_PRED_LAMBDA = 0.4
 PRED_LAMBDA = 100.0  # supervised pred should be strong
@@ -45,7 +45,7 @@ USE_MASK = True
 LOG_ORIGS = True
 LOG_EVERY = 100
 
-K_NEIGHBORS = 5
+K_NEIGHBORS = 50 # was 5 -- but i think these should be much higher
 EPS = 1e-6
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 

@@ -250,7 +250,7 @@ def log_embeddings(
         )
 
         # ---- 2. memory bank embeddings
-        if mem_bank.z.shape[0] > 0:
+        if mem_bank and mem_bank.z.shape[0] > 0:
             mem_labels_str = [
                 f"mem_labeled_{l.item()}" if l >= 0 else "mem_unlabeled"
                 for l in mem_bank.labels
@@ -263,7 +263,7 @@ def log_embeddings(
             )
 
         # ---- 3. combined batch + memory with color tags
-        if mem_bank.z.shape[0] > 0:
+        if mem_bank and mem_bank.z.shape[0] > 0:
             # sample memory to avoid overwhelming the viz
             sample_size = min(batch_size, mem_bank.z.shape[0])
             idx = torch.randperm(mem_bank.z.shape[0])[:sample_size]
@@ -354,7 +354,7 @@ def log_embeddings(
         probs = torch.softmax(pred_logits, dim=1)
         confidence = probs.max(dim=1).values
     writer.add_histogram("train/confidence", confidence, niter_total)
-    writer.add_histogram("train/memory_age", mem_bank.age, niter_total)
+    #writer.add_histogram("train/memory_age", mem_bank.age, niter_total)
     writer.add_histogram("train/proj_coords_x", proj_coords[:, 0].detach(), niter_total)
     writer.add_histogram("train/proj_coords_y", proj_coords[:, 1].detach(), niter_total)
     writer.add_scalar("train/mean_confidence", confidence.mean().item(), niter_total)
