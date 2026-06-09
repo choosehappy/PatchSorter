@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.models import build_table_name, build_pred_table_name
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.config.constants import PredPatchSuffix
@@ -94,9 +94,9 @@ class ProjectStore:
             text(
                 f"""
                 DROP TABLE IF EXISTS
-                    {PatchStore.build_table_name(n)},
-                    {PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)},
-                    {PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)},
+                    {build_table_name(n)},
+                    {build_pred_table_name(n, PredPatchSuffix.LATEST)},
+                    {build_pred_table_name(n, PredPatchSuffix.LAST)},
                     {cm_tables}
                 CASCADE;
                 """

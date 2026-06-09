@@ -108,7 +108,8 @@ def test_list_patches_bbox_filter(client: TestClient, seeded_project):
 
 def test_list_patches_bbox_no_results(client: TestClient, seeded_project):
     """GET /projects/1/patches/ with bbox that matches no predictions returns empty list."""
-    response = client.get("/projects/1/patches/?i_min=100&i_max=200&j_min=100&j_max=200")
+    # Use world coordinates that map to grid cells outside the seeded range [0-4]x[0-2]
+    response = client.get("/projects/1/patches/?x_min=1000&y_min=1000&x_max=2000&y_max=2000")
     assert response.status_code == 200
     assert response.json() == []
 
@@ -140,3 +141,65 @@ def test_get_patch_not_found(client: TestClient, seeded_project):
     """GET /projects/1/patches/{patch_id} returns 404 for a non-existent patch."""
     response = client.get("/projects/1/patches/99999")
     assert response.status_code == 404
+
+
+# --- Sample by point ----------------------------------------------------------
+
+
+def test_sample_by_point_returns_patches(client: TestClient, seeded_project):
+    """GET /sample/by-point/patches/ returns patches near the given point."""
+    response = client.get("/projects/1/sample/by-point/patches/?x=0.0&y=0.0")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) > 0
+
+
+def test_sample_by_point_empty(client: TestClient, seeded_project):
+    """GET /sample/by-point/patches/ returns empty list for far-away point."""
+    response = client.get("/projects/1/sample/by-point/patches/?x=99999.0&y=99999.0")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_sample_by_point_response_shape(client: TestClient, seeded_project):
+    """GET /sample/by-point/patches/ items contain both patch and prediction columns."""
+    response = client.get("/projects/1/sample/by-point/patches/?x=0.0&y=0.0")
+    assert response.status_code == 200
+    item = response.json()[0]
+    assert "patch_id" in item
+    assert "embed_x" in item
+    assert "pred_label_class_id" in item
+
+
+# --- Sample by bbox -----------------------------------------------------------
+
+
+def test_sample_by_bbox_returns_patches(client: TestClient, seeded_project):
+    """POST /sample/by-bbox/patches/ returns patches within the given bbox."""
+    response = client.post("/projects/1/sample/by-bbox/patches/", json={
+        "xmin": 0.0, "xmax": 100.0, "ymin": 0.0, "ymax": 100.0, "num_samples": 4
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) > 0
+
+
+def test_sample_by_bbox_empty(client: TestClient, seeded_project):
+    """POST /sample/by-bbox/patches/ returns empty list for far-away bbox."""
+    response = client.post("/projects/1/sample/by-bbox/patches/", json={
+        "xmin": 99999.0, "xmax": 100000.0, "ymin": 99999.0, "ymax": 100000.0, "num_samples": 4
+    })
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_sample_by_bbox_response_shape(client: TestClient, seeded_project):
+    """POST /sample/by-bbox/patches/ items contain both patch and prediction columns."""
+    response = client.post("/projects/1/sample/by-bbox/patches/", json={
+        "xmin": 0.0, "xmax": 100.0, "ymin": 0.0, "ymax": 100.0, "num_samples": 4
+    })
+    assert response.status_code == 200
+    item = response.json()[0]
+    assert "patch_id" in item
+    assert "embed_x" in item
+    assert "pred_label_class_id" in item

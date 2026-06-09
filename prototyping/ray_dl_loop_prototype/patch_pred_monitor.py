@@ -17,7 +17,7 @@ from psycopg.rows import dict_row
 sys.path.insert(0, os.path.dirname(__file__))
 from constants import CITUS_HEAD_HOST, CITUS_HEAD_PORT, CITUS_HEAD_DB, CITUS_HEAD_USER, CITUS_HEAD_PASSWORD
 
-from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.models import build_table_name, build_pred_table_name
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 from patchsorter.config.constants import PredPatchSuffix
 
@@ -81,8 +81,8 @@ CM_LEVEL_GRID = {lvl: 2 ** lvl for lvl in CM_LEVELS}
 
 def build_display(project_id: int, num_workers: int, interval: float):
     # Build table names using the canonical helpers
-    latest_tbl = PatchStore.build_pred_table_name(project_id, PredPatchSuffix.LATEST)
-    last_tbl = PatchStore.build_pred_table_name(project_id, PredPatchSuffix.LAST)
+    latest_tbl = build_pred_table_name(project_id, PredPatchSuffix.LATEST)
+    last_tbl = build_pred_table_name(project_id, PredPatchSuffix.LAST)
 
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -104,7 +104,7 @@ def build_display(project_id: int, num_workers: int, interval: float):
             shard_counts = _shard_counts(cur, latest_tbl, shard_ids)
 
             # Patch table shard data
-            patch_tbl = PatchStore.build_table_name(project_id)
+            patch_tbl = build_table_name(project_id)
             patch_shard_ids = _shard_ids(cur, patch_tbl)
             patch_shard_counts = _shard_counts(cur, patch_tbl, patch_shard_ids)
             patch_total = _table_count(cur, patch_tbl)

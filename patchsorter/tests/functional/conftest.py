@@ -32,6 +32,8 @@ from patchsorter.db.head_client import (
     LabelClassStore,
     PatchStore,
 )
+from patchsorter.db.head_client.models import build_table_name
+from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.db.utils import SessionManager
 
 
@@ -94,6 +96,30 @@ def seeded_project(
             ).mappings().one()
         )
 
+        # Seed application-scoped settings (e.g. patch_query_range)
+        SettingsStore(session).seed_app_settings()
+        # world_size is disabled by default but required by sample endpoints
+        session.execute(
+            text(
+                """
+                INSERT INTO settings (project_id, setting_key, setting_value, default_value, setting_type, allowed_values, disabled)
+                VALUES (NULL, 'world_size', '4096', '4096', 'integer', NULL, false)
+                ON CONFLICT (project_id, setting_key) DO NOTHING
+                """
+            )
+        )
+        # max_level is required by the patches bbox endpoint
+        session.execute(
+            text(
+                """
+                INSERT INTO settings (project_id, setting_key, setting_value, default_value, setting_type, allowed_values, disabled)
+                VALUES (1, 'max_level', '0', '0', 'integer', NULL, false)
+                ON CONFLICT (project_id, setting_key) DO NOTHING
+                """
+            )
+        )
+        session.flush()
+
         lc_store = LabelClassStore(session)
         lc_tumor = lc_store.create(1, "Tumor", "#FF0000")
         lc_normal = lc_store.create(1, "Normal", "#00FF00")
@@ -150,9 +176,10 @@ def seeded_project(
     with test_db.get_session() as session:
         PatchStore(1, session).clear_predictions()
         session.execute(
-            text(f"TRUNCATE TABLE {PatchStore.build_table_name(1)}")
+            text(f"TRUNCATE TABLE {build_table_name(1)}")
         )
         session.execute(text("DELETE FROM label_class WHERE project_id = 1"))
         session.execute(text("DELETE FROM image WHERE project_id = 1"))
         session.execute(text("DELETE FROM settings WHERE project_id = 1"))
+        session.execute(text("DELETE FROM settings WHERE project_id IS NULL"))
         session.execute(text("DELETE FROM project WHERE project_id = 1"))

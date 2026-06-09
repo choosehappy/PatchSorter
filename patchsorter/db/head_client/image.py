@@ -5,8 +5,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from patchsorter.db.head_client.models import Image
-from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.models import Image, build_table_name, build_pred_table_name
 
 from patchsorter.config.constants import PredPatchSuffix
 
@@ -142,18 +141,18 @@ class ImageStore:
         # Step 1: reset ground-truth labels on affected patches.
         self._session.execute(
             text(
-                f"UPDATE {PatchStore.build_table_name(n)} SET label_class_id = 1 WHERE image_id = :image_id"
+                f"UPDATE {build_table_name(n)} SET label_class_id = 1 WHERE image_id = :image_id"
             ),
             {"image_id": image_id},
         )
         # Step 2 & 3: remove predictions.
-        for tbl in (PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST), PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)):
+        for tbl in (build_pred_table_name(n, PredPatchSuffix.LATEST), build_pred_table_name(n, PredPatchSuffix.LAST)):
             self._session.execute(
                 text(
                     f"""
                     DELETE FROM {tbl}
                     WHERE patch_id IN (
-                        SELECT patch_id FROM {PatchStore.build_table_name(n)} WHERE image_id = :image_id
+                        SELECT patch_id FROM {build_table_name(n)} WHERE image_id = :image_id
                     )
                     """
                 ),
@@ -161,7 +160,7 @@ class ImageStore:
             )
         # Step 4: delete patches.
         self._session.execute(
-            text(f"DELETE FROM {PatchStore.build_table_name(n)} WHERE image_id = :image_id"),
+            text(f"DELETE FROM {build_table_name(n)} WHERE image_id = :image_id"),
             {"image_id": image_id},
         )
         # Step 5: delete the image row.

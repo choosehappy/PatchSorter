@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+import numpy as np
+
 from patchsorter.config.constants import PredPatchSuffix
+from patchsorter.db.grid_index import HierarchicalGridIndexIJPair
+from patchsorter.db.head_client.models import build_table_name, build_pred_table_name
+from patchsorter.db.head_client.settings import SettingsStore
 
 
 class PatchStore:
@@ -25,28 +30,7 @@ class PatchStore:
     def __init__(self, project_id: int, session: Session) -> None:
         self.project_id = project_id
         self._session = session
-        self.table_name = self.build_table_name(project_id)
-
-    @staticmethod
-    def build_table_name(project_id: int, shard: int | None = None) -> str:
-        tbl = f"project{project_id}_patch"
-        if shard is not None:
-            tbl = f"{tbl}_{shard}"
-        return tbl
-
-    @staticmethod
-    def build_pred_table_name(project_id: int, suffix: PredPatchSuffix, shard: Optional[int] = None) -> str:
-        """Return the pred_patch table name for the given project and suffix.
-
-        Args:
-            project_id: Integer project ID.
-            suffix: Either ``PredPatchSuffix.LATEST`` or ``PredPatchSuffix.LAST``.
-            shard: Optional shard ID to append as a suffix.
-        """
-        tbl = f"project{project_id}_pred_patch_{suffix.value}"
-        if shard is not None:
-            tbl = f"{tbl}_{shard}"
-        return tbl
+        self.table_name = build_table_name(project_id)
 
     def insert(
         self,
@@ -375,11 +359,11 @@ class PatchStore:
 
     @property
     def pred_table_latest(self) -> str:
-        return self.build_pred_table_name(self.project_id, PredPatchSuffix.LATEST)
+        return build_pred_table_name(self.project_id, PredPatchSuffix.LATEST)
 
     @property
     def pred_table_last(self) -> str:
-        return self.build_pred_table_name(self.project_id, PredPatchSuffix.LAST)
+        return build_pred_table_name(self.project_id, PredPatchSuffix.LAST)
 
     def upsert_predictions(self, records: List[tuple]) -> int:
         """Insert prediction rows into ``project{N}_pred_patch_latest`` via COPY.
@@ -654,6 +638,102 @@ class PatchStore:
             ),
         )
 
+    def get_patches_by_points(
+        self,
+        points: Union[Tuple[float, float], List[Tuple[float, float]]],
+        *,
+        label_pairs: Optional[List[Tuple[int, int]]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return patches whose predictions fall within *patch_query_range*
+        grid cells of any of the given world-coordinate points.
+
+        For each point ``(x, y)``:
+            1. Resolve the level-0 grid cell: ``i = floor(x / world_size)``,
+               ``j = floor(y / world_size)``.
+            2. Query ``grid_cell_i BETWEEN (i - half_range) AND (i + half_range)``
+               and ``grid_cell_j BETWEEN (j - half_range) AND (j + half_range)``
+               in the prediction tables, where ``half_range = patch_range // 2``.
+
+        Args:
+            points: A single ``(x, y)`` world-coordinate pair, or a list of
+                such pairs.
+            label_pairs: Optional ``(gt, pred)`` filter applied in SQL.
+
+        Returns:
+            A list of flat dicts (same shape as
+            :meth:`_paginated_pred_join` results, without ``patch_image``).
+        """
+        # Accept a single point or a list of points
+        if isinstance(points, tuple) and len(points) == 2:
+            points = [points]
+
+        if not points:
+            return []
+
+        settings_store = SettingsStore(self._session)
+        world_size_row = settings_store.get("world_size", self.project_id)
+        range_row = settings_store.get("patch_query_range", self.project_id)
+        max_level_row = settings_store.get("max_level", self.project_id)
+
+
+        if world_size_row is None or range_row is None:
+            return []
+
+        world_size = int(world_size_row.setting_value)
+        half_range = int(range_row.setting_value) // 2
+        max_level = int(max_level_row.setting_value)
+
+        grid = HierarchicalGridIndexIJPair(cell_size=world_size)
+
+        # Compute cell ranges once per point (one point_to_cell call per point)
+        cells = [grid.point_to_cell(x, y, level=max_level) for x, y in points]
+        i_vals = np.array([c.i for c in cells])
+        j_vals = np.array([c.j for c in cells])
+
+        i_min = np.maximum(0, i_vals - half_range)
+        i_max = i_vals + half_range
+        j_min = np.maximum(0, j_vals - half_range)
+        j_max = j_vals + half_range
+
+        cell_ranges = list(zip(i_min, i_max, j_min, j_max))
+
+        results: List[Dict[str, Any]] = []
+        for i_min, i_max, j_min, j_max in cell_ranges:
+            result = self.get_patches_within_grid_bbox(
+                i_min=i_min,
+                i_max=i_max,
+                j_min=j_min,
+                j_max=j_max,
+                cursor=0,
+                limit=1,  # Large limit to fetch all matches within the cell range
+                include_image=False,
+                label_pairs=label_pairs,
+            )
+
+            results.extend(result)
+
+        return result
+
+    def get_patch_by_id(self, patch_id: int) -> Optional[Dict[str, Any]]:
+        """Return a single patch row dict by patch_id, including patch_image.
+
+        Args:
+            patch_id: The patch_id to look up.
+
+        Returns:
+            A dict with patch columns (including ``patch_image``), or ``None``
+            if no matching row exists.
+        """
+        from patchsorter.db.head_client.models import patch_model
+
+        Patch = patch_model(self.project_id)
+        row = (
+            self._session.query(Patch)
+            .filter(Patch.patch_id == patch_id)
+            .first()
+        )
+        return row.__dict__ if row else None
+
     def clear_predictions(self) -> None:
         """Clear all rows from both pred_patch_latest and pred_patch_last for *project_id*.
 
@@ -662,5 +742,5 @@ class PatchStore:
         because it does not require any trigger activity or vacuuming of the patch
         shards.
         """
-        self._session.execute(text(f"TRUNCATE TABLE {PatchStore.build_pred_table_name(self.project_id, PredPatchSuffix.LATEST)};"))
-        self._session.execute(text(f"TRUNCATE TABLE {PatchStore.build_pred_table_name(self.project_id, PredPatchSuffix.LAST)};"))
+        self._session.execute(text(f"TRUNCATE TABLE {build_pred_table_name(self.project_id, PredPatchSuffix.LATEST)};"))
+        self._session.execute(text(f"TRUNCATE TABLE {build_pred_table_name(self.project_id, PredPatchSuffix.LAST)};"))

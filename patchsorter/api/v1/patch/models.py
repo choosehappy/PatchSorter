@@ -28,5 +28,18 @@ class LabelAssignByPolygonRequest(BaseModel):
     polygon: Dict[str, Any]
 
 
+class SampleByBboxRequest(BaseModel):
+    xmin: float
+    xmax: float
+    ymin: float
+    ymax: float
+    num_samples: int = 50
+
+
+class SampleByPointRequest(BaseModel):
+    x: float
+    y: float
+
+
 class LabelAssignResponse(BaseModel):
     updated: int

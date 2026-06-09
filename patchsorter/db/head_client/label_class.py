@@ -5,8 +5,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
-from patchsorter.db.head_client.models import LabelClass
-from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.models import LabelClass, build_table_name, build_pred_table_name
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 
 from patchsorter.config.constants import PredPatchSuffix
@@ -116,13 +115,13 @@ class LabelClassStore:
         # Step 1: reset patch ground-truth labels.
         self._session.execute(
             text(
-                f"UPDATE {PatchStore.build_table_name(n)} SET label_class_id = 1 WHERE label_class_id = :lcid"
+                f"UPDATE {build_table_name(n)} SET label_class_id = 1 WHERE label_class_id = :lcid"
             ),
             {"lcid": label_class_id},
         )
 
         # Steps 2 & 3: reset prediction labels.
-        for tbl in (PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST), PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)):
+        for tbl in (build_pred_table_name(n, PredPatchSuffix.LATEST), build_pred_table_name(n, PredPatchSuffix.LAST)):
             self._session.execute(
                 text(
                     f"UPDATE {tbl} SET label_class_id = 1 WHERE label_class_id = :lcid"

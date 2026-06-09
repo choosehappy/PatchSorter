@@ -6,7 +6,7 @@ from typing import Any, Dict, Generator, List
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.models import build_table_name, build_pred_table_name
 from patchsorter.config.constants import PredPatchSuffix
 
 
@@ -26,8 +26,8 @@ class WorkerPatchStore:
     def __init__(self, project_id: int, session: Session) -> None:
         self.project_id = project_id
         self._session = session
-        self._patch_table = PatchStore.build_table_name(project_id)
-        self._pred_table_latest = PatchStore.build_pred_table_name(project_id, PredPatchSuffix.LATEST)
+        self._patch_table = build_table_name(project_id)
+        self._pred_table_latest = build_pred_table_name(project_id, PredPatchSuffix.LATEST)
 
 
     # ------------------------------------------------------------------ #
@@ -57,7 +57,7 @@ class WorkerPatchStore:
             ``centroid_x``, ``centroid_y``.  Empty list when no more rows
             are available.
         """
-        shard_table = PatchStore.build_table_name(self.project_id, shard_id)
+        shard_table = build_table_name(self.project_id, shard_id)
         rows = self._session.execute(
             text(
                 f"SELECT * "
@@ -140,7 +140,7 @@ class WorkerPatchStore:
         """
         if not records:
             return 0
-        shard_table = PatchStore.build_pred_table_name(self.project_id, PredPatchSuffix.LATEST, shard_id)
+        shard_table = build_pred_table_name(self.project_id, PredPatchSuffix.LATEST, shard_id)
         raw_conn = self._session.connection().connection
         with raw_conn.cursor() as cur:
             with cur.copy(

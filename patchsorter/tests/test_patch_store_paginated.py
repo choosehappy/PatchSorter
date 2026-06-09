@@ -91,6 +91,11 @@ def seeded_preds(example_project: Dict[str, Any], db_session: Session) -> Dict[s
 
     p0, p1, p2, p3, p4 = patch_ids
 
+    # Clear existing predictions (distributed tables don't roll back properly)
+    db_session.execute(text(f"DELETE FROM project{project_id}_pred_patch_latest"))
+    db_session.execute(text(f"DELETE FROM project{project_id}_pred_patch_last"))
+    db_session.flush()
+
     # pred_patch_latest rows
     _insert_latest(
         db_session,
@@ -428,6 +433,11 @@ def seeded_preds_lp(example_project: Dict[str, Any], db_session: Session) -> Dic
     p0, p1, p2, p3, p4 = patch_ids
 
     store = PatchStore(project_id, db_session)
+
+    # Clear existing predictions (distributed tables don't roll back properly)
+    db_session.execute(text(f"DELETE FROM project{project_id}_pred_patch_latest"))
+    db_session.execute(text(f"DELETE FROM project{project_id}_pred_patch_last"))
+    db_session.flush()
 
     # Update GT labels for p2 and p3 to Normal
     store.update_label(p2, normal_id)

@@ -42,6 +42,7 @@ export default function LabelingPage() {
     const [showPicker, setShowPicker] = useState(false)
     const [pickedLabelClassId, setPickedLabelClassId] = useState<number | null>(null)
     const [gallerySelectAll, setGallerySelectAll] = useState(false)
+    const [showPatches, setShowPatches] = useState(true)
 
     useEffect(() => {
         infoProjectsProjectIdInfoGet({ path: { project_id: projectId } })
@@ -337,6 +338,8 @@ export default function LabelingPage() {
                     classIds={classIds}
                     worldInfo={worldInfo}
                     refreshTick={refreshTick}
+                    showPatches={showPatches}
+                    labelClasses={sortedLabelClasses}
                     onBoundsChange={setBounds}
                     onZoomChange={handleZoomChange}
                     onLassoComplete={handlePolygonPatchQuery}
@@ -374,6 +377,16 @@ export default function LabelingPage() {
                             onIntervalChange={setRefreshIntervalMs}
                             onTick={() => setRefreshTick(t => t + 1)}
                         />
+                    </div>
+                    <div className="control-row flattened">
+                        <label className="toggle-label">
+                            <input
+                                type="checkbox"
+                                checked={showPatches}
+                                onChange={e => setShowPatches(e.target.checked)}
+                            />
+                            Show Patches
+                        </label>
                     </div>
                 </div>
 

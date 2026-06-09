@@ -1,16 +1,21 @@
 from typing import List, Optional
 
+import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Response
 from shapely.geometry import shape
+from sqlalchemy import text
 
 from patchsorter.db.head_client import get_client as get_head_client
 from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.models import build_table_name
 from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.db.grid_index import HierarchicalGridIndexIJPair
 from patchsorter.api.v1.patch.models import (
     LabelAssignByPolygonRequest,
     LabelAssignResponse,
     PatchResponse,
+    SampleByBboxRequest,
+    SampleByPointRequest,
 )
 from patchsorter.api.v1.confusion_matrix.utils import _parse_label_pairs, _world_to_grid_bbox
 
@@ -77,24 +82,15 @@ def get_patch(project_id: int, patch_id: int) -> PatchResponse:
 def get_patch_image(project_id: int, patch_id: int) -> Response:
     client = get_head_client()
     with client.get_session() as session:
-        store = PatchStore(project_id, session)
-        rows = store._paginated_pred_join(
-            pred_filter_sql="patch_id = :patch_id_filter",
-            pred_params={"patch_id_filter": patch_id},
-            cursor=0,
-            limit=1,
-            include_image=True,
-        )
-    if not rows:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Patch {patch_id} not found or has no prediction in project {project_id}",
-        )
-    patch_image = rows[0].get("patch_image")
-    if not patch_image:
+        tbl = build_table_name(project_id)
+        row = session.execute(
+            text(f"SELECT patch_image FROM {tbl} WHERE patch_id = :patch_id"),
+            {"patch_id": patch_id},
+        ).mappings().first()
+    if not row or not row.get("patch_image"):
         raise HTTPException(status_code=404, detail="Patch image not found")
     return Response(
-        content=patch_image,
+        content=row["patch_image"],
         media_type="image/jpeg",
         headers={
             "Cache-Control": "public, max-age=31536000",
@@ -134,4 +130,42 @@ def assign_labels_by_polygon(
         store = PatchStore(project_id, session)
         updated = store.bulk_update_labels_by_cells(cells, label_class_id, label_pairs)
     return LabelAssignResponse(updated=updated)
+
+
+@router.get("/projects/{project_id}/sample/by-bbox/patches/", response_model=List[PatchResponse])
+@router.post("/projects/{project_id}/sample/by-bbox/patches/", response_model=List[PatchResponse])
+def sample_patches_by_bbox(
+    project_id: int,
+    body: SampleByBboxRequest,
+    lp: Optional[List[str]] = Query(default=None, description="Label pair filter: repeat for each pair as 'gt,pred' (e.g. lp=0,1&lp=2,2)"),
+) -> List[PatchResponse]:
+    label_pairs = _parse_label_pairs(lp)
+    client = get_head_client()
+    with client.get_session() as session:
+        store = PatchStore(project_id, session)
+        xmin, xmax = min(body.xmin, body.xmax), max(body.xmin, body.xmax)
+        ymin, ymax = min(body.ymin, body.ymax), max(body.ymin, body.ymax)
+        num_samples = int(body.num_samples)
+        if num_samples < 1:
+            num_samples = 1
+        x_coords = np.random.uniform(xmin, xmax, size=num_samples)
+        y_coords = np.random.uniform(ymin, ymax, size=num_samples)
+        points = list(zip(x_coords, y_coords))
+        rows = store.get_patches_by_points(points, label_pairs=label_pairs)
+    return [PatchResponse(**r) for r in rows]
+
+
+@router.get("/projects/{project_id}/sample/by-point/patches/", response_model=List[PatchResponse])
+def sample_patches_by_point(
+    project_id: int,
+    x: float = Query(...),
+    y: float = Query(...),
+    lp: Optional[List[str]] = Query(default=None, description="Label pair filter: repeat for each pair as 'gt,pred' (e.g. lp=0,1&lp=2,2)"),
+) -> List[PatchResponse]:
+    label_pairs = _parse_label_pairs(lp)
+    client = get_head_client()
+    with client.get_session() as session:
+        store = PatchStore(project_id, session)
+        rows = store.get_patches_by_points((x, y), label_pairs=label_pairs)
+    return [PatchResponse(**r) for r in rows]
 

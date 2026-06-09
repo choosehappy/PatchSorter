@@ -6,11 +6,39 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.sql import func, text
 from sqlalchemy.types import TIMESTAMP
-from typing import Dict, Tuple
+from typing import TYPE_CHECKING, Dict, Tuple
 
-from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 from patchsorter.config.constants import PredPatchSuffix, SettingType
+
+
+def build_table_name(project_id: int, shard: int | None = None) -> str:
+    """Return the patch table name for the given project and optional shard.
+
+    Args:
+        project_id: Integer project ID.
+        shard: Optional shard ID to append as a suffix.
+    """
+    tbl = f"project{project_id}_patch"
+    if shard is not None:
+        tbl = f"{tbl}_{shard}"
+    return tbl
+
+
+def build_pred_table_name(
+    project_id: int, suffix: PredPatchSuffix, shard: int | None = None
+) -> str:
+    """Return the pred_patch table name for the given project and suffix.
+
+    Args:
+        project_id: Integer project ID.
+        suffix: Either ``PredPatchSuffix.LATEST`` or ``PredPatchSuffix.LAST``.
+        shard: Optional shard ID to append as a suffix.
+    """
+    tbl = f"project{project_id}_pred_patch_{suffix.value}"
+    if shard is not None:
+        tbl = f"{tbl}_{shard}"
+    return tbl
 
 
 class Base(DeclarativeBase):
@@ -128,7 +156,7 @@ def patch_model(project_id: int) -> type:
             f"Patch{project_id}",
             (Base,),
             {
-                "__tablename__": PatchStore.build_table_name(project_id),
+                "__tablename__": build_table_name(project_id),
                 "patch_id":       Column(BigInteger, primary_key=True, autoincrement=True),
                 "patch_uid":         Column(Uuid, unique=False, nullable=False),
                 "label_class_id":    Column(SmallInteger, nullable=False),
@@ -156,7 +184,7 @@ def pred_patch_model(project_id: int, suffix: str) -> type:
             f"PredPatch{suffix.capitalize()}{project_id}",
             (Base,),
             {
-                "__tablename__": PatchStore.build_pred_table_name(project_id, suffix),
+                "__tablename__": build_pred_table_name(project_id, suffix),
                 "patch_id":       Column(BigInteger, primary_key=True),
                 "embed_x":        Column(Float, nullable=False),
                 "embed_y":        Column(Float, nullable=False),

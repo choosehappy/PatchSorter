@@ -231,12 +231,41 @@ def example_project(
     )
 
     # Five fake patches — each with a unique UUID, all labeled as "Tumor"
-    PatchStore(1, db_session).bulk_insert(
-        [
-            (uuid.uuid4(), lc_tumor["label_class_id"], image["image_id"], 2.0, None, None, None, bytes(16))
-            for _ in range(5)
-        ]
-    )
+    # grid_cell_i/j placed near (0, 0) so sample-by-bbox queries find them
+    patch_uuids = []
+    for i in range(5):
+        pid = uuid.uuid4()
+        patch_uuids.append(pid)
+        PatchStore(1, db_session).bulk_insert(
+            [(pid, lc_tumor["label_class_id"], image["image_id"], 2.0, i * 10, i * 10, None, bytes(16))]
+        )
+
+    # Get the auto-generated patch_ids for the five inserted patches
+    patch_ids_result = db_session.execute(
+        text(
+            "SELECT patch_id, patch_uid FROM project1_patch ORDER BY patch_id DESC LIMIT 5"
+        )
+    ).fetchall()
+    patch_ids = [row[0] for row in patch_ids_result]
+
+    # Seed prediction rows for the five patches so get_patches_by_points finds them
+    for i, pid in enumerate(patch_ids):
+        db_session.execute(
+            text(
+                """
+                INSERT INTO project1_pred_patch_latest (patch_id, embed_x, embed_y, grid_cell_i, grid_cell_j, event_ts, label_class_id)
+                VALUES (:patch_id, :embed_x, :embed_y, :grid_cell_i, :grid_cell_j, now(), :label_class_id)
+                """
+            ),
+            {
+                "patch_id": pid,
+                "embed_x": 0.5 + i,
+                "embed_y": 0.5 + i,
+                "grid_cell_i": i * 10,
+                "grid_cell_j": i * 10,
+                "label_class_id": lc_normal["label_class_id"],
+            },
+        )
 
     db_session.flush()
 

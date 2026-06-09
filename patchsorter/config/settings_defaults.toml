@@ -60,6 +60,12 @@ type    = "integer"
 # Application-scoped settings
 # ---------------------------------------------------------------------------
 
+[settings.patch_query_range]
+scope    = "application"
+default  = "2"
+type     = "integer"
+# Range in grid cells around the query point for patch sampling
+
 [settings.log_level]
 scope          = "application"
 default        = "INFO"

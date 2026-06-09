@@ -2,7 +2,7 @@ from sqlalchemy import select, text
 from sqlalchemy.schema import CreateTable
 
 from patchsorter.db.utils import SessionManager
-from patchsorter.db.head_client.models import Base, Project, all_project_models
+from patchsorter.db.head_client.models import Base, Project, all_project_models, build_table_name, build_pred_table_name
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 from patchsorter.db.head_client.settings import SettingsStore
@@ -76,11 +76,11 @@ class DatabaseManager:
         """
 
         for key in list(_patch_cache):
-            del Base.metadata.tables[PatchStore.build_table_name(key)]
+            del Base.metadata.tables[build_table_name(key)]
         _patch_cache.clear()
         for key in list(_pred_patch_latest_cache):
-            del Base.metadata.tables[PatchStore.build_pred_table_name(key, PredPatchSuffix.LATEST)]
-            del Base.metadata.tables[PatchStore.build_pred_table_name(key, PredPatchSuffix.LAST)]
+            del Base.metadata.tables[build_pred_table_name(key, PredPatchSuffix.LATEST)]
+            del Base.metadata.tables[build_pred_table_name(key, PredPatchSuffix.LAST)]
         _pred_patch_latest_cache.clear()
         _pred_patch_last_cache.clear()
         for (pid, lvl) in list(_cm_cache):
@@ -144,8 +144,8 @@ class DatabaseManager:
         4. ``RENAME project{N}_pred_patch_tmp → project{N}_pred_patch_latest``
         """
         n = project_id
-        last_table   = PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)
-        latest_table = PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)
+        last_table   = build_pred_table_name(n, PredPatchSuffix.LAST)
+        latest_table = build_pred_table_name(n, PredPatchSuffix.LATEST)
         tmp_table    = f"project{n}_pred_patch_tmp"
         with self.sm.get_connection() as conn:
             with conn.cursor() as cur:
@@ -175,11 +175,11 @@ class DatabaseManager:
         n = project_id
         models = all_project_models(n)
 
-        patch_tbl = PatchStore.build_table_name(n)
+        patch_tbl = build_table_name(n)
         distribution = [
             f"SELECT create_distributed_table('{patch_tbl}', 'patch_id');",
-            f"SELECT create_distributed_table('{PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)}', 'patch_id', colocate_with => '{patch_tbl}');",
-            f"SELECT create_distributed_table('{PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)}', 'patch_id', colocate_with => '{patch_tbl}');",
+            f"SELECT create_distributed_table('{build_pred_table_name(n, PredPatchSuffix.LATEST)}', 'patch_id', colocate_with => '{patch_tbl}');",
+            f"SELECT create_distributed_table('{build_pred_table_name(n, PredPatchSuffix.LAST)}', 'patch_id', colocate_with => '{patch_tbl}');",
             *[
                 f"SELECT create_distributed_table('{ConfusionMatrixStore.build_table_name(n, lvl)}', 'shard_id', colocate_with => '{patch_tbl}');"
                 for lvl in range(8, 13)
@@ -245,15 +245,15 @@ class DatabaseManager:
                 v_pred_shardid := (regexp_match(TG_TABLE_NAME, '(\\d+)$'))[1]::bigint;
                 SELECT shardminvalue INTO v_shardminvalue FROM pg_dist_shard WHERE shardid = v_pred_shardid;
 
-                SELECT TG_TABLE_SCHEMA || '.' || '{PatchStore.build_table_name(n)}_' || shardid::text
+                SELECT TG_TABLE_SCHEMA || '.' || '{build_table_name(n)}_' || shardid::text
                 INTO v_patch_shard FROM pg_dist_shard
-                WHERE logicalrelid = '{PatchStore.build_table_name(n)}'::regclass AND shardminvalue = v_shardminvalue;
+                WHERE logicalrelid = '{build_table_name(n)}'::regclass AND shardminvalue = v_shardminvalue;
 
                 v_patch_shardid := (regexp_match(v_patch_shard, '(\\d+)$'))[1]::bigint;
 
-                SELECT TG_TABLE_SCHEMA || '.' || '{PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)}_' || shardid::text
+                SELECT TG_TABLE_SCHEMA || '.' || '{build_pred_table_name(n, PredPatchSuffix.LAST)}_' || shardid::text
                 INTO v_pred_last_shard FROM pg_dist_shard
-                WHERE logicalrelid = '{PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)}'::regclass AND shardminvalue = v_shardminvalue;
+                WHERE logicalrelid = '{build_pred_table_name(n, PredPatchSuffix.LAST)}'::regclass AND shardminvalue = v_shardminvalue;
 
                 FOR v_lvl IN 8..12 LOOP
                     v_shift := 12 - v_lvl;
@@ -329,13 +329,13 @@ class DatabaseManager:
                 v_patch_shardid := (regexp_match(TG_TABLE_NAME, '(\\d+)$'))[1]::bigint;
                 SELECT shardminvalue INTO v_shardminvalue FROM pg_dist_shard WHERE shardid = v_patch_shardid;
 
-                SELECT TG_TABLE_SCHEMA || '.' || '{PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)}_' || shardid::text
+                SELECT TG_TABLE_SCHEMA || '.' || '{build_pred_table_name(n, PredPatchSuffix.LATEST)}_' || shardid::text
                 INTO v_pred_latest_shard FROM pg_dist_shard
-                WHERE logicalrelid = '{PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)}'::regclass AND shardminvalue = v_shardminvalue;
+                WHERE logicalrelid = '{build_pred_table_name(n, PredPatchSuffix.LATEST)}'::regclass AND shardminvalue = v_shardminvalue;
 
-                SELECT TG_TABLE_SCHEMA || '.' || '{PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)}_' || shardid::text
+                SELECT TG_TABLE_SCHEMA || '.' || '{build_pred_table_name(n, PredPatchSuffix.LAST)}_' || shardid::text
                 INTO v_pred_last_shard FROM pg_dist_shard
-                WHERE logicalrelid = '{PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)}'::regclass AND shardminvalue = v_shardminvalue;
+                WHERE logicalrelid = '{build_pred_table_name(n, PredPatchSuffix.LAST)}'::regclass AND shardminvalue = v_shardminvalue;
 
                 FOR v_lvl IN 8..12 LOOP
                     v_shift := 12 - v_lvl;
@@ -418,7 +418,7 @@ class DatabaseManager:
         # Step 2b: Attach AFTER UPDATE trigger to each project{N}_patch shard.
         attach_update_triggers_sql = f"""
             SELECT * FROM run_command_on_shards(
-                '{PatchStore.build_table_name(n)}',
+                '{build_table_name(n)}',
                 $cmd$
                     CREATE TRIGGER trg_update_cm_on_patch_update_p{n} AFTER UPDATE ON %s
                     REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
@@ -465,14 +465,14 @@ class DatabaseManager:
         with raw_conn.cursor() as cur:
             _run_and_check_shards(
                 cur,
-                _attach_insert_triggers_sql(PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)),
-                f"Per-shard INSERT triggers on {PatchStore.build_pred_table_name(n, PredPatchSuffix.LATEST)}",
+                _attach_insert_triggers_sql(build_pred_table_name(n, PredPatchSuffix.LATEST)),
+                f"Per-shard INSERT triggers on {build_pred_table_name(n, PredPatchSuffix.LATEST)}",
             )
 
             _run_and_check_shards(
                 cur,
-                _attach_insert_triggers_sql(PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)),
-                f"Per-shard INSERT triggers on {PatchStore.build_pred_table_name(n, PredPatchSuffix.LAST)}",
+                _attach_insert_triggers_sql(build_pred_table_name(n, PredPatchSuffix.LAST)),
+                f"Per-shard INSERT triggers on {build_pred_table_name(n, PredPatchSuffix.LAST)}",
             )
 
             _run_and_check_shards(
@@ -520,7 +520,7 @@ class DatabaseManager:
         This is used by the application to route queries to the correct shard when joining patch and pred_patch tables together.
         """
         with self.sm.get_session() as session:
-            return CitusShardMap(session, PatchStore.build_table_name(project_id), PatchStore.build_pred_table_name(project_id, PredPatchSuffix.LATEST))
+            return CitusShardMap(session, build_table_name(project_id), build_pred_table_name(project_id, PredPatchSuffix.LATEST))
             
     def clear_predictions(self, project_id: int) -> None:
         """Clear all rows from all pred_patch tables across all projects.

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { client } from '../api_client/client.gen'
-import { type ServeTileProjectsProjectIdTilesZxyPngGetData, type WorldInfo, type PatchResponse } from '../api_client'
+import { type ServeTileProjectsProjectIdTilesZxyPngGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, samplePatchesByBboxProjectsProjectIdSampleByBboxPatchesPost } from '../api_client'
 
 // GeoJS loaded via CDN in index.html
 declare const geo: any
@@ -30,6 +30,8 @@ interface ViewportProps {
     pageSize: number
     selectedPatches: PatchResponse[]
     hoveredPatch: PatchResponse | null
+    showPatches: boolean
+    labelClasses: LabelClassResponse[]
 }
 
 export default function Viewport({
@@ -48,6 +50,8 @@ export default function Viewport({
     pageSize,
     selectedPatches,
     hoveredPatch,
+    showPatches,
+    labelClasses,
 }: ViewportProps) {
     const osmZoomOffset = worldInfo?.osm_zoom_offset ?? 8
     const maxOsmZoom = (worldInfo?.max_level ?? 12) - osmZoomOffset
@@ -59,6 +63,8 @@ export default function Viewport({
     const featureLayerRef = useRef<any>(null)
     const pointLayerRef = useRef<any>(null)
     const pointFeatureRef = useRef<any>(null)
+    const patchLayerRef = useRef<any>(null)
+    const patchFeatureRef = useRef<any>(null)
     const isDrawingRef = useRef(false)
     const justCompletedRef = useRef(false)
     const isCtrlHeldRef = useRef(false)
@@ -261,6 +267,20 @@ export default function Viewport({
         pointLayerRef.current.draw()
         toggleLassoMode(true)
 
+        // Create patch layer for all patches (shown/hidden by showPatches toggle)
+        patchLayerRef.current = map.createLayer('feature', {
+            zIndex: 2,
+        })
+        patchFeatureRef.current = patchLayerRef.current
+            .createFeature('point', { primitiveShape: 'circle' })
+            .data([])
+            .position((p: PatchResponse) => ({ x: p.grid_cell_i!, y: p.grid_cell_j! }))
+            .style('radius', 3)
+            .style('fillColor', '#888888')
+            .style('fillOpacity', 0.5)
+            .style('stroke', false)
+        patchLayerRef.current.draw()
+
         // Register annotation completion event listener
         annotationLayerRef.current.geoOn(geo.event.annotation.state, handleNewAnnotation)
 
@@ -373,6 +393,85 @@ export default function Viewport({
         feat.modified()
         pointLayerRef.current.draw()
     }, [selectedPatches, hoveredPatch])
+
+    // Fetch and render all patches when showPatches is toggled on
+    useEffect(() => {
+        if (!showPatches || !mapRef.current) {
+            if (patchFeatureRef.current) {
+                patchFeatureRef.current.data([])
+                patchLayerRef.current?.draw()
+            }
+            return
+        }
+
+        const bounds = mapRef.current.bounds()
+
+        samplePatchesByBboxProjectsProjectIdSampleByBboxPatchesPost({
+            client,
+            path: { project_id: projectId },
+            body: {
+                xmin: bounds.left,
+                ymin: bounds.top,
+                xmax: bounds.right,
+                ymax: bounds.bottom,
+                num_samples: 100,
+            },
+        })
+            .then(({ data, error }) => {
+                if (error || !data) {
+                    console.error('[patchLayer] sample error:', error)
+                    return
+                }
+                if (patchFeatureRef.current) {
+                    patchFeatureRef.current.data(data)
+                    patchFeatureRef.current.style('fillColor', (p: PatchResponse) => {
+                        if (p.label_class_id != null) {
+                            const lc = labelClasses.find(l => l.label_class_id === p.label_class_id)
+                            return lc?.color_code ?? '#888888'
+                        }
+                        return '#888888'
+                    })
+                    patchFeatureRef.current.style('fillOpacity', 0.6)
+                    patchFeatureRef.current.style('radius', 3)
+                    patchFeatureRef.current.modified()
+                    patchLayerRef.current?.draw()
+                }
+            })
+            .catch(err => console.error('[patchLayer] fetch error:', err))
+
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showPatches, projectId])
+
+    // Update patch layer bounds when map bounds change
+    useEffect(() => {
+        if (!showPatches || !patchFeatureRef.current) return
+
+        const interval = setInterval(() => {
+            if (!mapRef.current) {
+                clearInterval(interval)
+                return
+            }
+            const bounds = mapRef.current.bounds()
+            patchFeatureRef.current.style('fillColor', (p: PatchResponse) => {
+                if (p.grid_cell_i != null && p.grid_cell_j != null) {
+                    if (p.grid_cell_i >= bounds.left && p.grid_cell_i <= bounds.right &&
+                        p.grid_cell_j >= bounds.top && p.grid_cell_j <= bounds.bottom) {
+                        if (p.label_class_id != null) {
+                            const lc = labelClasses.find(l => l.label_class_id === p.label_class_id)
+                            return lc?.color_code ?? '#888888'
+                        }
+                        return '#888888'
+                    }
+                }
+                return '#cccccc'
+            })
+            patchFeatureRef.current.modified()
+            patchLayerRef.current?.draw()
+        }, 500)
+
+        return () => clearInterval(interval)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showPatches])
 
     return <div ref={mapDivRef} style={{ width: '100%', height: '100%' }} />
 }

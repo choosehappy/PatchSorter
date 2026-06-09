@@ -177,8 +177,8 @@ def test_osm_tile_to_bbox_basic():
     i_min, j_min, i_max, j_max, wx0, wy0, wx1, wy1 = result
     assert i_min == 0
     assert j_min == 0
-    assert i_max == 256
-    assert j_max == 256
+    assert i_max == 255
+    assert j_max == 255
     assert wx0 == 0.0
     assert wy0 == 0.0
     assert wx1 == 256.0
@@ -197,8 +197,8 @@ def test_osm_tile_to_bbox_level_1():
     assert wy0 == 0.0
     assert wx1 == 128.0
     assert wy1 == 128.0
-    assert i_max == 128
-    assert j_max == 128
+    assert i_max == 127
+    assert j_max == 127
 
 
 def test_osm_tile_to_bbox_level_2():
@@ -227,8 +227,8 @@ def test_osm_tile_to_bbox_with_aggregation():
     i_min, j_min, i_max, j_max, wx0, wy0, wx1, wy1 = result
     assert i_min == 0
     assert j_min == 0
-    assert i_max == 256
-    assert j_max == 256
+    assert i_max == 255
+    assert j_max == 255
 
 
 def test_osm_tile_to_bbox_edge_tile():

@@ -7,19 +7,23 @@ from fastapi.testclient import TestClient
 
 
 def test_list_label_classes_empty(client: TestClient):
-    """GET /projects/1/label_classes/ returns an empty list when no classes exist."""
-    response = client.get("/projects/1/label_classes/")
-    assert response.status_code == 200
-    assert response.json() == []
-
-
-def test_list_label_classes_returns_all(client: TestClient, seeded_project):
-    """GET /projects/1/label_classes/ returns all seeded label classes."""
+    """GET /projects/1/label_classes/ returns the reserved 'unassigned' class when no user classes exist."""
     response = client.get("/projects/1/label_classes/")
     assert response.status_code == 200
     body = response.json()
-    assert len(body) == 2
+    assert len(body) >= 1
     names = [lc["name"] for lc in body]
+    assert "unassigned" in names
+
+
+def test_list_label_classes_returns_all(client: TestClient, seeded_project):
+    """GET /projects/1/label_classes/ returns all seeded label classes plus 'unassigned'."""
+    response = client.get("/projects/1/label_classes/")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 3
+    names = [lc["name"] for lc in body]
+    assert "unassigned" in names
     assert "Tumor" in names
     assert "Normal" in names
 
