@@ -362,6 +362,10 @@ class DatabaseManager:
                             UNION ALL
                             SELECT patch_id, grid_cell_i, grid_cell_j, label_class_id FROM %s
                             WHERE patch_id IN (SELECT patch_id FROM changed)
+                              AND patch_id NOT IN (
+                                  SELECT patch_id FROM %s
+                                  WHERE patch_id IN (SELECT patch_id FROM changed)
+                              )
                         ),
                         neg AS (
                             SELECT (pp.grid_cell_i >> $2)::smallint AS grid_cell_i,
@@ -390,7 +394,7 @@ class DatabaseManager:
                         ON CONFLICT (shard_id, grid_cell_i, grid_cell_j, pred_label, gt_label)
                         DO UPDATE SET count = %s.count + EXCLUDED.count, bucket_date = CURRENT_DATE
                         $sql$,
-                        v_pred_latest_shard, v_pred_last_shard, v_cm_shard, v_cm_shard
+                        v_pred_latest_shard, v_pred_last_shard, v_pred_latest_shard, v_cm_shard, v_cm_shard
                     ) USING v_patch_shardid, v_shift;
 
                     EXECUTE format('DELETE FROM %s WHERE count <= 0', v_cm_shard);

@@ -518,7 +518,6 @@ class PatchStore:
 
         sql = text(
             f"""
-            EXPLAIN ANALYZE
             SELECT
                 patch_id,
                 patch_uid,
@@ -579,7 +578,6 @@ class PatchStore:
 
         params: Dict[str, Any] = {**pred_params, **lp_params, "_cursor": cursor, "_limit": limit}
         rows = self._session.execute(sql, params).mappings().all()
-        print(rows)
         return [dict(r) for r in rows]
 
     def get_patches_within_grid_bbox(

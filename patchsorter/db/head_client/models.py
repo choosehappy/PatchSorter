@@ -157,7 +157,7 @@ def patch_model(project_id: int) -> type:
             (Base,),
             {
                 "__tablename__": build_table_name(project_id),
-                "patch_id":       Column(BigInteger, primary_key=True, autoincrement=True),
+                "patch_id":          Column(BigInteger, primary_key=True, autoincrement=True),
                 "patch_uid":         Column(Uuid, unique=False, nullable=False),
                 "label_class_id":    Column(SmallInteger, nullable=False),
                 "image_id":          Column(Integer, nullable=False),
