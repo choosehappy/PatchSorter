@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AssignLabelsByIdsProjectsProjectIdPatchesPostData, AssignLabelsByIdsProjectsProjectIdPatchesPostErrors, AssignLabelsByIdsProjectsProjectIdPatchesPostResponses, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostData, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostErrors, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetData, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetErrors, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetResponses, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetData, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetErrors, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetResponses, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetData, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetErrors, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetResponses, GetPatchProjectsProjectIdPatchesPatchIdGetData, GetPatchProjectsProjectIdPatchesPatchIdGetErrors, GetPatchProjectsProjectIdPatchesPatchIdGetResponses, GetProjectProjectsProjectIdGetData, GetProjectProjectsProjectIdGetErrors, GetProjectProjectsProjectIdGetResponses, InfoProjectsProjectIdInfoGetData, InfoProjectsProjectIdInfoGetErrors, InfoProjectsProjectIdInfoGetResponses, ListLabelClassesProjectsProjectIdLabelClassesGetData, ListLabelClassesProjectsProjectIdLabelClassesGetErrors, ListLabelClassesProjectsProjectIdLabelClassesGetResponses, ListPatchesProjectsProjectIdPatchesGetData, ListPatchesProjectsProjectIdPatchesGetErrors, ListPatchesProjectsProjectIdPatchesGetResponses, ListProjectsProjectsGetData, ListProjectsProjectsGetResponses, ServeTileProjectsProjectIdTilesZxyPngGetData, ServeTileProjectsProjectIdTilesZxyPngGetErrors, ServeTileProjectsProjectIdTilesZxyPngGetResponses } from './types.gen';
+import type { AssignLabelsByIdsProjectsProjectIdPatchesPostData, AssignLabelsByIdsProjectsProjectIdPatchesPostErrors, AssignLabelsByIdsProjectsProjectIdPatchesPostResponses, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostData, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostErrors, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetData, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetErrors, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetResponses, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetData, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetErrors, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetResponses, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetData, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetErrors, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetResponses, GetPatchProjectsProjectIdPatchesPatchIdGetData, GetPatchProjectsProjectIdPatchesPatchIdGetErrors, GetPatchProjectsProjectIdPatchesPatchIdGetResponses, GetProjectProjectsProjectIdGetData, GetProjectProjectsProjectIdGetErrors, GetProjectProjectsProjectIdGetResponses, InfoProjectsProjectIdInfoGetData, InfoProjectsProjectIdInfoGetErrors, InfoProjectsProjectIdInfoGetResponses, ListLabelClassesProjectsProjectIdLabelClassesGetData, ListLabelClassesProjectsProjectIdLabelClassesGetErrors, ListLabelClassesProjectsProjectIdLabelClassesGetResponses, ListPatchesProjectsProjectIdPatchesGetData, ListPatchesProjectsProjectIdPatchesGetErrors, ListPatchesProjectsProjectIdPatchesGetResponses, ListProjectsProjectsGetData, ListProjectsProjectsGetResponses, SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetData, SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetErrors, SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetResponses, SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesPostData, SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesPostErrors, SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesPostResponses, SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetData, SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetErrors, SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetResponses, ServeTileProjectsProjectIdTilesZxyPngGetData, ServeTileProjectsProjectIdTilesZxyPngGetErrors, ServeTileProjectsProjectIdTilesZxyPngGetResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -84,3 +84,32 @@ export const assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost = <T
         ...options.headers
     }
 });
+
+/**
+ * Sample Patches By Bbox
+ */
+export const samplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGet = <ThrowOnError extends boolean = false>(options: Options<SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetData, ThrowOnError>) => (options.client ?? client).get<SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetResponses, SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetErrors, ThrowOnError>({
+    url: '/projects/{project_id}/sample/by-bbox/patches/',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Sample Patches By Bbox
+ */
+export const samplePatchesByBboxProjectsProjectIdSampleByBboxPatchesPost = <ThrowOnError extends boolean = false>(options: Options<SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesPostData, ThrowOnError>) => (options.client ?? client).post<SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesPostResponses, SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesPostErrors, ThrowOnError>({
+    url: '/projects/{project_id}/sample/by-bbox/patches/',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Sample Patches By Point
+ */
+export const samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet = <ThrowOnError extends boolean = false>(options: Options<SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetData, ThrowOnError>) => (options.client ?? client).get<SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetResponses, SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetErrors, ThrowOnError>({ url: '/projects/{project_id}/sample/by-point/patches/', ...options });
