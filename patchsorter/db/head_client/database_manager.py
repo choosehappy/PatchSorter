@@ -1,5 +1,5 @@
 from sqlalchemy import select, text
-from sqlalchemy.schema import CreateTable
+from sqlalchemy.schema import CreateIndex, CreateTable
 
 from patchsorter.db.utils import SessionManager
 from patchsorter.db.head_client.models import Base, Project, all_project_models, build_table_name, build_pred_table_name
@@ -190,6 +190,10 @@ class DatabaseManager:
                 ddl = str(CreateTable(model.__table__, if_not_exists=True).compile(self.sm.engine))
                 cur.execute(ddl)
                 print(f"Ensured existence of table {model.__tablename__} for project {n}.")
+                for index in model.__table__.indexes:
+                    idx_ddl = str(CreateIndex(index, if_not_exists=True).compile(self.sm.engine))
+                    cur.execute(idx_ddl)
+                    print(f"Ensured existence of index {index.name} on {model.__tablename__}.")
             for stmt in distribution:
                 try:
                     cur.execute(stmt)

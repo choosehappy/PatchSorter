@@ -180,11 +180,19 @@ def pred_patch_model(project_id: int, suffix: str) -> type:
     """
     cache = _pred_patch_latest_cache if suffix == PredPatchSuffix.LATEST else _pred_patch_last_cache
     if project_id not in cache:
+        tbl_name = build_pred_table_name(project_id, suffix)
         cache[project_id] = type(
             f"PredPatch{suffix.capitalize()}{project_id}",
             (Base,),
             {
-                "__tablename__": build_pred_table_name(project_id, suffix),
+                "__tablename__": tbl_name,
+                "__table_args__": (
+                    Index(
+                        f"idx_pred_patch_p{project_id}_{suffix.value}_grid",
+                        "grid_cell_i",
+                        "grid_cell_j",
+                    ),
+                ),
                 "patch_id":       Column(BigInteger, primary_key=True),
                 "embed_x":        Column(Float, nullable=False),
                 "embed_y":        Column(Float, nullable=False),

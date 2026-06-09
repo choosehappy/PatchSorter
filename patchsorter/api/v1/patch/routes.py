@@ -38,6 +38,8 @@ def list_patches(
     label_pairs = _parse_label_pairs(lp)
     client = get_head_client()
     with client.get_session() as session:
+        # Only enable this when testing EXPLAIN ANALYZE
+        # session.execute(text("SET LOCAL citus.enable_local_execution TO OFF"))
         store = PatchStore(project_id, session)
         if use_bbox:
             settings_store = SettingsStore(session)

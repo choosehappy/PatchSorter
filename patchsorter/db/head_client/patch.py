@@ -513,52 +513,73 @@ class PatchStore:
                 lp_params[f"lp_gt_{i}"] = gt
                 lp_params[f"lp_pred_{i}"] = pred
 
-        image_col = ",\n               p.patch_image" if include_image else ""
+        image_col_inner = ",\n                       p.patch_image" if include_image else ""
+        image_col_outer = ",\n                patch_image" if include_image else ""
 
         sql = text(
             f"""
+            EXPLAIN ANALYZE
             SELECT
-                pu.patch_id,
-                p.patch_uid,
-                p.label_class_id,
-                p.image_id,
-                p.downsample_factor,
-                p.centroid_x,
-                p.centroid_y,
-                ST_AsGeoJSON(p.polygon) AS polygon{image_col},
-
-                pu.embed_x,
-                pu.embed_y,
-                pu.grid_cell_i,
-                pu.grid_cell_j,
-                pu.label_class_id         AS pred_label_class_id,
-                pu.event_ts,
-                pu.priority
-
+                patch_id,
+                patch_uid,
+                gt_label_class_id          AS label_class_id,
+                image_id,
+                downsample_factor,
+                centroid_x,
+                centroid_y,
+                ST_AsGeoJSON(polygon)      AS polygon{image_col_outer},
+                embed_x,
+                embed_y,
+                grid_cell_i,
+                grid_cell_j,
+                pred_label_class_id,
+                event_ts,
+                priority
             FROM (
-                SELECT *, 1 AS priority
-                FROM {self.pred_table_latest}
+                SELECT pu.patch_id,
+                       pu.embed_x, pu.embed_y, pu.grid_cell_i, pu.grid_cell_j,
+                       pu.label_class_id  AS pred_label_class_id,
+                       pu.event_ts,
+                       1                  AS priority,
+                       p.patch_uid,
+                       p.label_class_id   AS gt_label_class_id,
+                       p.image_id, p.downsample_factor,
+                       p.centroid_x, p.centroid_y, p.polygon{image_col_inner}
+                FROM {self.pred_table_latest} pu
+                JOIN {self.table_name} p ON p.patch_id = pu.patch_id
                 WHERE {pred_filter_sql}
+                  AND pu.patch_id > :_cursor
+                  {pairs_and}
 
                 UNION ALL
 
-                SELECT *, 2 AS priority
-                FROM {self.pred_table_last}
+                SELECT pu.patch_id,
+                       pu.embed_x, pu.embed_y, pu.grid_cell_i, pu.grid_cell_j,
+                       pu.label_class_id  AS pred_label_class_id,
+                       pu.event_ts,
+                       2                  AS priority,
+                       p.patch_uid,
+                       p.label_class_id   AS gt_label_class_id,
+                       p.image_id, p.downsample_factor,
+                       p.centroid_x, p.centroid_y, p.polygon{image_col_inner}
+                FROM {self.pred_table_last} pu
+                JOIN {self.table_name} p ON p.patch_id = pu.patch_id
                 WHERE {pred_filter_sql}
-                AND NOT EXISTS (SELECT 1 FROM {self.pred_table_latest} WHERE patch_id = {self.pred_table_last}.patch_id)
-            ) pu
-
-            JOIN {self.table_name} p ON p.patch_id = pu.patch_id
-
-            WHERE pu.patch_id > :_cursor
-            {pairs_and}
-            ORDER BY pu.patch_id
+                  AND pu.patch_id > :_cursor
+                  AND NOT EXISTS (
+                      SELECT 1 FROM {self.pred_table_latest}
+                      WHERE patch_id = pu.patch_id
+                  )
+                  {pairs_and}
+            ) combined
+            ORDER BY patch_id
             LIMIT :_limit
             """
         )
 
         params: Dict[str, Any] = {**pred_params, **lp_params, "_cursor": cursor, "_limit": limit}
         rows = self._session.execute(sql, params).mappings().all()
+        print(rows)
         return [dict(r) for r in rows]
 
     def get_patches_within_grid_bbox(
