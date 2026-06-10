@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { client } from '../api_client/client.gen'
-import { type ServeTileProjectsProjectIdTilesZxyPngGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, samplePatchesByBboxProjectsProjectIdSampleByBboxPatchesPost } from '../api_client'
+import { type ServeTileProjectsProjectIdTilesZxyPngGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, samplePatchesByBboxProjectsProjectIdSampleByBboxPatchesPost, samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet } from '../api_client'
 
 // GeoJS loaded via CDN in index.html
 declare const geo: any
@@ -27,6 +27,7 @@ interface ViewportProps {
     onZoomChange: (osmZoom: number, level: number) => void
     onLassoComplete: (polygon: number[][], pageSize: number) => void
     onViewportClick: () => void
+    onHoverPatch: (patch: PatchResponse | null) => void
     pageSize: number
     selectedPatches: PatchResponse[]
     hoveredPatch: PatchResponse | null
@@ -47,6 +48,7 @@ export default function Viewport({
     onZoomChange,
     onLassoComplete,
     onViewportClick,
+    onHoverPatch,
     pageSize,
     selectedPatches,
     hoveredPatch,
@@ -68,6 +70,7 @@ export default function Viewport({
     const isDrawingRef = useRef(false)
     const justCompletedRef = useRef(false)
     const isCtrlHeldRef = useRef(false)
+    const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const [isCtrlHeld, setIsCtrlHeld] = useState(false)
 
     function computeBboxFromPolygon(coordinates: number[][][]): { x_min: number; x_max: number; y_min: number; y_max: number } | null {
@@ -292,15 +295,42 @@ export default function Viewport({
         }
         featureLayerRef.current.geoOn(geo.event.mousedown, handleMousedown)
 
-        // Use GeoJS mouseclick to clear polygon; skip the click that ends a lasso
-        // map.geoOn(geo.event.mouseclick, () => {
-        //     if (isDrawingRef.current) return
-        //     if (justCompletedRef.current) {
-        //         justCompletedRef.current = false
-        //         return
-        //     }
-        //     clearLassoPolygon()
-        // })
+        function buildLpQuery() {
+            if (filterBy !== 'all' || selectedCells.size < numClasses * numClasses) {
+                const pairs = Array.from(selectedCells)
+                if (pairs.length > 0 && pairs.length < numClasses * numClasses && classIds.length === numClasses) {
+                    return pairs.map(p => {
+                        const [gtIdx, predIdx] = p.split(',').map(Number)
+                        return `${classIds[gtIdx]},${classIds[predIdx]}`
+                    })
+                }
+            }
+            return undefined
+        }
+
+        function handleMouseMove(evt: any) {
+            if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
+            hoverTimeoutRef.current = setTimeout(() => {
+                const lp = buildLpQuery()
+
+                samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet({
+                    client,
+                    path: { project_id: projectId },
+                    query: { x: evt.geo.x, y: evt.geo.y, lp },
+                }).then(({ data, error }) => {
+                    if (error || !data || data.length === 0) {
+                        onHoverPatch(null)
+                        return
+                    }
+                    onHoverPatch(data[0])
+                }).catch(err => {
+                    console.error('[sampleByPoint] fetch error:', err)
+                    onHoverPatch(null)
+                })
+            }, 10)
+        }
+
+        map.geoOn(geo.event.mousemove, handleMouseMove)
 
         map.geoOn(geo.event.zoom, () => {
             const z = Math.round(map.zoom())
@@ -339,6 +369,7 @@ export default function Viewport({
         return () => {
             annotationLayerRef.current?.geoOff(geo.event.annotation.state, handleNewAnnotation)
             featureLayerRef.current?.geoOff(geo.event.mousedown, handleMousedown)
+            map.geoOff(geo.event.mousemove, handleMouseMove)
             map.geoOff(geo.event.zoom)
             map.geoOff(geo.event.pan, onMapIdle)
             document.removeEventListener('keydown', handleKeyDown)

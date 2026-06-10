@@ -344,6 +344,7 @@ export default function LabelingPage() {
                     onZoomChange={handleZoomChange}
                     onLassoComplete={handlePolygonPatchQuery}
                     onViewportClick={handleClearLassoPolygon}
+                    onHoverPatch={(patch) => setHoveredPatch(patch)}
                     pageSize={pageSize}
                     selectedPatches={selectedPatches}
                     hoveredPatch={hoveredPatch}

@@ -620,8 +620,8 @@ class PatchStore:
         """
         return self._paginated_pred_join(
             pred_filter_sql=(
-                "grid_cell_i BETWEEN :i_min AND :i_max"
-                " AND grid_cell_j BETWEEN :j_min AND :j_max"
+                "pu.grid_cell_i BETWEEN :i_min AND :i_max"
+                " AND pu.grid_cell_j BETWEEN :j_min AND :j_max"
             ),
             pred_params={
                 "i_min": i_min,
