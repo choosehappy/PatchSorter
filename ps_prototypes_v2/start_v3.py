@@ -44,11 +44,12 @@ class Dataset(object):
         if self.geom_transform:
             geom_out = self.geom_transform(image=img_new)
             img_geom = geom_out["image"]
+            anchor = ToTensorV2()(image=img_geom)["image"]
 
             if self.photo_transform:
-                anchor = ToTensorV2()(image=img_geom)["image"]
+                
                 views = tuple(
-                    self.photo_transform(image=img_geom)["image"]
+                    self.photo_transform(image=self.geom_transform(image=img_new)["image"])["image"]
                     for _ in range(self.nviews - 1)
                 )
                 return (anchor, *views, label, img,index)

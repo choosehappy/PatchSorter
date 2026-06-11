@@ -299,74 +299,100 @@ class StainPerturbation(A.ImageOnlyTransform):
     
 
 def get_transforms(patch_size: int) -> tuple[A.Compose, A.Compose]:
-    """
-    SwAV augmentations with size-adaptive parameters.
-    
-    Tiers:
-      - small  : patch_size <= 96
-      - medium : 96 < patch_size <= 192  
-      - large  : patch_size > 192
-    """
-
-    # ── Parameter tiers ───────────────────────────────────────────────────────
     if patch_size <= 96:
         p = dict(
-            # Geometric
-            crop_scale      = (0.75, 1.0),
-            crop_ratio      = (0.95, 1.05),
-            rotate_limit    = 15,
-            rotate_p        = 0.3,
-            elastic_alpha   = 3,
+            # Geometric — push crop floor down, model must learn scale invariance
+            crop_scale      = (0.55, 1.0),      # was 0.75 — more aggressive zoom
+            crop_ratio      = (0.90, 1.10),     # was 0.95 — slightly more shape variation
+            rotate_limit    = 20,               # modest increase
+            rotate_p        = 0.5,             # was 0.3
+            elastic_alpha   = 5,               # was 3
             elastic_sigma   = 4,
-            elastic_p       = 0.2,
+            elastic_p       = 0.35,            # was 0.2
             grid_steps      = 3,
-            grid_limit      = 0.08,
-            grid_p          = 0.15,
+            grid_limit      = 0.12,            # was 0.08
+            grid_p          = 0.25,            # was 0.15
             # Photometric
-            blur_limit      = 3,
-            blur_p          = 0.3,
-            iso_intensity   = (0.05, 0.20),
-            iso_color       = (0.01, 0.04),
-            jpeg_quality    = 80,
+            blur_limit      = 5,               # was 3 — occasionally quite blurry
+            blur_p          = 0.5,             # was 0.3
+            iso_intensity   = (0.05, 0.40),    # was (0.05, 0.20)
+            iso_color       = (0.01, 0.06),
+            jpeg_quality    = 60,              # was 80 — heavier compression artefacts
+            # SSL-specific additions
+            stain_sigma     = 0.12,            # was 0.05 — much more stain variation
+            stain_bias      = 0.10,            # was 0.05
+            stain_p         = 0.9,             # was 0.8
+            dropout_holes   = 4,               # CoarseDropout params
+            dropout_size    = 8,
+            dropout_p       = 0.3,
+            grayscale_p     = 0.15,            # occasionally force texture-only learning
+            brightness_limit= 0.25,            # was 0.15
+            contrast_limit  = 0.25,
+            gamma_limit     = (70, 130),       # was (85, 115)
+            hsv_sat         = 30,              # was 20
+            hsv_val         = 25,              # was 15
         )
     elif patch_size <= 192:
         p = dict(
-            crop_scale      = (0.65, 1.0),
-            crop_ratio      = (0.93, 1.07),
-            rotate_limit    = 30,
-            rotate_p        = 0.4,
-            elastic_alpha   = 8,
-            elastic_sigma   = 9,
-            elastic_p       = 0.25,
+            crop_scale      = (0.45, 1.0),     # was 0.65
+            crop_ratio      = (0.88, 1.12),
+            rotate_limit    = 35,
+            rotate_p        = 0.5,
+            elastic_alpha   = 12,              # was 8
+            elastic_sigma   = 10,
+            elastic_p       = 0.35,
             grid_steps      = 4,
-            grid_limit      = 0.15,
-            grid_p          = 0.2,
-            blur_limit      = 5,
-            blur_p          = 0.35,
-            iso_intensity   = (0.05, 0.25),
+            grid_limit      = 0.20,            # was 0.15
+            grid_p          = 0.3,
+            blur_limit      = 7,               # was 5
+            blur_p          = 0.5,
+            iso_intensity   = (0.05, 0.35),
             iso_color       = (0.01, 0.05),
-            jpeg_quality    = 75,
+            jpeg_quality    = 60,
+            stain_sigma     = 0.12,
+            stain_bias      = 0.10,
+            stain_p         = 0.9,
+            dropout_holes   = 6,
+            dropout_size    = 16,
+            dropout_p       = 0.3,
+            grayscale_p     = 0.15,
+            brightness_limit= 0.25,
+            contrast_limit  = 0.25,
+            gamma_limit     = (70, 130),
+            hsv_sat         = 30,
+            hsv_val         = 25,
         )
-    else:  # > 192
+    else:
         p = dict(
-            crop_scale      = (0.50, 1.0),
-            crop_ratio      = (0.90, 1.10),
+            crop_scale      = (0.35, 1.0),     # was 0.50
+            crop_ratio      = (0.85, 1.15),
             rotate_limit    = 45,
             rotate_p        = 0.5,
-            elastic_alpha   = int(patch_size * 0.05),
-            elastic_sigma   = int(patch_size * 0.06),
-            elastic_p       = 0.3,
+            elastic_alpha   = int(patch_size * 0.07),   # was 0.05
+            elastic_sigma   = int(patch_size * 0.07),
+            elastic_p       = 0.4,
             grid_steps      = 5,
-            grid_limit      = 0.20,
-            grid_p          = 0.25,
-            blur_limit      = 7,
-            blur_p          = 0.4,
-            iso_intensity   = (0.05, 0.30),
-            iso_color       = (0.01, 0.05),
-            jpeg_quality    = 70,
+            grid_limit      = 0.25,            # was 0.20
+            grid_p          = 0.3,
+            blur_limit      = 9,               # was 7
+            blur_p          = 0.5,
+            iso_intensity   = (0.05, 0.40),
+            iso_color       = (0.01, 0.06),
+            jpeg_quality    = 60,
+            stain_sigma     = 0.12,
+            stain_bias      = 0.10,
+            stain_p         = 0.9,
+            dropout_holes   = 8,
+            dropout_size    = 32,
+            dropout_p       = 0.3,
+            grayscale_p     = 0.15,
+            brightness_limit= 0.25,
+            contrast_limit  = 0.25,
+            gamma_limit     = (70, 130),
+            hsv_sat         = 30,
+            hsv_val         = 25,
         )
 
-    # ── Geometric ─────────────────────────────────────────────────────────────
     geom_transforms = A.Compose([
         A.RandomResizedCrop(
             size=(patch_size, patch_size),
@@ -394,38 +420,55 @@ def get_transforms(patch_size: int) -> tuple[A.Compose, A.Compose]:
             border_mode=cv2.BORDER_REFLECT,
             p=p["grid_p"],
         ),
+
     ])
 
-    # ── Photometric ───────────────────────────────────────────────────────────
     photo_transforms = A.Compose([
-        StainPerturbation(sigma=0.05, bias=0.05, p=0.8),
+        StainPerturbation(
+            sigma=p["stain_sigma"],
+            bias=p["stain_bias"],
+            p=p["stain_p"],
+        ),
+        # Grayscale: occasionally remove color entirely
+        # Forces model to rely on morphology/texture rather than stain
+        A.ToGray(p=p["grayscale_p"]),
+
         A.OneOf([
             A.MedianBlur(blur_limit=p["blur_limit"], p=1.0),
             A.GaussianBlur(blur_limit=(3, p["blur_limit"]), p=1.0),
             A.MotionBlur(blur_limit=p["blur_limit"], p=1.0),
         ], p=p["blur_p"]),
+
         A.ISONoise(
             intensity=p["iso_intensity"],
             color_shift=p["iso_color"],
-            p=0.3,
+            p=0.4,                          # was 0.3
         ),
         A.RandomBrightnessContrast(
-            brightness_limit=(-0.15, 0.15),
-            contrast_limit=(-0.15, 0.15),
+            brightness_limit=(-p["brightness_limit"], p["brightness_limit"]),
+            contrast_limit=(-p["contrast_limit"],   p["contrast_limit"]),
             brightness_by_max=False,
-            p=0.5,
+            p=0.6,                          # was 0.5
         ),
-        A.RandomGamma(gamma_limit=(85, 115), p=0.4),
+        A.RandomGamma(gamma_limit=p["gamma_limit"], p=0.5),  # was 0.4
         A.HueSaturationValue(
             hue_shift_limit=0,
-            sat_shift_limit=20,
-            val_shift_limit=15,
-            p=0.4,
+            sat_shift_limit=p["hsv_sat"],
+            val_shift_limit=p["hsv_val"],
+            p=0.5,                          # was 0.4
         ),
         A.ImageCompression(
             quality_lower=p["jpeg_quality"],
             quality_upper=100,
-            p=0.2,
+            p=0.3,                          # was 0.2
+        ),
+        A.CoarseDropout(
+            max_holes=p["dropout_holes"],
+            max_height=p["dropout_size"],
+            max_width=p["dropout_size"],
+            min_holes=1,
+            fill_value=0,               # black = absent tissue, interpretable
+            p=p["dropout_p"],
         ),
         ToTensorV2(),
     ])
