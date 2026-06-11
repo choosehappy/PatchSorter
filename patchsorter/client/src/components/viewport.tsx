@@ -237,8 +237,8 @@ export default function Viewport({
                 data
                     .filter(p => p.grid_cell_i != null && p.grid_cell_j != null)
                     .map(p => ({
-                        ul: { x: p.grid_cell_i! - half, y: p.grid_cell_j! - half },
-                        lr: { x: p.grid_cell_i! + half, y: p.grid_cell_j! + half },
+                        ul: { x: p.grid_cell_i!, y: p.grid_cell_j! - 2 * half },
+                        lr: { x: p.grid_cell_i! + 2 * half, y: p.grid_cell_j! },
                         image: `/api/v1/projects/${projectId}/patches/${p.patch_id}/image`,
                     }))
             )
