@@ -166,78 +166,7 @@ def threaded_vram_prefetcher(loader, buffer_size=10):
         yield batch
 
 
-# def cuda_prefetcher(loader):
-#     stream = torch.cuda.Stream()
-#     loader_iter = iter(loader)
 
-#     def bck_load():
-#         try:
-#             input, target = next(loader_iter)
-#             with torch.cuda.stream(stream):
-#                 # non_blocking=True is key here!
-#                 input = input.cuda(non_blocking=True)
-#                 target = target.cuda(non_blocking=True)
-#             return input, target
-#         except StopIteration:
-#             return None, None
-
-#     # Preload the very first batch
-#     next_input, next_target = bck_load()
-
-#     while next_input is not None:
-#         # 1. Sync the streams: Ensure the background copy is DONE
-#         # before the main stream tries to use it.
-#         torch.cuda.current_stream().wait_stream(stream)
-
-#         current_input = next_input
-#         current_target = next_target
-
-#         # 2. IMPORTANT: Prevent premature memory recycling
-#         # This tells the allocator: "Wait until the compute stream is done
-#         # with this tensor before you let another batch overwrite its memory."
-#         current_input.record_stream(torch.cuda.current_stream())
-#         current_target.record_stream(torch.cuda.current_stream())
-
-#         # 3. Start preloading the NEXT batch immediately
-#         next_input, next_target = bck_load()
-
-#         yield current_input, current_target
-
-# class CudaPrefetcher:
-#     def __init__(self, loader, device='cuda'):
-#         self.loader = iter(loader)
-#         self.device = device
-#         self.stream = torch.cuda.Stream()
-#         self.next_input = None
-#         self.next_target = None
-#         self.preload()
-
-#     def preload(self):
-#         try:
-#             # This pulls from the 16 workers we set up earlier
-#             self.next_input, self.next_target = next(self.loader)
-#         except StopIteration:
-#             self.next_input = None
-#             self.next_target = None
-#             return
-
-#         # Move to GPU in a background stream
-#         with torch.cuda.stream(self.stream):
-#             self.next_input = self.next_input.to(device=self.device, non_blocking=True)
-#             self.next_target = self.next_target.to(device=self.device, non_blocking=True)
-
-#     def next(self):
-#         # Sync: ensure the background transfer is finished before returning
-#         torch.cuda.current_stream().wait_stream(self.stream)
-
-#         inputs = self.next_input
-#         targets = self.next_target
-
-#         # Immediately start preloading the NEXT batch
-#         if inputs is not None:
-#             self.preload()
-
-#         return inputs, targets
 
 
 class LabeledRateTracker:
@@ -317,38 +246,193 @@ import cv2
 from albumentations.pytorch import ToTensorV2
 
 
-def get_transforms(patch_size: int) -> A.Compose:
+import albumentations as A
+import cv2
+import numpy as np
+from albumentations.pytorch import ToTensorV2
+
+
+# ── Stain augmentation via Macenko-style perturbation ────────────────────────
+class StainPerturbation(A.ImageOnlyTransform):
+    def __init__(self, sigma=0.05, bias=0.05, p=0.8):
+        super().__init__(p=p)
+        self.sigma = sigma
+        self.bias  = bias
+
+        # Precompute once — HE is fixed, so pinv never changes
+        self._HE     = np.array([
+            [0.650, 0.072],
+            [0.704, 0.990],
+            [0.286, 0.105],
+        ], dtype=np.float32)
+        self._HE_pinv = np.linalg.pinv(self._HE)   # (2, 3), computed once
+
+    def apply(self, img: np.ndarray, alpha: np.ndarray, beta: np.ndarray, **_) -> np.ndarray:
+        img = img.astype(np.float32) * (1.0 / 255.0)
+        np.clip(img, 1e-6, 1.0, out=img)            # in-place
+
+        H, W, _ = img.shape
+        OD = -np.log(img).reshape(-1, 3)            # (N, 3)
+
+        # pinv @ OD.T  →  (2, N) — pure matmul, no lstsq overhead
+        C = self._HE_pinv @ OD.T                    # (2, N)
+
+        C[0] *= alpha[0];  C[0] += beta[0]
+        C[1] *= alpha[1];  C[1] += beta[1]
+        np.clip(C, 0, None, out=C)
+
+        OD_aug  = (self._HE @ C).T                  # (N, 3)
+        img_out = np.exp(-OD_aug).reshape(H, W, 3)
+        np.clip(img_out, 0.0, 1.0, out=img_out)
+        return (img_out * 255.0).astype(np.uint8)
+
+    def get_params(self):
+        return {
+            "alpha": np.random.normal(1.0, self.sigma, 2).astype(np.float32),
+            "beta":  np.random.normal(0.0, self.bias,  2).astype(np.float32),
+        }
+
+    def get_transform_init_args_dict(self):
+        return {"sigma": self.sigma, "bias": self.bias}
+    
+
+    
+
+def get_transforms(patch_size: int) -> tuple[A.Compose, A.Compose]:
     """
-    Get data augmentation transforms.
-
-    Args:
-        patch_size: Size of the patches.
-
-    Returns:
-        Albumentations Compose object.
+    SwAV augmentations with size-adaptive parameters.
+    
+    Tiers:
+      - small  : patch_size <= 96
+      - medium : 96 < patch_size <= 192  
+      - large  : patch_size > 192
     """
-    geom_transforms = [
-        A.RandomScale(scale_limit=0.2, p=0.5),  # Random scale
-        A.PadIfNeeded(min_height=patch_size, min_width=patch_size),  # Pad if needed
-        A.VerticalFlip(p=0.5),  # Vertical flip
-        A.HorizontalFlip(p=0.5),  # Horizontal flip
-        A.Rotate(p=0.5, border_mode=cv2.BORDER_REFLECT),  # Rotation
-        A.RandomCrop(patch_size, patch_size),  # Random crop to patch size
-    ]
 
-    photo_transforms = [
-        A.Blur(p=0.3),  # Blur effect
-        A.GaussNoise(p=0.3, var_limit=(10.0, 50.0)),  # Gaussian noise
-        A.ISONoise(p=0.3, intensity=(0.1, 0.5), color_shift=(0.01, 0.05)),  # ISO noise
-        A.RandomBrightnessContrast(p=0.5, brightness_limit=(-0.2, 0.2), contrast_limit=(-0.2, 0.2), brightness_by_max=True),  # Brightness and contrast
-        A.RandomGamma(p=0.5, gamma_limit=(80, 120), eps=1e-7),  # Gamma correction
+    # ── Parameter tiers ───────────────────────────────────────────────────────
+    if patch_size <= 96:
+        p = dict(
+            # Geometric
+            crop_scale      = (0.75, 1.0),
+            crop_ratio      = (0.95, 1.05),
+            rotate_limit    = 15,
+            rotate_p        = 0.3,
+            elastic_alpha   = 3,
+            elastic_sigma   = 4,
+            elastic_p       = 0.2,
+            grid_steps      = 3,
+            grid_limit      = 0.08,
+            grid_p          = 0.15,
+            # Photometric
+            blur_limit      = 3,
+            blur_p          = 0.3,
+            iso_intensity   = (0.05, 0.20),
+            iso_color       = (0.01, 0.04),
+            jpeg_quality    = 80,
+        )
+    elif patch_size <= 192:
+        p = dict(
+            crop_scale      = (0.65, 1.0),
+            crop_ratio      = (0.93, 1.07),
+            rotate_limit    = 30,
+            rotate_p        = 0.4,
+            elastic_alpha   = 8,
+            elastic_sigma   = 9,
+            elastic_p       = 0.25,
+            grid_steps      = 4,
+            grid_limit      = 0.15,
+            grid_p          = 0.2,
+            blur_limit      = 5,
+            blur_p          = 0.35,
+            iso_intensity   = (0.05, 0.25),
+            iso_color       = (0.01, 0.05),
+            jpeg_quality    = 75,
+        )
+    else:  # > 192
+        p = dict(
+            crop_scale      = (0.50, 1.0),
+            crop_ratio      = (0.90, 1.10),
+            rotate_limit    = 45,
+            rotate_p        = 0.5,
+            elastic_alpha   = int(patch_size * 0.05),
+            elastic_sigma   = int(patch_size * 0.06),
+            elastic_p       = 0.3,
+            grid_steps      = 5,
+            grid_limit      = 0.20,
+            grid_p          = 0.25,
+            blur_limit      = 7,
+            blur_p          = 0.4,
+            iso_intensity   = (0.05, 0.30),
+            iso_color       = (0.01, 0.05),
+            jpeg_quality    = 70,
+        )
+
+    # ── Geometric ─────────────────────────────────────────────────────────────
+    geom_transforms = A.Compose([
+        A.RandomResizedCrop(
+            size=(patch_size, patch_size),
+            scale=p["crop_scale"],
+            ratio=p["crop_ratio"],
+            interpolation=cv2.INTER_LINEAR,
+            p=1.0,
+        ),
+        A.RandomRotate90(p=0.5),
+        A.Rotate(
+            limit=p["rotate_limit"],
+            border_mode=cv2.BORDER_REFLECT,
+            p=p["rotate_p"],
+        ),
+        A.VerticalFlip(p=0.5),
+        A.HorizontalFlip(p=0.5),
+        A.ElasticTransform(
+            alpha=p["elastic_alpha"],
+            sigma=p["elastic_sigma"],
+            p=p["elastic_p"],
+        ),
+        A.GridDistortion(
+            num_steps=p["grid_steps"],
+            distort_limit=p["grid_limit"],
+            border_mode=cv2.BORDER_REFLECT,
+            p=p["grid_p"],
+        ),
+    ])
+
+    # ── Photometric ───────────────────────────────────────────────────────────
+    photo_transforms = A.Compose([
+        StainPerturbation(sigma=0.05, bias=0.05, p=0.8),
+        A.OneOf([
+            A.MedianBlur(blur_limit=p["blur_limit"], p=1.0),
+            A.GaussianBlur(blur_limit=(3, p["blur_limit"]), p=1.0),
+            A.MotionBlur(blur_limit=p["blur_limit"], p=1.0),
+        ], p=p["blur_p"]),
+        A.ISONoise(
+            intensity=p["iso_intensity"],
+            color_shift=p["iso_color"],
+            p=0.3,
+        ),
+        A.RandomBrightnessContrast(
+            brightness_limit=(-0.15, 0.15),
+            contrast_limit=(-0.15, 0.15),
+            brightness_by_max=False,
+            p=0.5,
+        ),
+        A.RandomGamma(gamma_limit=(85, 115), p=0.4),
         A.HueSaturationValue(
-            hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.5
-        ),  # Hue, saturation, and value adjustment
-        ToTensorV2(),  # Convert to tensor
-    ]
+            hue_shift_limit=0,
+            sat_shift_limit=20,
+            val_shift_limit=15,
+            p=0.4,
+        ),
+        A.ImageCompression(
+            quality_lower=p["jpeg_quality"],
+            quality_upper=100,
+            p=0.2,
+        ),
+        ToTensorV2(),
+    ])
 
-    return A.Compose(geom_transforms), A.Compose(photo_transforms)
+    return geom_transforms, photo_transforms
+
+
 
 
 class JointHead(nn.Module):

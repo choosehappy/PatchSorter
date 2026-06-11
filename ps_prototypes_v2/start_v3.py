@@ -183,7 +183,8 @@ joint_head = joint_head.to(DEVICE)
 label_tracker = LabeledRateTracker(N_CLASS, momentum=0.9, device=DEVICE)  # outside loop
 
 logger = logging.getLogger(__name__)
-writer = SummaryWriter(log_dir="runs/")
+from datetime import datetime
+writer = SummaryWriter(log_dir=f"runs/run_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
 
 niter_total = 0
 # last_save = 0
