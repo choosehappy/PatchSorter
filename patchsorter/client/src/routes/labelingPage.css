@@ -10,6 +10,19 @@
     flex-direction: row;
 }
 
+.split-container {
+    height: 100%;
+    width: 100%;
+}
+
+.split-container > .gutter {
+    background-color: #eee;
+    background-repeat: no-repeat;
+    background-position: 50%;
+    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAeCAYAAADkftS9AAAAIklEQVQoU2M4c+bMfxAGAgYYmwGrIIiDjrELjpo5aiZeMwF+yNnOs5KSvgAAAABJRU5ErkJggg==');
+    cursor: col-resize;
+}
+
 .labeling-column {
     display: flex;
     flex-direction: column;
@@ -24,8 +37,8 @@
 }
 
 .labeling-column-gallery {
-    width: 50%;
-    flex-shrink: 0;
+    flex: 0 0 auto;
+    min-width: 200px;
 }
 
 /* ---- Shared controls panel style ---- */

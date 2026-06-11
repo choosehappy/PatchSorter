@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
+import Split from 'react-split'
 import './labelingPage.css'
 import Viewport, { type MapBounds } from '../components/viewport'
 import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatrix'
@@ -326,7 +327,16 @@ export default function LabelingPage() {
     }
 
     return (
-        <div className="labeling-page">
+        <Split
+            className="labeling-page split-container"
+            direction="horizontal"
+            sizes={[50, 50]}
+            min={[200, 200]}
+            gutterSize={8}
+            gutterAlign="center"
+            snapOffset={30}
+            snapEdgeThreshold={60}
+        >
             {/* Left column: map + overlays */}
             <div className="labeling-column labeling-column-map">
                 <Viewport
@@ -447,6 +457,6 @@ export default function LabelingPage() {
                 onSelect={handleLabelSelect}
                 onClose={handlePickerClose}
             />
-        </div>
+        </Split>
     )
 }

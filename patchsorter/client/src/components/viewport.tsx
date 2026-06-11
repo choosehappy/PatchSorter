@@ -263,6 +263,15 @@ export default function Viewport({
         const map = geo.map(params.map)
         mapRef.current = map
 
+        // Resize map when container div changes size (e.g. split divider drag)
+        const resizeObserver = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                const { width, height } = entry.contentRect
+                map.size({ width, height })
+            }
+        })
+        resizeObserver.observe(mapDivRef.current)
+
         // Disable rotation interactions
         const interactor = map.interactor()
         interactor.removeAction(geo.geo_action.rotate, 'button rotate')
@@ -407,6 +416,7 @@ export default function Viewport({
         document.addEventListener('keyup', handleKeyUp)
 
         return () => {
+            resizeObserver.disconnect()
             annotationLayerRef.current?.geoOff(geo.event.annotation.state, handleNewAnnotation)
             featureLayerRef.current?.geoOff(geo.event.mousedown, handleMousedown)
             map.geoOff(geo.event.mousemove, handleMouseMove)
