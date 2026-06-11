@@ -163,7 +163,7 @@ def sample_patches_by_point(
     x: float = Query(...),
     y: float = Query(...),
     lp: Optional[List[str]] = Query(default=None, description="Label pair filter: repeat for each pair as 'gt,pred' (e.g. lp=0,1&lp=2,2)"),
-    patch_query_range: int = Query(default=2, description="Range in grid cells around the query point for patch sampling"),
+    patch_query_range: int = Query(default=16, description="Range in grid cells around the query point for patch sampling"),
 ) -> List[PatchResponse]:
     label_pairs = _parse_label_pairs(lp)
     client = get_head_client()

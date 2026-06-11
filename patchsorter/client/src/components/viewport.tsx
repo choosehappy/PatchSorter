@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { client } from '../api_client/client.gen'
-import { type ServeTileApiV1ProjectsProjectIdTilesZxyPngGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, samplePatchesByBboxApiV1ProjectsProjectIdSampleByBboxPatchesGet, samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet } from '../api_client'
+import { type ServeTileApiV1ProjectsProjectIdTilesZxyPngGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet } from '../api_client'
 
 // GeoJS loaded via CDN in index.html
 declare const geo: any
 
-import { WORLD_SIZE, PATCH_NUM_SAMPLES, PATCH_QUERY_RANGE, QUAD_HALF, HOVER_TIMEOUT_MS } from '../constants'
+import { WORLD_SIZE, PATCH_NUM_SAMPLES, PATCH_QUERY_RANGE, PATCH_QUERY_RANGE_POINT, QUAD_HALF, HOVER_TIMEOUT_MS } from '../constants'
 
 export interface MapBounds {
     left: number
@@ -362,11 +362,13 @@ export default function Viewport({
             if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
             hoverTimeoutRef.current = setTimeout(() => {
                 const lp = buildLpQuery()
+                const zoom = Math.round(mapRef.current.zoom())
+                const queryRange = Math.max(2, Math.round(PATCH_QUERY_RANGE_POINT * Math.pow(2, -zoom)))
 
                 samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet({
                     client,
                     path: { project_id: projectId },
-                    query: { x: evt.geo.x, y: evt.geo.y, lp },
+                    query: { x: evt.geo.x, y: evt.geo.y, lp, patch_query_range: queryRange },
                 }).then(({ data, error }) => {
                     if (error || !data || data.length === 0) {
                         onHoverPatch(null)
@@ -496,36 +498,36 @@ export default function Viewport({
 
         bboxAbortRef.current?.abort()
         bboxAbortRef.current = new AbortController()
+        const signal = bboxAbortRef.current.signal
 
-        samplePatchesByBboxApiV1ProjectsProjectIdSampleByBboxPatchesGet({
-            client,
-            path: { project_id: projectId },
-            query: {
-                xmin: bounds.left,
-                ymin: bounds.top,
-                xmax: bounds.right,
-                ymax: bounds.bottom,
-                num_samples: PATCH_NUM_SAMPLES,
-                patch_query_range: PATCH_QUERY_RANGE,
-                lp,
-            },
-            signal: bboxAbortRef.current.signal,
+        const points = Array.from({ length: PATCH_NUM_SAMPLES }, () => ({
+            x: bounds.left + Math.random() * (bounds.right - bounds.left),
+            y: bounds.top + Math.random() * (bounds.bottom - bounds.top),
+        }))
+        Promise.all(
+            points.map(({ x, y }) =>
+                samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet({
+                    client,
+                    path: { project_id: projectId },
+                    query: { x, y, lp },
+                    signal,
+                }).then(({ data }) => data?.[0] ?? null).catch(() => null)
+            )
+        ).then(results => {
+            if (signal.aborted) return
+            const seen = new Set<number>()
+            const patches = results.filter((p): p is PatchResponse => {
+                if (!p || seen.has(p.patch_id)) return false
+                seen.add(p.patch_id)
+                return true
+            })
+            const zoom = Math.round(mapRef.current.zoom())
+            renderPatchData(patches, zoom)
+        }).catch(err => {
+            if (err.name !== 'AbortError') {
+                console.error('[patchLayer] fetch error:', err)
+            }
         })
-            .then(({ data, error }) => {
-                if (error || !data) {
-                    if (error?.name !== 'AbortError') {
-                        console.error('[patchLayer] sample error:', error)
-                    }
-                    return
-                }
-                const zoom = Math.round(mapRef.current.zoom())
-                renderPatchData(data, zoom)
-            })
-            .catch(err => {
-                if (err.name !== 'AbortError') {
-                    console.error('[patchLayer] fetch error:', err)
-                }
-            })
 
         let panZoomClearTimeout: ReturnType<typeof setTimeout> | null = null
         function onZoomStart() {
@@ -541,22 +543,30 @@ export default function Viewport({
                 const lp = buildLpQuery()
                 bboxAbortRef.current?.abort()
                 bboxAbortRef.current = new AbortController()
-                const { data, error } = await samplePatchesByBboxApiV1ProjectsProjectIdSampleByBboxPatchesGet({
-                    client,
-                    path: { project_id: projectId },
-                    query: {
-                        xmin: bounds.left,
-                        ymin: bounds.top,
-                        xmax: bounds.right,
-                        ymax: bounds.bottom,
-                        num_samples: PATCH_NUM_SAMPLES,
-                        patch_query_range: PATCH_QUERY_RANGE,
-                        lp,
-                    },
-                    signal: bboxAbortRef.current.signal,
+                const sig = bboxAbortRef.current.signal
+                const pts = Array.from({ length: PATCH_NUM_SAMPLES }, () => ({
+                    x: bounds.left + Math.random() * (bounds.right - bounds.left),
+                    y: bounds.top + Math.random() * (bounds.bottom - bounds.top),
+                }))
+                const rawResults = await Promise.all(
+                    pts.map(({ x, y }) =>
+                        samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet({
+                            client,
+                            path: { project_id: projectId },
+                            query: { x, y, lp },
+                            signal: sig,
+                        }).then(({ data }) => data?.[0] ?? null).catch(() => null)
+                    )
+                )
+                if (sig.aborted) return
+                const seen = new Set<number>()
+                const patches = rawResults.filter((p): p is PatchResponse => {
+                    if (!p || seen.has(p.patch_id)) return false
+                    seen.add(p.patch_id)
+                    return true
                 })
-                if (error || !data || data.length === 0) return
-                renderPatchData(data, zoom)
+                if (patches.length === 0) return
+                renderPatchData(patches, zoom)
             }, 200)
         }
         mapRef.current.geoOn(geo.event.zoom, onZoomStart)
