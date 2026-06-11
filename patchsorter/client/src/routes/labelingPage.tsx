@@ -85,7 +85,7 @@ export default function LabelingPage() {
         } else if (gallerySelectAll && lassoPolygon) {
             await assignLabelsByPolygonApiV1ProjectsProjectIdPatchesPolygonassignPost({
                 path: { project_id: projectId },
-                query: { label_class_id: pickedId },
+                query: { label_class_id: pickedId, lp },
                 body: { polygon: { type: 'Polygon', coordinates: [lassoPolygon] } },
             })
             queryClient.invalidateQueries({ queryKey: ['patches'] })

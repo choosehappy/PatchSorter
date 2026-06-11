@@ -9,7 +9,6 @@ from patchsorter.db.head_client import get_client as get_head_client
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.models import build_table_name
 from patchsorter.db.head_client.settings import SettingsStore
-from patchsorter.db.grid_index import HierarchicalGridIndexIJPair
 from patchsorter.api.v1.patch.models import (
     LabelAssignByPolygonRequest,
     LabelAssignResponse,
@@ -126,10 +125,17 @@ def assign_labels_by_polygon(
         settings_store = SettingsStore(session)
         max_level = int(settings_store.get("max_level", project_id).setting_value)
         world_size = int(settings_store.get("world_size", project_id).setting_value)
-        grid = HierarchicalGridIndexIJPair(cell_size=world_size)
-        cells = grid.polygon_to_cells(polygon, max_level)
+        x_min, y_min, x_max, y_max = polygon.bounds
+        i_min, j_min, i_max, j_max = _world_to_grid_bbox(
+            x_min, y_min, x_max, y_max, max_level, max_level, world_size
+        )
         store = PatchStore(project_id, session)
-        updated = store.bulk_update_labels_by_cells(cells, label_class_id, label_pairs)
+        updated = store.bulk_update_labels_by_polygon_bbox(
+            i_min, i_max, j_min, j_max,
+            polygon_wkt=polygon.wkt,
+            label_class_id=label_class_id,
+            label_pairs=label_pairs,
+        )
     return LabelAssignResponse(updated=updated)
 
 

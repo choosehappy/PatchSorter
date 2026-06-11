@@ -322,7 +322,7 @@ class PatchStore:
                 f"(:lp_gt_{i}, :lp_pred_{i})" for i in range(len(label_pairs))
             )
             pairs_where = (
-                f" AND (p.label_class_id, pu.label_class_id)"
+                f" AND (p.label_class_id, best.label_class_id)"
                 f" IN (VALUES {lp_placeholders})"
             )
             for i, (gt, pred) in enumerate(label_pairs):
@@ -334,20 +334,107 @@ class PatchStore:
             UPDATE {self.table_name} AS p
             SET label_class_id = :label_class_id
             FROM (
-                SELECT DISTINCT ON (pu.patch_id) pu.patch_id, pu.label_class_id
-                FROM (
-                    SELECT *, 1 AS priority
-                    FROM {self.pred_table_latest}
-                    WHERE (grid_cell_i, grid_cell_j) IN (VALUES {cell_placeholders})
-                    UNION ALL
-                    SELECT *, 2 AS priority
-                    FROM {self.pred_table_last}
-                    WHERE (grid_cell_i, grid_cell_j) IN (VALUES {cell_placeholders})
-                      AND patch_id NOT IN (SELECT patch_id FROM {self.pred_table_latest})
-                ) pu
-                ORDER BY pu.patch_id, pu.priority
+                SELECT pu.patch_id, pu.label_class_id
+                FROM {self.pred_table_latest} pu
+                WHERE (pu.grid_cell_i, pu.grid_cell_j) IN (VALUES {cell_placeholders})
+
+                UNION ALL
+
+                SELECT pu.patch_id, pu.label_class_id
+                FROM {self.pred_table_last} pu
+                WHERE (pu.grid_cell_i, pu.grid_cell_j) IN (VALUES {cell_placeholders})
+                  AND NOT EXISTS (
+                      SELECT 1 FROM {self.pred_table_latest}
+                      WHERE patch_id = pu.patch_id
+                  )
             ) best
             WHERE p.patch_id = best.patch_id{pairs_where}
+            """
+        )
+        result = self._session.execute(sql, params)
+        return result.rowcount
+
+    def bulk_update_labels_by_polygon_bbox(
+        self,
+        i_min: int,
+        i_max: int,
+        j_min: int,
+        j_max: int,
+        polygon_wkt: str,
+        label_class_id: int,
+        label_pairs: Optional[List[Tuple[int, int]]] = None,
+    ) -> int:
+        """Bulk-update ground-truth labels for patches within a polygon.
+
+        Uses a two-stage filter:
+
+        1. **Coarse** – ``grid_cell_i BETWEEN i_min AND i_max AND
+           grid_cell_j BETWEEN j_min AND j_max`` on the prediction tables to
+           restrict to the bounding-box of the polygon.
+        2. **Fine** – ``ST_Within(ST_MakePoint(best.grid_cell_i, best.grid_cell_j), ST_GeomFromText(:polygon_wkt))``
+           on the resolved prediction coordinates to keep only patches whose
+           embedding point falls strictly inside the polygon.
+
+        Args:
+            i_min: Inclusive lower bound for ``grid_cell_i``.
+            i_max: Inclusive upper bound for ``grid_cell_i``.
+            j_min: Inclusive lower bound for ``grid_cell_j``.
+            j_max: Inclusive upper bound for ``grid_cell_j``.
+            polygon_wkt: WKT string of the query polygon.
+            label_class_id: New ground-truth label class to assign.
+            label_pairs: Optional ``(gt, pred)`` filter.  ``None`` means no
+                filter.
+
+        Returns:
+            Number of rows updated.
+        """
+        params: Dict[str, Any] = {
+            "label_class_id": label_class_id,
+            "i_min": i_min,
+            "i_max": i_max,
+            "j_min": j_min,
+            "j_max": j_max,
+            "polygon_wkt": polygon_wkt,
+        }
+
+        pairs_where = ""
+        if label_pairs:
+            lp_placeholders = ", ".join(
+                f"(:lp_gt_{i}, :lp_pred_{i})" for i in range(len(label_pairs))
+            )
+            pairs_where = (
+                f" AND (p.label_class_id, best.pred_label_class_id)"
+                f" IN (VALUES {lp_placeholders})"
+            )
+            for i, (gt, pred) in enumerate(label_pairs):
+                params[f"lp_gt_{i}"] = gt
+                params[f"lp_pred_{i}"] = pred
+
+        sql = text(
+            f"""
+            UPDATE {self.table_name} AS p
+            SET label_class_id = :label_class_id
+            FROM (
+                SELECT pu.patch_id, pu.label_class_id AS pred_label_class_id,
+                       pu.grid_cell_i, pu.grid_cell_j
+                FROM {self.pred_table_latest} pu
+                WHERE pu.grid_cell_i BETWEEN :i_min AND :i_max
+                  AND pu.grid_cell_j BETWEEN :j_min AND :j_max
+
+                UNION ALL
+
+                SELECT pu.patch_id, pu.label_class_id AS pred_label_class_id,
+                       pu.grid_cell_i, pu.grid_cell_j
+                FROM {self.pred_table_last} pu
+                WHERE pu.grid_cell_i BETWEEN :i_min AND :i_max
+                  AND pu.grid_cell_j BETWEEN :j_min AND :j_max
+                  AND NOT EXISTS (
+                      SELECT 1 FROM {self.pred_table_latest}
+                      WHERE patch_id = pu.patch_id
+                  )
+            ) best
+            WHERE p.patch_id = best.patch_id
+              AND ST_Within(ST_MakePoint(best.grid_cell_i, best.grid_cell_j), ST_GeomFromText(:polygon_wkt)){pairs_where}
             """
         )
         result = self._session.execute(sql, params)
