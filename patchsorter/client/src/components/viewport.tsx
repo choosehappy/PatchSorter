@@ -5,7 +5,7 @@ import { type ServeTileApiV1ProjectsProjectIdTilesZxyPngGetData, type WorldInfo,
 // GeoJS loaded via CDN in index.html
 declare const geo: any
 
-import { WORLD_SIZE } from '../constants'
+import { WORLD_SIZE, PATCH_NUM_SAMPLES, PATCH_QUERY_RANGE, QUAD_HALF } from '../constants'
 
 export interface MapBounds {
     left: number
@@ -214,6 +214,37 @@ export default function Viewport({
         paramsRef.current.layer.url = (x: number, y: number, z: number) => buildTileUrl(x, y, z)
         overlayLayerRef.current = mapRef.current.createLayer('osm', { ...paramsRef.current.layer, zIndex: 0 })
         mapRef.current.draw()
+    }
+
+    function renderPatchData(data: PatchResponse[], zoom: number) {
+        if (patchFeatureRef.current) {
+            patchFeatureRef.current.data(data)
+            patchFeatureRef.current.style('fillColor', (p: PatchResponse) => {
+                if (p.label_class_id != null) {
+                    const lc = labelClasses.find(l => l.label_class_id === p.label_class_id)
+                    return lc?.color_code ?? '#888888'
+                }
+                return '#888888'
+            })
+            patchFeatureRef.current.style('fillOpacity', 0.6)
+            patchFeatureRef.current.style('radius', 3)
+            patchFeatureRef.current.modified()
+            patchLayerRef.current?.draw()
+        }
+        if (quadFeatureRef.current) {
+            const half = QUAD_HALF * Math.pow(2, -zoom)
+            quadFeatureRef.current.data(
+                data
+                    .filter(p => p.grid_cell_i != null && p.grid_cell_j != null)
+                    .map(p => ({
+                        ul: { x: p.grid_cell_i! - half, y: p.grid_cell_j! - half },
+                        lr: { x: p.grid_cell_i! + half, y: p.grid_cell_j! + half },
+                        image: `/api/v1/projects/${projectId}/patches/${p.patch_id}/image`,
+                    }))
+            )
+            quadFeatureRef.current.modified()
+            quadLayerRef.current?.draw()
+        }
     }
 
     // Initialise the GeoJS map once the div is mounted
@@ -454,8 +485,8 @@ export default function Viewport({
                 ymin: bounds.top,
                 xmax: bounds.right,
                 ymax: bounds.bottom,
-                num_samples: 100,
-                patch_query_range: 16
+                num_samples: PATCH_NUM_SAMPLES,
+                patch_query_range: PATCH_QUERY_RANGE
             },
         })
             .then(({ data, error }) => {
@@ -463,37 +494,43 @@ export default function Viewport({
                     console.error('[patchLayer] sample error:', error)
                     return
                 }
-                if (patchFeatureRef.current) {
-                    patchFeatureRef.current.data(data)
-                    patchFeatureRef.current.style('fillColor', (p: PatchResponse) => {
-                        if (p.label_class_id != null) {
-                            const lc = labelClasses.find(l => l.label_class_id === p.label_class_id)
-                            return lc?.color_code ?? '#888888'
-                        }
-                        return '#888888'
-                    })
-                    patchFeatureRef.current.style('fillOpacity', 0.6)
-                    patchFeatureRef.current.style('radius', 3)
-                    patchFeatureRef.current.modified()
-                    patchLayerRef.current?.draw()
-                }
-                if (quadFeatureRef.current) {
-                    const half = 8
-                    quadFeatureRef.current.data(
-                        data
-                            .filter(p => p.grid_cell_i != null && p.grid_cell_j != null)
-                            .map(p => ({
-                                ul: { x: p.grid_cell_i! - half, y: p.grid_cell_j! - half },
-                                lr: { x: p.grid_cell_i! + half, y: p.grid_cell_j! + half },
-                                image: `/api/v1/projects/${projectId}/patches/${p.patch_id}/image`,
-                            }))
-                    )
-                    quadFeatureRef.current.modified()
-                    quadLayerRef.current?.draw()
-                }
+                const zoom = Math.round(mapRef.current.zoom())
+                renderPatchData(data, zoom)
             })
             .catch(err => console.error('[patchLayer] fetch error:', err))
 
+        let zoomClearTimeout: ReturnType<typeof setTimeout> | null = null
+        function onZoomStart() {
+            if (quadFeatureRef.current) {
+                quadFeatureRef.current.data([])
+                quadLayerRef.current?.draw()
+            }
+            if (zoomClearTimeout) clearTimeout(zoomClearTimeout)
+            zoomClearTimeout = setTimeout(async () => {
+                if (!mapRef.current || !quadFeatureRef.current || !quadLayerRef.current) return
+                const zoom = Math.round(mapRef.current.zoom())
+                const bounds = mapRef.current.bounds()
+                const { data, error } = await samplePatchesByBboxApiV1ProjectsProjectIdSampleByBboxPatchesGet({
+                    client,
+                    path: { project_id: projectId },
+                    query: {
+                        xmin: bounds.left,
+                        ymin: bounds.top,
+                        xmax: bounds.right,
+                        ymax: bounds.bottom,
+                        num_samples: PATCH_NUM_SAMPLES,
+                        patch_query_range: PATCH_QUERY_RANGE,
+                    },
+                })
+                if (error || !data || data.length === 0) return
+                renderPatchData(data, zoom)
+            }, 200)
+        }
+        mapRef.current.geoOn(geo.event.zoom, onZoomStart)
+
+        return () => {
+            mapRef.current.geoOff(geo.event.zoom, onZoomStart)
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showPatches, projectId])
 
