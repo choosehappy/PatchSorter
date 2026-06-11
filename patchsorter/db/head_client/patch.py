@@ -639,6 +639,7 @@ class PatchStore:
         self,
         points: Union[Tuple[float, float], List[Tuple[float, float]]],
         *,
+        patch_query_range: int,
         label_pairs: Optional[List[Tuple[int, int]]] = None,
     ) -> List[Dict[str, Any]]:
         """Return patches whose predictions fall within *patch_query_range*
@@ -649,11 +650,12 @@ class PatchStore:
                ``j = floor(y / world_size)``.
             2. Query ``grid_cell_i BETWEEN (i - half_range) AND (i + half_range)``
                and ``grid_cell_j BETWEEN (j - half_range) AND (j + half_range)``
-               in the prediction tables, where ``half_range = patch_range // 2``.
+               in the prediction tables, where ``half_range = patch_query_range // 2``.
 
         Args:
             points: A single ``(x, y)`` world-coordinate pair, or a list of
                 such pairs.
+            patch_query_range: Range in grid cells around the query point.
             label_pairs: Optional ``(gt, pred)`` filter applied in SQL.
 
         Returns:
@@ -669,15 +671,13 @@ class PatchStore:
 
         settings_store = SettingsStore(self._session)
         world_size_row = settings_store.get("world_size", self.project_id)
-        range_row = settings_store.get("patch_query_range", self.project_id)
         max_level_row = settings_store.get("max_level", self.project_id)
 
-
-        if world_size_row is None or range_row is None:
+        if world_size_row is None or max_level_row is None:
             return []
 
         world_size = int(world_size_row.setting_value)
-        half_range = int(range_row.setting_value) // 2
+        half_range = patch_query_range // 2
         max_level = int(max_level_row.setting_value)
 
         grid = HierarchicalGridIndexIJPair(cell_size=world_size)
@@ -709,7 +709,7 @@ class PatchStore:
 
             results.extend(result)
 
-        return result
+        return results
 
     def get_patch_by_id(self, patch_id: int) -> Optional[Dict[str, Any]]:
         """Return a single patch row dict by patch_id, including patch_image.

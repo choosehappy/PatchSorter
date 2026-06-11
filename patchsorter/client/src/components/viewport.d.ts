@@ -1,4 +1,4 @@
-import { type WorldInfo, type PatchResponse } from '../api_client';
+import { type WorldInfo, type PatchResponse, type LabelClassResponse } from '../api_client';
 export interface MapBounds {
     left: number;
     right: number;
@@ -18,9 +18,12 @@ interface ViewportProps {
     onZoomChange: (osmZoom: number, level: number) => void;
     onLassoComplete: (polygon: number[][], pageSize: number) => void;
     onViewportClick: () => void;
+    onHoverPatch: (patch: PatchResponse | null) => void;
     pageSize: number;
     selectedPatches: PatchResponse[];
     hoveredPatch: PatchResponse | null;
+    showPatches: boolean;
+    labelClasses: LabelClassResponse[];
 }
-export default function Viewport({ projectId, colorBy, filterBy, selectedCells, numClasses, classIds, worldInfo, refreshTick, onBoundsChange, onZoomChange, onLassoComplete, onViewportClick, pageSize, selectedPatches, hoveredPatch, }: ViewportProps): import("react/jsx-runtime").JSX.Element;
+export default function Viewport({ projectId, colorBy, filterBy, selectedCells, numClasses, classIds, worldInfo, refreshTick, onBoundsChange, onZoomChange, onLassoComplete, onViewportClick, onHoverPatch, pageSize, selectedPatches, hoveredPatch, showPatches, labelClasses, }: ViewportProps): import("react/jsx-runtime").JSX.Element;
 export {};

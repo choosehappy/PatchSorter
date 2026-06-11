@@ -175,8 +175,8 @@ def test_sample_by_point_response_shape(client: TestClient, seeded_project):
 
 
 def test_sample_by_bbox_returns_patches(client: TestClient, seeded_project):
-    """POST /sample/by-bbox/patches/ returns patches within the given bbox."""
-    response = client.post("/projects/1/sample/by-bbox/patches/", json={
+    """GET /sample/by-bbox/patches/ returns patches within the given bbox."""
+    response = client.get("/projects/1/sample/by-bbox/patches/", params={
         "xmin": 0.0, "xmax": 100.0, "ymin": 0.0, "ymax": 100.0, "num_samples": 4
     })
     assert response.status_code == 200
@@ -185,8 +185,8 @@ def test_sample_by_bbox_returns_patches(client: TestClient, seeded_project):
 
 
 def test_sample_by_bbox_empty(client: TestClient, seeded_project):
-    """POST /sample/by-bbox/patches/ returns empty list for far-away bbox."""
-    response = client.post("/projects/1/sample/by-bbox/patches/", json={
+    """GET /sample/by-bbox/patches/ returns empty list for far-away bbox."""
+    response = client.get("/projects/1/sample/by-bbox/patches/", params={
         "xmin": 99999.0, "xmax": 100000.0, "ymin": 99999.0, "ymax": 100000.0, "num_samples": 4
     })
     assert response.status_code == 200
@@ -194,8 +194,8 @@ def test_sample_by_bbox_empty(client: TestClient, seeded_project):
 
 
 def test_sample_by_bbox_response_shape(client: TestClient, seeded_project):
-    """POST /sample/by-bbox/patches/ items contain both patch and prediction columns."""
-    response = client.post("/projects/1/sample/by-bbox/patches/", json={
+    """GET /sample/by-bbox/patches/ items contain both patch and prediction columns."""
+    response = client.get("/projects/1/sample/by-bbox/patches/", params={
         "xmin": 0.0, "xmax": 100.0, "ymin": 0.0, "ymax": 100.0, "num_samples": 4
     })
     assert response.status_code == 200

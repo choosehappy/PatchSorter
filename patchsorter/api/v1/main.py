@@ -8,7 +8,7 @@ from .patch.routes import router as patch_router
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="PatchSorter Tile Server", version="1.0.0")
+    app = FastAPI(title="PatchSorter Tile Server", version="1.0.0", root_path="/api/v1")
 
     app.add_middleware(
         CORSMiddleware,

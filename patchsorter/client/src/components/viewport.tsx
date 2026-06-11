@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { client } from '../api_client/client.gen'
-import { type ServeTileProjectsProjectIdTilesZxyPngGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, samplePatchesByBboxProjectsProjectIdSampleByBboxPatchesPost, samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet } from '../api_client'
+import { type ServeTileApiV1ProjectsProjectIdTilesZxyPngGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, samplePatchesByBboxApiV1ProjectsProjectIdSampleByBboxPatchesGet, samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet } from '../api_client'
 
 // GeoJS loaded via CDN in index.html
 declare const geo: any
@@ -67,6 +67,8 @@ export default function Viewport({
     const pointFeatureRef = useRef<any>(null)
     const patchLayerRef = useRef<any>(null)
     const patchFeatureRef = useRef<any>(null)
+    const quadLayerRef = useRef<any>(null)
+    const quadFeatureRef = useRef<any>(null)
     const isDrawingRef = useRef(false)
     const justCompletedRef = useRef(false)
     const isCtrlHeldRef = useRef(false)
@@ -174,7 +176,7 @@ export default function Viewport({
         const sumOver = colorBy !== 'gt' ? 'gt' : 'pred'
         const bounds = mapRef.current.bounds()
 
-        const tile_url = '/projects/{project_id}/tiles/{z}/{x}/{y}.png' satisfies ServeTileProjectsProjectIdTilesZxyPngGetData['url']
+        const tile_url = '/api/v1/projects/{project_id}/tiles/{z}/{x}/{y}.png' satisfies ServeTileApiV1ProjectsProjectIdTilesZxyPngGetData['url']
 
         const query: Record<string, any> = {
             sum_over: sumOver,
@@ -199,7 +201,7 @@ export default function Viewport({
             path: { z, x, y, project_id: projectId },
             query,
             url: tile_url
-        } as ServeTileProjectsProjectIdTilesZxyPngGetData
+        } as ServeTileApiV1ProjectsProjectIdTilesZxyPngGetData
 
         return client.buildUrl(options)
     }
@@ -284,6 +286,13 @@ export default function Viewport({
             .style('stroke', false)
         patchLayerRef.current.draw()
 
+        // Create quad layer for patch quads
+        quadLayerRef.current = map.createLayer('feature', { zIndex: 2 })
+        quadFeatureRef.current = quadLayerRef.current
+            .createFeature('quad')
+            .data([])
+        quadLayerRef.current.draw()
+
         // Register annotation completion event listener
         annotationLayerRef.current.geoOn(geo.event.annotation.state, handleNewAnnotation)
 
@@ -313,7 +322,7 @@ export default function Viewport({
             hoverTimeoutRef.current = setTimeout(() => {
                 const lp = buildLpQuery()
 
-                samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet({
+                samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet({
                     client,
                     path: { project_id: projectId },
                     query: { x: evt.geo.x, y: evt.geo.y, lp },
@@ -437,15 +446,16 @@ export default function Viewport({
 
         const bounds = mapRef.current.bounds()
 
-        samplePatchesByBboxProjectsProjectIdSampleByBboxPatchesPost({
+        samplePatchesByBboxApiV1ProjectsProjectIdSampleByBboxPatchesGet({
             client,
             path: { project_id: projectId },
-            body: {
+            query: {
                 xmin: bounds.left,
                 ymin: bounds.top,
                 xmax: bounds.right,
                 ymax: bounds.bottom,
                 num_samples: 100,
+                patch_query_range: 16
             },
         })
             .then(({ data, error }) => {
@@ -466,6 +476,20 @@ export default function Viewport({
                     patchFeatureRef.current.style('radius', 3)
                     patchFeatureRef.current.modified()
                     patchLayerRef.current?.draw()
+                }
+                if (quadFeatureRef.current) {
+                    const half = 8
+                    quadFeatureRef.current.data(
+                        data
+                            .filter(p => p.grid_cell_i != null && p.grid_cell_j != null)
+                            .map(p => ({
+                                ul: { x: p.grid_cell_i! - half, y: p.grid_cell_j! - half },
+                                lr: { x: p.grid_cell_i! + half, y: p.grid_cell_j! + half },
+                                image: `/api/v1/projects/${projectId}/patches/${p.patch_id}/image`,
+                            }))
+                    )
+                    quadFeatureRef.current.modified()
+                    quadLayerRef.current?.draw()
                 }
             })
             .catch(err => console.error('[patchLayer] fetch error:', err))

@@ -14,7 +14,6 @@ from patchsorter.api.v1.patch.models import (
     LabelAssignByPolygonRequest,
     LabelAssignResponse,
     PatchResponse,
-    SampleByBboxRequest,
     SampleByPointRequest,
 )
 from patchsorter.api.v1.confusion_matrix.utils import _parse_label_pairs, _world_to_grid_bbox
@@ -135,25 +134,26 @@ def assign_labels_by_polygon(
 
 
 @router.get("/projects/{project_id}/sample/by-bbox/patches/", response_model=List[PatchResponse])
-@router.post("/projects/{project_id}/sample/by-bbox/patches/", response_model=List[PatchResponse])
 def sample_patches_by_bbox(
     project_id: int,
-    body: SampleByBboxRequest,
+    xmin: float = Query(...),
+    xmax: float = Query(...),
+    ymin: float = Query(...),
+    ymax: float = Query(...),
+    num_samples: int = Query(default=50, ge=1),
     lp: Optional[List[str]] = Query(default=None, description="Label pair filter: repeat for each pair as 'gt,pred' (e.g. lp=0,1&lp=2,2)"),
+    patch_query_range: int = Query(default=2, description="Range in grid cells around each query point for patch sampling"),
 ) -> List[PatchResponse]:
     label_pairs = _parse_label_pairs(lp)
     client = get_head_client()
     with client.get_session() as session:
         store = PatchStore(project_id, session)
-        xmin, xmax = min(body.xmin, body.xmax), max(body.xmin, body.xmax)
-        ymin, ymax = min(body.ymin, body.ymax), max(body.ymin, body.ymax)
-        num_samples = int(body.num_samples)
-        if num_samples < 1:
-            num_samples = 1
-        x_coords = np.random.uniform(xmin, xmax, size=num_samples)
-        y_coords = np.random.uniform(ymin, ymax, size=num_samples)
+        x_min, x_max = min(xmin, xmax), max(xmin, xmax)
+        y_min, y_max = min(ymin, ymax), max(ymin, ymax)
+        x_coords = np.random.uniform(x_min, x_max, size=num_samples)
+        y_coords = np.random.uniform(y_min, y_max, size=num_samples)
         points = list(zip(x_coords, y_coords))
-        rows = store.get_patches_by_points(points, label_pairs=label_pairs)
+        rows = store.get_patches_by_points(points, patch_query_range=patch_query_range, label_pairs=label_pairs)
     return [PatchResponse(**r) for r in rows]
 
 
@@ -163,11 +163,12 @@ def sample_patches_by_point(
     x: float = Query(...),
     y: float = Query(...),
     lp: Optional[List[str]] = Query(default=None, description="Label pair filter: repeat for each pair as 'gt,pred' (e.g. lp=0,1&lp=2,2)"),
+    patch_query_range: int = Query(default=2, description="Range in grid cells around the query point for patch sampling"),
 ) -> List[PatchResponse]:
     label_pairs = _parse_label_pairs(lp)
     client = get_head_client()
     with client.get_session() as session:
         store = PatchStore(project_id, session)
-        rows = store.get_patches_by_points((x, y), label_pairs=label_pairs)
+        rows = store.get_patches_by_points((x, y), patch_query_range=patch_query_range, label_pairs=label_pairs)
     return [PatchResponse(**r) for r in rows]
 
