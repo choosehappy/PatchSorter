@@ -387,7 +387,7 @@ export default function Viewport({
                 samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet({
                     client,
                     path: { project_id: projectId },
-                    query: { x: evt.geo.x, y: evt.geo.y, lp, patch_query_range: queryRange },
+                    query: { x: evt.geo.x, y: evt.geo.y, lp: lp, patch_query_range: queryRange },
                 }).then(({ data, error }) => {
                     if (error || !data || data.length === 0) {
                         hoverQuadFeatureRef.current?.data([]).modified()
