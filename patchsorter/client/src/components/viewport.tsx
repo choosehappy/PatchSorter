@@ -75,6 +75,19 @@ export default function Viewport({
     const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const [isCtrlHeld, setIsCtrlHeld] = useState(false)
 
+    function buildLpQuery() {
+        if (filterBy !== 'all' || selectedCells.size < numClasses * numClasses) {
+            const pairs = Array.from(selectedCells)
+            if (pairs.length > 0 && pairs.length < numClasses * numClasses && classIds.length === numClasses) {
+                return pairs.map(p => {
+                    const [gtIdx, predIdx] = p.split(',').map(Number)
+                    return `${classIds[gtIdx]},${classIds[predIdx]}`
+                })
+            }
+        }
+        return undefined
+    }
+
     function computeBboxFromPolygon(coordinates: number[][][]): { x_min: number; x_max: number; y_min: number; y_max: number } | null {
         const ring = coordinates[0]
         let wxMin = Infinity, wxMax = -Infinity, wyMin = Infinity, wyMax = -Infinity
@@ -344,19 +357,6 @@ export default function Viewport({
         }
         featureLayerRef.current.geoOn(geo.event.mousedown, handleMousedown)
 
-        function buildLpQuery() {
-            if (filterBy !== 'all' || selectedCells.size < numClasses * numClasses) {
-                const pairs = Array.from(selectedCells)
-                if (pairs.length > 0 && pairs.length < numClasses * numClasses && classIds.length === numClasses) {
-                    return pairs.map(p => {
-                        const [gtIdx, predIdx] = p.split(',').map(Number)
-                        return `${classIds[gtIdx]},${classIds[predIdx]}`
-                    })
-                }
-            }
-            return undefined
-        }
-
         function handleMouseMove(evt: any) {
             if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
             hoverTimeoutRef.current = setTimeout(() => {
@@ -491,6 +491,8 @@ export default function Viewport({
 
         const bounds = mapRef.current.bounds()
 
+        const lp = buildLpQuery()
+
         samplePatchesByBboxApiV1ProjectsProjectIdSampleByBboxPatchesGet({
             client,
             path: { project_id: projectId },
@@ -500,7 +502,8 @@ export default function Viewport({
                 xmax: bounds.right,
                 ymax: bounds.bottom,
                 num_samples: PATCH_NUM_SAMPLES,
-                patch_query_range: PATCH_QUERY_RANGE
+                patch_query_range: PATCH_QUERY_RANGE,
+                lp,
             },
         })
             .then(({ data, error }) => {
@@ -524,6 +527,7 @@ export default function Viewport({
                 if (!mapRef.current || !quadFeatureRef.current || !quadLayerRef.current) return
                 const zoom = Math.round(mapRef.current.zoom())
                 const bounds = mapRef.current.bounds()
+                const lp = buildLpQuery()
                 const { data, error } = await samplePatchesByBboxApiV1ProjectsProjectIdSampleByBboxPatchesGet({
                     client,
                     path: { project_id: projectId },
@@ -534,6 +538,7 @@ export default function Viewport({
                         ymax: bounds.bottom,
                         num_samples: PATCH_NUM_SAMPLES,
                         patch_query_range: PATCH_QUERY_RANGE,
+                        lp,
                     },
                 })
                 if (error || !data || data.length === 0) return
@@ -548,7 +553,7 @@ export default function Viewport({
             mapRef.current.geoOff(geo.event.pan, onZoomStart)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showPatches, projectId])
+    }, [showPatches, projectId, selectedCells])
 
     // Update patch layer bounds when map bounds change
     useEffect(() => {
