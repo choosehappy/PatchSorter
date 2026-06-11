@@ -513,14 +513,14 @@ export default function Viewport({
             })
             .catch(err => console.error('[patchLayer] fetch error:', err))
 
-        let zoomClearTimeout: ReturnType<typeof setTimeout> | null = null
+        let panZoomClearTimeout: ReturnType<typeof setTimeout> | null = null
         function onZoomStart() {
             if (quadFeatureRef.current) {
                 quadFeatureRef.current.data([])
                 quadLayerRef.current?.draw()
             }
-            if (zoomClearTimeout) clearTimeout(zoomClearTimeout)
-            zoomClearTimeout = setTimeout(async () => {
+            if (panZoomClearTimeout) clearTimeout(panZoomClearTimeout)
+            panZoomClearTimeout = setTimeout(async () => {
                 if (!mapRef.current || !quadFeatureRef.current || !quadLayerRef.current) return
                 const zoom = Math.round(mapRef.current.zoom())
                 const bounds = mapRef.current.bounds()
@@ -541,9 +541,11 @@ export default function Viewport({
             }, 200)
         }
         mapRef.current.geoOn(geo.event.zoom, onZoomStart)
+        mapRef.current.geoOn(geo.event.pan, onZoomStart)
 
         return () => {
             mapRef.current.geoOff(geo.event.zoom, onZoomStart)
+            mapRef.current.geoOff(geo.event.pan, onZoomStart)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showPatches, projectId])
