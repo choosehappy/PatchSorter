@@ -11,6 +11,8 @@ from utils import *
 from patch_logging import *
 import timm
 from configs import *
+from db_writer import SQLiteWriter
+import atexit
 
 import tables
 
@@ -126,7 +128,7 @@ def visualize_batch(batch_imgs, original_imgs, nrow=10, ntot=50):
     plt.close()
 
 
-visualize_batch(batch_imgs, original_imgs)
+#visualize_batch(batch_imgs, original_imgs)
 
 
 # -----------------------
@@ -212,6 +214,10 @@ import os
 
 os.makedirs("./models", exist_ok=True)
 
+# initialize DB writer (non-blocking) - stores first view's x,y and embedding blob per id
+db_writer = SQLiteWriter(db_path="./coords_embeddings.db", batch_size=512, flush_interval=0.25)
+atexit.register(db_writer.close)
+
 #spread_loss = SpreadLoss(grid_size=GRID_SIZE, quantile=0.95)
 
 
@@ -248,6 +254,26 @@ for _ in range(10_000):
             # directly get [V, B, D] shape
             proj_emb = emb.view(V, B, -1)
             proj_coords = coords.view(V, B, -1)
+
+            #-------------- write to sqlite
+            # --- enqueue first view's coords and embeddings to the DB writer (non-blocking)
+            try:
+                # take first view only
+                first_view_coords = proj_coords[0].detach().cpu().float().numpy()
+                first_view_embs = proj_emb[0].detach().cpu().float().numpy()
+                # ids may be tensor or list
+                try:
+                    ids_np = ids.detach().cpu().numpy()
+                except Exception:
+                    import numpy as _np
+
+                    ids_np = _np.asarray(ids)
+
+                db_writer.enqueue(ids_np, first_view_coords, first_view_embs)
+            except Exception as _e:
+                logger.exception("DB enqueue failed: %s", _e)
+            #------- finish write
+
             pred_logits = logits.view(V, B, -1)
 
             # ---compute other losses
@@ -482,10 +508,9 @@ for _ in range(10_000):
 
             writer.add_scalar("loss/num_pseudo/total", total_pseudo, niter_total)
 
+            #add sqlite update
             niter_total += 1
 
 
 logger.info("Exiting training!")
 writer.close()
-
-# %%

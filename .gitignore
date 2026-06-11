@@ -9,3 +9,6 @@ ps_prototypes_v2/.ipynb_checkpoints/
 ps_prototypes_v2/models/
 ps_prototypes_v2/tests/__pycache__/
 ps_prototypes_v2/*.png
+ps_prototypes_v2/coords_embeddings.db
+ps_prototypes_v2/coords_embeddings.db-shm
+ps_prototypes_v2/coords_embeddings.db-wal
