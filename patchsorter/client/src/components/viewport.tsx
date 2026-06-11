@@ -5,7 +5,7 @@ import { type ServeTileApiV1ProjectsProjectIdTilesZxyPngGetData, type WorldInfo,
 // GeoJS loaded via CDN in index.html
 declare const geo: any
 
-import { WORLD_SIZE, PATCH_NUM_SAMPLES, PATCH_QUERY_RANGE, QUAD_HALF } from '../constants'
+import { WORLD_SIZE, PATCH_NUM_SAMPLES, PATCH_QUERY_RANGE, QUAD_HALF, HOVER_TIMEOUT_MS } from '../constants'
 
 export interface MapBounds {
     left: number
@@ -377,7 +377,7 @@ export default function Viewport({
                     console.error('[sampleByPoint] fetch error:', err)
                     onHoverPatch(null)
                 })
-            }, 10)
+            }, HOVER_TIMEOUT_MS)
         }
 
         map.geoOn(geo.event.mousemove, handleMouseMove)
