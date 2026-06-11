@@ -269,7 +269,9 @@ for _ in range(10_000):
 
             # contrastive / prototype losses: support simclr or swav (configurable)
             if LOSS_TYPE.lower() == "swav":
-                simclr_emb_loss = swav_loss(proj_emb)
+                # use the learnable prototypes from the joint head for embedding SwAV
+                simclr_emb_loss = swav_loss(proj_emb, prototypes=joint_head.prototypes)
+                # for coordinates, keep k-means-based SwAV (prototypes not provided)
                 simclr_emb_loss_coord = swav_loss(proj_coords)
             else:
                 simclr_emb_loss = simclr_loss(proj_emb, temperature=0.07)

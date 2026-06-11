@@ -384,12 +384,19 @@ class JointHead(nn.Module):
         )
 
         self.pred_fc = nn.Linear(embed_dim, num_classes)
+        # learnable SwAV prototypes (in embedding space)
+        # number of prototypes comes from configs: SWAV_PROTOTYPES
+        self.prototypes = nn.Parameter(torch.randn(int(SWAV_PROTOTYPES), embed_dim))
 
         self._init_weights()
 
     def _init_weights(self):
         nn.init.uniform_(self.proj_fc[0].weight, -1.0, 1.0)  # wider than xavier
         nn.init.uniform_(self.proj_fc[0].bias, 0.0, self.grid_size)
+        # init prototypes small and normalize
+        with torch.no_grad():
+            nn.init.normal_(self.prototypes, mean=0.0, std=0.01)
+            self.prototypes.data = F.normalize(self.prototypes.data, dim=1)
 
     def forward(self, z):
         shared = self.shared_fc(z)
@@ -1401,7 +1408,7 @@ def _distributed_sinkhorn(out: torch.Tensor, iters: int = 3, eps: float = 0.05) 
         return Q.t()
 
 
-def swav_loss(proj_emb, K: int = SWAV_PROTOTYPES, kmeans_iters: int = SWAV_KMEANS_ITERS, sinkhorn_iters: int = SWAV_SINKHORN_ITERS, temp: float = 0.1, eps: float = SWAV_EPS):
+def swav_loss(proj_emb, K: int = SWAV_PROTOTYPES, kmeans_iters: int = SWAV_KMEANS_ITERS, sinkhorn_iters: int = SWAV_SINKHORN_ITERS, temp: float = 0.1, eps: float = SWAV_EPS, prototypes: Optional[torch.Tensor] = None):
     """
     Simplified in-batch SwAV-like loss.
 
@@ -1416,12 +1423,16 @@ def swav_loss(proj_emb, K: int = SWAV_PROTOTYPES, kmeans_iters: int = SWAV_KMEAN
 
     emb_flat = F.normalize(proj_emb.view(V * B, D), dim=1)
 
-    # compute prototypes via lightweight k-means on normalized embeddings
-    prototypes = _kmeans_prototypes(emb_flat, K, iters=kmeans_iters)  # [K, D]
-    prototypes = F.normalize(prototypes, dim=1)
+    # use provided learnable prototypes if supplied, otherwise compute k-means
+    if prototypes is not None:
+        prot = F.normalize(prototypes, dim=1)
+        K = prot.shape[0]
+    else:
+        prot = _kmeans_prototypes(emb_flat, K, iters=kmeans_iters)  # [K, D]
+        prot = F.normalize(prot, dim=1)
 
     # scores: [V, B, K]
-    scores = torch.einsum("vbd,kd->vbk", F.normalize(proj_emb, dim=2), prototypes)
+    scores = torch.einsum("vbd,kd->vbk", F.normalize(proj_emb, dim=2), prot)
 
     loss = 0.0
     n_terms = 0
@@ -1434,7 +1445,8 @@ def swav_loss(proj_emb, K: int = SWAV_PROTOTYPES, kmeans_iters: int = SWAV_KMEAN
             with torch.no_grad():
                 q = _distributed_sinkhorn(scores[v2].detach(), iters=sinkhorn_iters, eps=eps)  # [B, K]
 
-            log_probs = F.log_softmax(scores[v] / max(1e-8, temp), dim=2)  # [B, K]
+            # scores[v] is shape [B, K] → softmax over prototype dim (1)
+            log_probs = F.log_softmax(scores[v] / max(1e-8, temp), dim=1)  # [B, K]
 
             # cross-entropy between soft targets q and log_probs
             loss_term = -(q * log_probs).sum(dim=1).mean()
