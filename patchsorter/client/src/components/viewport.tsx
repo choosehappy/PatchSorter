@@ -472,6 +472,10 @@ export default function Viewport({
                 patchFeatureRef.current.data([])
                 patchLayerRef.current?.draw()
             }
+            if (quadFeatureRef.current) {
+                quadFeatureRef.current.data([])
+                quadLayerRef.current?.draw()
+            }
             return
         }
 
