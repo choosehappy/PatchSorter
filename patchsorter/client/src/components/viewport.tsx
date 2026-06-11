@@ -73,6 +73,7 @@ export default function Viewport({
     const justCompletedRef = useRef(false)
     const isCtrlHeldRef = useRef(false)
     const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const bboxAbortRef = useRef<AbortController | null>(null)
     const [isCtrlHeld, setIsCtrlHeld] = useState(false)
 
     function buildLpQuery() {
@@ -493,6 +494,9 @@ export default function Viewport({
 
         const lp = buildLpQuery()
 
+        bboxAbortRef.current?.abort()
+        bboxAbortRef.current = new AbortController()
+
         samplePatchesByBboxApiV1ProjectsProjectIdSampleByBboxPatchesGet({
             client,
             path: { project_id: projectId },
@@ -505,16 +509,23 @@ export default function Viewport({
                 patch_query_range: PATCH_QUERY_RANGE,
                 lp,
             },
+            signal: bboxAbortRef.current.signal,
         })
             .then(({ data, error }) => {
                 if (error || !data) {
-                    console.error('[patchLayer] sample error:', error)
+                    if (error?.name !== 'AbortError') {
+                        console.error('[patchLayer] sample error:', error)
+                    }
                     return
                 }
                 const zoom = Math.round(mapRef.current.zoom())
                 renderPatchData(data, zoom)
             })
-            .catch(err => console.error('[patchLayer] fetch error:', err))
+            .catch(err => {
+                if (err.name !== 'AbortError') {
+                    console.error('[patchLayer] fetch error:', err)
+                }
+            })
 
         let panZoomClearTimeout: ReturnType<typeof setTimeout> | null = null
         function onZoomStart() {
@@ -528,6 +539,8 @@ export default function Viewport({
                 const zoom = Math.round(mapRef.current.zoom())
                 const bounds = mapRef.current.bounds()
                 const lp = buildLpQuery()
+                bboxAbortRef.current?.abort()
+                bboxAbortRef.current = new AbortController()
                 const { data, error } = await samplePatchesByBboxApiV1ProjectsProjectIdSampleByBboxPatchesGet({
                     client,
                     path: { project_id: projectId },
@@ -540,6 +553,7 @@ export default function Viewport({
                         patch_query_range: PATCH_QUERY_RANGE,
                         lp,
                     },
+                    signal: bboxAbortRef.current.signal,
                 })
                 if (error || !data || data.length === 0) return
                 renderPatchData(data, zoom)
@@ -551,6 +565,7 @@ export default function Viewport({
         return () => {
             mapRef.current.geoOff(geo.event.zoom, onZoomStart)
             mapRef.current.geoOff(geo.event.pan, onZoomStart)
+            bboxAbortRef.current?.abort()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showPatches, projectId, selectedCells])
