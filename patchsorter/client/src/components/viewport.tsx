@@ -69,6 +69,7 @@ export default function Viewport({
     const patchFeatureRef = useRef<any>(null)
     const quadLayerRef = useRef<any>(null)
     const quadFeatureRef = useRef<any>(null)
+    const hoverQuadFeatureRef = useRef<any>(null)
     const isDrawingRef = useRef(false)
     const justCompletedRef = useRef(false)
     const isCtrlHeldRef = useRef(false)
@@ -230,6 +231,17 @@ export default function Viewport({
         mapRef.current.draw()
     }
 
+    function buildQuadData(data: PatchResponse[], zoom: number) {
+        const half = QUAD_HALF * Math.pow(2, -zoom)
+        return data
+            .filter(p => p.grid_cell_i != null && p.grid_cell_j != null)
+            .map(p => ({
+                ul: { x: p.grid_cell_i!, y: p.grid_cell_j! - 2 * half },
+                lr: { x: p.grid_cell_i! + 2 * half, y: p.grid_cell_j! },
+                image: `/api/v1/projects/${projectId}/patches/${p.patch_id}/image`,
+            }))
+    }
+
     function renderPatchData(data: PatchResponse[], zoom: number) {
         if (patchFeatureRef.current) {
             patchFeatureRef.current.data(data)
@@ -246,16 +258,7 @@ export default function Viewport({
             patchLayerRef.current?.draw()
         }
         if (quadFeatureRef.current) {
-            const half = QUAD_HALF * Math.pow(2, -zoom)
-            quadFeatureRef.current.data(
-                data
-                    .filter(p => p.grid_cell_i != null && p.grid_cell_j != null)
-                    .map(p => ({
-                        ul: { x: p.grid_cell_i!, y: p.grid_cell_j! - 2 * half },
-                        lr: { x: p.grid_cell_i! + 2 * half, y: p.grid_cell_j! },
-                        image: `/api/v1/projects/${projectId}/patches/${p.patch_id}/image`,
-                    }))
-            )
+            quadFeatureRef.current.data(buildQuadData(data, zoom))
             quadFeatureRef.current.modified()
             quadLayerRef.current?.draw()
         }
@@ -345,6 +348,11 @@ export default function Viewport({
         quadFeatureRef.current = quadLayerRef.current
             .createFeature('quad')
             .data([])
+
+        // Create hover quad feature (independent of main quad feature)
+        hoverQuadFeatureRef.current = quadLayerRef.current
+            .createFeature('quad')
+            .data([])
         quadLayerRef.current.draw()
 
         // Register annotation completion event listener
@@ -371,11 +379,17 @@ export default function Viewport({
                     query: { x: evt.geo.x, y: evt.geo.y, lp, patch_query_range: queryRange },
                 }).then(({ data, error }) => {
                     if (error || !data || data.length === 0) {
+                        hoverQuadFeatureRef.current?.data([]).modified()
+                        quadLayerRef.current?.draw()
                         onHoverPatch(null)
                         return
                     }
+                    hoverQuadFeatureRef.current.data(buildQuadData(data, zoom)).modified()
+                    quadLayerRef.current.draw()
                     onHoverPatch(data[0])
                 }).catch(err => {
+                    hoverQuadFeatureRef.current?.data([]).modified()
+                    quadLayerRef.current?.draw()
                     console.error('[sampleByPoint] fetch error:', err)
                     onHoverPatch(null)
                 })
@@ -420,6 +434,7 @@ export default function Viewport({
 
         return () => {
             resizeObserver.disconnect()
+            hoverQuadFeatureRef.current?.data([]).modified()
             annotationLayerRef.current?.geoOff(geo.event.annotation.state, handleNewAnnotation)
             featureLayerRef.current?.geoOff(geo.event.mousedown, handleMousedown)
             map.geoOff(geo.event.mousemove, handleMouseMove)
