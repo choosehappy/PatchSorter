@@ -12,3 +12,16 @@ __pycache__/
 prototyping/data/
 node_modules/
 _version.py
+
+ps_prototypes_v2/.vscode/launch.json
+ps_prototypes_v2/mitosis_ps_labels.pytable
+ps_prototypes_v2/workplan.md
+ps_prototypes_v2/runs/
+ps_prototypes_v2/__pycache__/
+ps_prototypes_v2/.ipynb_checkpoints/
+ps_prototypes_v2/models/
+ps_prototypes_v2/tests/__pycache__/
+ps_prototypes_v2/*.png
+ps_prototypes_v2/coords_embeddings.db
+ps_prototypes_v2/coords_embeddings.db-shm
+ps_prototypes_v2/coords_embeddings.db-wal
