@@ -12,7 +12,8 @@ patchsorter/
     worker_client/ Worker DB access
     utils.py       SessionManager
   client/          React + TypeScript + Vite frontend (port 5173, proxies /api → localhost:8000)
-  dl/              Deep learning (Ray + PyTorch training)
+  dl/              Deep learning (Ray + PyTorch training — scaffold only)
+  ps_prototypes_v2/  Embedding model research (training loop, loss functions, augmentations)
   config/          config.toml, settings defaults
   helper_scripts/  CLI utility scripts (add_uuids_to_geojson, split_multipolygons)
   tests/           Pytest unit tests
@@ -55,6 +56,37 @@ pytest patchsorter/tests/test_patch_store.py::test_name
 - `conftest.py` handles test DB lifecycle: creates `patchsorter_test`, installs Citus extension, registers coordinator as single-node, creates `project1_*` distributed tables, then drops on teardown.
 - `db_session` fixture: function-scoped SQLAlchemy session inside a transaction that rolls back after each test.
 - `example_project` fixture: seeds project_id=1, two label classes, one image, five patches.
+
+## ps_prototypes_v2 (Embedding Research)
+
+Research/algorithm directory — **not** production code. Tracks the embedding model, loss functions, and augmentations before porting to `patchsorter/dl/`.
+
+- **Entry point:** `start_v3.py` — full training loop (backbone: `timm`, head: `JointHead`, multi-view SSL).
+- **Configs:** `configs.py` — all hyperparameters (loss lambdas, aug params, grid size, batch size, etc.). Edit to tune.
+- **Loss functions:** `utils.py` — `simclr_loss`, `semantic_head_loss`, `repulsion_loss`, `max_mean_discrepancy`, `prediction_loss_sup`, `prediction_loss_pseudo`, `neighborhood_loss`, `bin_losses_vectorized`, `SpreadLoss`, `vicreg_loss`.
+- **Augmentations:** `utils.py::get_transforms()` — geometric + photometric (Macenko stain perturbation, elastic, grid, blur, ISO noise, JPEG, CoarseDropout).
+- **Memory bank:** `utils.py::MemoryBank` — tensor-backed with importance-score eviction.
+- **Logging:** `patch_logging.py` — TensorBoard helpers (`log_embeddings`, `log_nearest_neighbors`).
+- **DB writer:** `db_writer.py::SQLiteWriter` — background thread batches upserts to SQLite (used in research, not production).
+
+**Run from `ps_prototypes_v2/`:**
+```bash
+# Install research deps
+pip install -r tests/requirements.txt
+# (also need: torch, albumentations, opencv-python, timm, tables, tensorboard, matplotlib)
+
+# Lint / type / test
+python3 -m ruff check . && python3 -m mypy .
+python3 -m pytest tests/
+
+# Single test
+python3 -m pytest tests/test_utils_comprehensive.py::test_name
+```
+
+**Integrating into `patchsorter/dl/`:**
+- `patchsorter/dl/training.py` has a Ray Train scaffold (`DLActor`, `train_worker`, `ShardDataset`) — `_build_prediction_records()` is a placeholder for real model inference.
+- To integrate: move the model architecture (`JointHead`, backbone init) into `patchsorter/dl/`, replace `_build_prediction_records` with real inference, and wire loss computation into the worker loop.
+- The worker loop currently does: read patches → synthetic predictions → write to `pred_patch_latest` → rotate tables. Replace the synthetic path with model forward pass + loss.
 
 ## Design Docs
 - [Design Document](docs/source/design_material_draft2/design_document.md): UI/UX and feature overview
