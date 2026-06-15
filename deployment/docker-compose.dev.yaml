@@ -1,6 +1,6 @@
 services:
-  qa:
-    user: ray
+  ps:
+    user: root
     build:
       context: ..
       dockerfile: deployment/Dockerfile
