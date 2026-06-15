@@ -1,4 +1,4 @@
-FROM rayproject/ray:2.54.0.1ea498-py313-cpu
+FROM rayproject/ray:2.49.2-py312-cu126
 SHELL ["/bin/bash", "-c"]
 
 USER root
@@ -11,9 +11,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg:
         libjpeg-dev \
         libpng-dev \
         gcc gfortran libopenblas-dev liblapack-dev cython3 \
-        sqlite3 \
-        libsqlite3-dev \
-        libsqlite3-mod-spatialite \
         libtk8.6 \
         procps \
         libopenslide0 \
@@ -22,8 +19,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg:
         libsm6 \
         libxext6 \
         memcached \
-        graphviz \
-        libgraphviz-dev \
         libgdal-dev \
         gdal-bin \
         python3-gdal \
@@ -35,22 +30,29 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg:
 RUN curl -LSfs https://raw.githubusercontent.com/cantino/mcfly/master/ci/install.sh | sh -s -- --git cantino/mcfly && \
     echo 'eval "$(mcfly init bash)"' >> ~/.bashrc && touch /home/ray/.bash_history
 
-
-# Set the working directory in the container
+# Install node and npm
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+RUN apt-get install -y nodejs && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 RUN chown ray:users /opt
 USER ray
-RUN mkdir -p /opt/QuickAnnotator
-WORKDIR /opt/QuickAnnotator
+RUN mkdir -p /opt/PatchSorter
+WORKDIR /opt/PatchSorter
 
+COPY --chown=ray:users ../pyproject.toml /opt/PatchSorter/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install -r pyproject.toml --system
+    
+COPY --chown=ray:users ./ /opt/PatchSorter/
 
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install . --system
+
+COPY --chown=ray:users ../patchsorter/client/package.json ../patchsorter/client/package-lock.json /opt/
+ENV NODE_PATH=/opt/node_modules
 WORKDIR /opt
-
-COPY --chown=ray:users ./requirements.txt ./
-
-RUN uv pip install -r /opt/requirements.txt --system
+RUN npm ci
 
 WORKDIR /opt/PatchSorter
 
-USER ray
 ENV PYTHONPYCACHEPREFIX=/opt/ps_pycache

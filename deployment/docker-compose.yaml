@@ -1,12 +1,47 @@
+name: ${COMPOSE_PROJECT_NAME}
 services:
-  db:
+  citus:
     build:
       context: .
       dockerfile: Dockerfile.citus-postgis
-    container_name: citus_single
+    container_name: citus
     environment:
       POSTGRES_PASSWORD: password
     ports:
-      - "5432:5432"
+      - ${CITUS_PORT}:5432
+    volumes:
+      - citus_data:/var/lib/postgresql/data
+    networks:
+      - ps_net
 
-  
+  ps:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    container_name: ps
+    image: histotools/patchsorter:local
+    environment:
+      POSTGRES_PASSWORD: password
+    ports:
+      - ${SERVER_PORT}:5000
+      - ${UI_PORT}:5173
+      - ${RAY_DASHBOARD_PORT}:8265
+    networks:
+      - ps_net
+    stdin_open: true
+    tty: true
+    shm_size: '12gb'
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+networks:
+  ps_net:
+    driver: bridge
+
+volumes:
+  citus_data:
