@@ -2,9 +2,17 @@ from __future__ import annotations
 
 import datetime
 import logging
+import math
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
+import cv2
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torch.utils.tensorboard import SummaryWriter
 import ray
+import ray.train
+import ray.train.torch
 from ray.train import get_context
 from ray.train.collective import barrier
 from ray.train.torch import TorchTrainer
@@ -14,63 +22,88 @@ from patchsorter.db import head_client, worker_client
 from patchsorter.db.head_client.database_manager import DatabaseManager
 from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.db.worker_client.patch import WorkerPatchStore
+from patchsorter.dl.model import JointHead, backbone_init
+from patchsorter.dl.augmentations import get_transforms
+from patchsorter.dl.losses import (
+    LabeledRateTracker,
+    initialize_projection_from_batch,
+    max_mean_discrepancy,
+    neighborhood_loss,
+    prediction_loss_pseudo,
+    prediction_loss_sup,
+    repulsion_loss,
+    semantic_head_loss,
+    simclr_loss,
+)
 
 logger = logging.getLogger(__name__)
 
 DL_ACTOR_NAME = "dl_actor"
 
-# --------------------------------------------------------------------------- #
-# Per-batch prediction builder — replace with real model inference             #
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+# Hyperparameters
+# ---------------------------------------------------------------------------
 
-def _build_prediction_records(
-    batch: List[Dict[str, Any]],
-) -> List[tuple]:
-    """Build pred_patch records from a batch of patch dicts.
+PATCH_SIZE: int = 60
+EMBED_DIM: int = 16
+PROJ_DIM: int = 2
+HIDDEN_DIM: int = 256
+GRID_SIZE: float = 4096
+N_CLASS: int = 5
+NVIEWS: int = 4
+BATCH_SIZE: int = 256
+PSEUDO_THRESH: float = 0.9
+N_TRAIN_STEPS: int = 500  # number of gradient steps per cycle (training inner loop)
+LOG_EVERY: int = 100      # log TensorBoard scalars every N batches
 
-    This placeholder generates synthetic predictions.  Replace the body with
-    real model inference that produces ``embed_x``, ``embed_y``,
-    ``grid_cell_i``, ``grid_cell_j``, and ``label_class_id`` for each patch.
+# Loss weights
+COORD_CONSISTENCY_LOSS: float = 1.0
+COORD_CONTRASTIVE_LOSS: float = 1.0
+SIMCLR_EMB_LOSS: float = 100.0
+MAX_MEAN_LOSS: float = 1000.0
+NEIGHBOR_LAMBDA: float = 0.5
+SEMANTIC_LAMBDA: float = 1.0
+PRED_LAMBDA: float = 100.0
+PSEUDO_PRED_LAMBDA: float = 0.4
+REPULSION_LAMBDA: float = 0.1
 
-    Args:
-        batch: List of patch dicts as returned by
-            :meth:`~patchsorter.db.worker_client.patch.WorkerPatchStore.fetch_patches_by_shard`.
+_IDEAL_SPACING = GRID_SIZE / math.sqrt(BATCH_SIZE)
+REPULSION_MARGIN: float = _IDEAL_SPACING * 10.5
 
-    Returns:
-        List of 7-tuples ``(patch_id, embed_x, embed_y, grid_cell_i,
-        grid_cell_j, event_ts, label_class_id)``.
+# ---------------------------------------------------------------------------
+# Image decoding helper
+# ---------------------------------------------------------------------------
+
+def _decode_patch_image(raw: bytes | memoryview | None, patch_size: int) -> np.ndarray | None:
+    """Decode a raw image blob (PNG/JPEG bytes) into a uint8 HxWx3 numpy array.
+
+    Returns ``None`` when *raw* is falsy (NULL column value).
     """
-    import random
-
-    now = datetime.datetime.now(tz=datetime.timezone.utc)
-    records = []
-    for patch in batch:
-        records.append((
-            patch["patch_id"],
-            random.uniform(0.0, 1.0),          # embed_x  — replace with model output
-            random.uniform(0.0, 1.0),          # embed_y  — replace with model output
-            random.randint(0, 4095),            # grid_cell_i
-            random.randint(0, 4095),            # grid_cell_j
-            now,
-            int(patch["label_class_id"]),       # pred label — replace with model output
-        ))
-    return records
+    if not raw:
+        return None
+    buf = np.frombuffer(bytes(raw), dtype=np.uint8)
+    img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+    if img is None:
+        return None
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    if img.shape[0] != patch_size or img.shape[1] != patch_size:
+        img = cv2.resize(img, (patch_size, patch_size), interpolation=cv2.INTER_LINEAR)
+    return img
 
 
-# --------------------------------------------------------------------------- #
-# Shard dataset — read-only iteration over locally placed patch shards        #
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+# Shard dataset — read-only iteration over locally placed patch shards
+# ---------------------------------------------------------------------------
 
 class ShardDataset:
     """Read-only iterable that streams patches from locally placed Citus shards.
 
-    Wraps :meth:`~patchsorter.db.worker_client.patch.WorkerPatchStore.fetch_patch_batch`
-    with one short-lived DB session per batch so no connection is held between
-    yields.
+    Each batch includes decoded image data (``patch_image``) in addition to
+    patch metadata.  One short-lived DB session is opened per batch so no
+    connection is held between yields.
 
     Args:
-        worker_sm: A :class:`~patchsorter.db.utils.SessionManager` for the
-            worker node.
+        worker_sm: A :class:`~patchsorter.db.utils.SessionManager` for the worker node.
         project_id: Project whose patch shards are read.
         assigned_shards: Ordered list of shard IDs to iterate.
         batch_size: Maximum number of patch rows per yielded batch.
@@ -103,30 +136,29 @@ class ShardDataset:
                 yield shard_id, batch
 
 
-# --------------------------------------------------------------------------- #
-# Ray Train worker function                                                    #
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+# Ray Train worker function
+# ---------------------------------------------------------------------------
 
 def train_worker(config: Dict[str, Any]) -> None:
-    """Per-worker training loop executed by Ray Train.
+    """Per-worker training + prediction loop executed by Ray Train.
 
-    Each worker:
+    Each cycle:
 
-    1. Opens a **worker** DB client and discovers its locally placed patch
-       shards before the loop begins.
-    2. On each cycle, streams every assigned shard in batches, runs inference
-       (via :func:`_build_prediction_records`), and writes predictions directly
-       to the local ``pred_patch_latest`` shard via COPY.
-    3. Synchronises at a barrier after all workers finish writing.
-    4. Rank 0 rotates ``pred_patch_latest`` → ``pred_patch_last`` via the head
-       client's :meth:`~patchsorter.db.head_client.database_manager.DatabaseManager.rotate_pred_patch_tables`.
-    5. A second barrier lets all workers resume for the next cycle.
+    1. **Selective training loop** (``N_TRAIN_STEPS`` gradient steps, placeholder) —
+       selects the most interesting patches for training without saving predictions.
+    2. **Iterate through all patches in shard subset** — streams every assigned shard,
+       runs backprop on each batch (supervised for labeled patches, pseudo-label for
+       unlabeled), and writes ``(embed_x, embed_y, grid_cell_i, grid_cell_j,
+       label_class_id)`` to ``pred_patch_latest`` via COPY for every patch.
+       ``embed_x`` and ``embed_y`` are the 2D projection coordinates in
+       ``[0, GRID_SIZE]``.
+    3. Barrier sync → rank-0 rotates tables → barrier sync.
 
     The loop exits when the ``DLActor`` signals ``training_enabled = False``.
 
     Args:
         config: Dict passed by :class:`DLActor`.  Expected keys:
-
             - ``project_id`` (int)
             - ``patches_per_batch`` (int)
     """
@@ -137,34 +169,214 @@ def train_worker(config: Dict[str, Any]) -> None:
     worker_sm = worker_client.get_client()
     dm = DatabaseManager(head_sm)
 
-
-
     context = get_context()
     rank = context.get_world_rank()
+    device = ray.train.torch.get_device()
 
-    # Resolve the DLActor to check training_enabled each cycle
     actor = ray.get_actor(DL_ACTOR_NAME)
 
+    # -----------------------------------------------------------------------
+    # Model initialisation
+    # -----------------------------------------------------------------------
+    backbone, feature_dim = backbone_init(PATCH_SIZE)
+    joint_head = JointHead(
+        in_dim=feature_dim,
+        hidden_dim=HIDDEN_DIM,
+        embed_dim=EMBED_DIM,
+        proj_dim=PROJ_DIM,
+        num_classes=N_CLASS,
+        grid_size=GRID_SIZE,
+    )
 
-    # Worker DB client — all reads and writes except table rotation
-    worker_sm = worker_client.get_client()
+    # model = model.half()  # TODO: test with .half()
+    backbone = ray.train.torch.prepare_model(backbone, device, parallel_strategy="ddp")
+    joint_head = ray.train.torch.prepare_model(joint_head, device, parallel_strategy="ddp")
+    backbone.train()
+    joint_head.train()
+
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": backbone.parameters(), "lr": 1e-2},
+            {"params": joint_head.parameters(), "lr": 1e-2},
+        ],
+        weight_decay=1e-5,
+    )
+    scaler = torch.amp.GradScaler("cuda")
+
+    label_tracker = LabeledRateTracker(N_CLASS, momentum=0.9, device=str(device))
+    geom_transform, photo_transform = get_transforms(PATCH_SIZE)
+
+    writer = SummaryWriter(
+        log_dir=f"runs/worker_{rank}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    )
+    niter_total = 0
 
     cycle = 0
     while ray.get(actor.get_training_enabled.remote()):
         # Discover locally assigned shards on each cycle since table rotation changes shard placements.
         shard_map = dm.get_shard_map_for_patch_and_pred(project_id)
         all_local_shards = shard_map.get_table_a_shard_list()
-
-        # Divide local shards among local workers. 
-        # If shards are not divisible by the number of workers, some workers will process one more shard than others.
-        assigned_shards = compute_shard_assignments(all_local_shards, context.get_local_world_size(), rank)
+        assigned_shards = compute_shard_assignments(
+            all_local_shards, context.get_local_world_size(), rank
+        )
 
         cycle += 1
         logger.info("[Worker %d] Starting cycle %d.", rank, cycle)
 
+        # -------------------------------------------------------------------
+        # TODO: Selective training loop (backprop phase goes here)
+        # This loop will select the most interesting patches for training
+        # (e.g. hard examples, under-represented classes, high uncertainty)
+        # WITHOUT saving predictions.  Each iteration should:
+        #   - Sample a batch from a curated training dataloader (infinite, DB-backed)
+        #   - Produce NVIEWS augmented views per patch
+        #   - Run backbone + joint_head (autocast half-precision)
+        #   - Compute all loss terms and call scaler.scale(total_loss).backward()
+        #   - Step optimizer and scaler
+        #   - Break after N_TRAIN_STEPS
+        # -------------------------------------------------------------------
+
+        # -------------------------------------------------------------------
+        # Iterate through all patches in shard subset
+        # Performs backpropagation naively over every patch in the assigned
+        # shards.  Patches with ground truth labels use supervised loss;
+        # unlabeled patches use pseudo-label loss where confidence is high.
+        # Predictions (embed_x/y, grid_cell_i/j, label_class_id) are saved
+        # for every patch via insert_predictions_to_shard using the first
+        # view's projection coordinates — matching what ps_prototypes_v2's
+        # SQLiteWriter stored.
+        # -------------------------------------------------------------------
+        backbone.train()
+        joint_head.train()
+
         dataset = ShardDataset(worker_sm, project_id, assigned_shards, patches_per_batch)
         for shard_id, batch in dataset:
-            records = _build_prediction_records(batch)
+            # Decode images
+            imgs_np: List[np.ndarray] = []
+            valid_patches: List[Dict[str, Any]] = []
+            for patch in batch:
+                img = _decode_patch_image(patch.get("patch_image"), PATCH_SIZE)
+                if img is None:
+                    continue
+                imgs_np.append(img)
+                valid_patches.append(patch)
+
+            if not imgs_np:
+                continue
+
+            B = len(imgs_np)
+
+            # Build NVIEWS augmented views per patch.
+            # Each view is produced by geom + photo transforms independently.
+            # Layout after cat: [v0_b0..v0_bB-1, v1_b0..v1_bB-1, ...] → [V*B, C, H, W]
+            views: List[torch.Tensor] = []
+            for _ in range(NVIEWS):
+                view_tensors = [
+                    photo_transform(image=geom_transform(image=img)["image"])["image"]
+                    for img in imgs_np
+                ]  # list of [C, H, W] uint8 tensors
+                views.append(torch.stack(view_tensors))  # [B, C, H, W]
+
+            imgs_tensor = torch.cat(views, dim=0).float().div_(255.0).to(device)  # [V*B, C, H, W]
+
+            # Labels: repeat across views in the same layout
+            raw_labels = torch.tensor(
+                [p["label_class_id"] if p["label_class_id"] is not None else -1
+                 for p in valid_patches],
+                dtype=torch.long,
+            )  # [B]
+            labels = raw_labels.repeat(NVIEWS).to(device)  # [V*B]
+
+            optimizer.zero_grad()
+            with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=True):
+                z = backbone(imgs_tensor)              # [V*B, D]
+                emb, coords, logits = joint_head(z)   # [V*B, embed_dim], [V*B, 2], [V*B, C]
+
+                emb_norm = torch.nn.functional.normalize(emb, dim=-1)
+                proj_emb = emb_norm.view(NVIEWS, B, -1)   # [V, B, embed_dim]
+                proj_coords = coords.view(NVIEWS, B, -1)  # [V, B, 2]
+
+                # Contrastive losses
+                simclr_emb_loss = simclr_loss(proj_emb, temperature=0.07)
+                simclr_coord_loss = simclr_loss(proj_coords, temperature=0.07)
+
+                # Coordinate consistency across views
+                anchor_coords = proj_coords[0:1]  # [1, B, 2]
+                coord_consistency = ((proj_coords[1:] - anchor_coords) ** 2).sum(dim=-1).mean()
+
+                # Coordinate contrastive: push different samples apart
+                dists = torch.cdist(anchor_coords.squeeze(0), anchor_coords.squeeze(0))  # [B, B]
+                off_diag = ~torch.eye(B, dtype=torch.bool, device=device)
+                coord_contrastive = (1.0 / (dists[off_diag] + 1e-6)).mean()
+
+                # Flatten back to [V*B, ...] for per-sample losses
+                emb_flat = proj_emb.reshape(-1, proj_emb.shape[-1])   # [V*B, embed_dim]
+                coords_flat = proj_coords.reshape(-1, 2)               # [V*B, 2]
+
+                # Neighborhood + spread losses
+                neigh_loss = neighborhood_loss(proj_emb, proj_coords)
+                mmd_loss = max_mean_discrepancy(coords_flat, grid_size=GRID_SIZE)
+                repul_loss = repulsion_loss(coords_flat, margin=REPULSION_MARGIN)
+
+                # Semantic losses (operate on labeled samples only)
+                sem_coord_attr, sem_coord_repel = semantic_head_loss(coords_flat, labels)
+                sem_emb_attr, sem_emb_repel = semantic_head_loss(emb_flat, labels, margin=0.5)
+
+                # Prediction losses
+                class_weights = label_tracker.get_class_weights()
+                sup_loss = prediction_loss_sup(logits, labels, class_weights=class_weights)
+                pseudo_loss, pred_labels, high_conf = prediction_loss_pseudo(
+                    logits, labels,
+                    pseudo_thresh=PSEUDO_THRESH,
+                    views_per_patch=NVIEWS,
+                )
+                pred_loss = sup_loss + PSEUDO_PRED_LAMBDA * pseudo_loss
+
+                labeled_rate, _, num_pseudo = label_tracker.update(
+                    raw_labels.to(device),
+                    pred_labels[high_conf][::NVIEWS] if high_conf.any() else None,
+                )
+
+                total_loss = (
+                    COORD_CONSISTENCY_LOSS  * coord_consistency
+                    + COORD_CONTRASTIVE_LOSS * coord_contrastive
+                    + SIMCLR_EMB_LOSS       * simclr_emb_loss
+                    + SIMCLR_EMB_LOSS       * simclr_coord_loss
+                    + MAX_MEAN_LOSS         * mmd_loss
+                    + NEIGHBOR_LAMBDA       * neigh_loss
+                    + SEMANTIC_LAMBDA       * (sem_coord_attr + sem_coord_repel)
+                    + SEMANTIC_LAMBDA       * (sem_emb_attr   + sem_emb_repel)
+                    + PRED_LAMBDA           * pred_loss
+                )
+
+            scaler.scale(total_loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+
+            # Save predictions for every patch using first view's coords/logits
+            # (indices 0..B-1 in the V*B stacked layout)
+            with torch.no_grad():
+                first_coords = coords[:B].float()        # [B, 2]
+                first_logits = logits[:B].float()        # [B, C]
+                pred_classes = first_logits.argmax(dim=-1)
+
+            now = datetime.datetime.now(tz=datetime.timezone.utc)
+            records: List[tuple] = []
+            for i, patch in enumerate(valid_patches):
+                embed_x = float(first_coords[i, 0].item())
+                embed_y = float(first_coords[i, 1].item())
+                grid_cell_i = int(embed_x)
+                grid_cell_j = int(embed_y)
+                records.append((
+                    patch["patch_id"],
+                    embed_x,
+                    embed_y,
+                    grid_cell_i,
+                    grid_cell_j,
+                    now,
+                    int(pred_classes[i].item()),
+                ))
+
             pred_shard_id = shard_map.get_b_shard_for_a_shard(shard_id)
             with worker_sm.get_session() as session:
                 WorkerPatchStore(project_id, session).insert_predictions_to_shard(
@@ -175,28 +387,52 @@ def train_worker(config: Dict[str, Any]) -> None:
                 rank, cycle, shard_id, len(records),
             )
 
+            if niter_total % LOG_EVERY == 0:
+                writer.add_scalar("loss/total",              total_loss.item(),    niter_total)
+                writer.add_scalar("loss/coord_consistency",  coord_consistency.item(), niter_total)
+                writer.add_scalar("loss/coord_contrastive",  coord_contrastive.item(), niter_total)
+                writer.add_scalar("loss/simclr_emb",         simclr_emb_loss.item(),   niter_total)
+                writer.add_scalar("loss/simclr_coord",       simclr_coord_loss.item(), niter_total)
+                writer.add_scalar("loss/max_mean_discrepancy", mmd_loss.item(),       niter_total)
+                writer.add_scalar("loss/repulsion",          repul_loss.item(),        niter_total)
+                writer.add_scalar("loss/neighborhood",       neigh_loss.item(),        niter_total)
+                writer.add_scalar("loss/semantic_coord",     (sem_coord_attr + sem_coord_repel).item(), niter_total)
+                writer.add_scalar("loss/semantic_coord_attract", sem_coord_attr.item(), niter_total)
+                writer.add_scalar("loss/semantic_coord_repel",   sem_coord_repel.item(), niter_total)
+                writer.add_scalar("loss/semantic_emb",       (sem_emb_attr + sem_emb_repel).item(), niter_total)
+                writer.add_scalar("loss/semantic_emb_attract",   sem_emb_attr.item(),  niter_total)
+                writer.add_scalar("loss/semantic_emb_repel",     sem_emb_repel.item(), niter_total)
+                writer.add_scalar("loss/pred",               pred_loss.item(),         niter_total)
+                writer.add_scalar("loss/pred_supervised",    sup_loss.item(),          niter_total)
+                writer.add_scalar("loss/pred_pseudo",        pseudo_loss.item(),       niter_total)
+                writer.add_scalar("train/labeled_rate",      labeled_rate,             niter_total)
+
+                total_pseudo = 0
+                if num_pseudo is not None and num_pseudo.any():
+                    total_pseudo = num_pseudo.sum().item()
+                    for cls_i in (num_pseudo > 0).nonzero(as_tuple=True)[0].tolist():
+                        writer.add_scalar(f"train/num_pseudo/{cls_i}", num_pseudo[cls_i].item(), niter_total)
+                writer.add_scalar("train/num_pseudo/total", total_pseudo, niter_total)
+
+            niter_total += 1
+
         logger.info("[Worker %d] Cycle %d done. Waiting at barrier.", rank, cycle)
 
         # Barrier 1: all workers finished inserting for this cycle
         barrier()
 
-        # Rank 0 rotates tables while other workers wait
         if rank == 0:
             DatabaseManager(head_sm).rotate_pred_patch_tables(project_id)
-            logger.info(
-                "[Rank 0] Cycle %d — table rotation complete: "
-                "pred_patch_latest is fresh, pred_patch_last holds the previous cycle.",
-                cycle,
-            )
+            logger.info("[Rank 0] Cycle %d — table rotation complete.", cycle)
 
         # Barrier 2: rotation complete, all workers may proceed
         barrier()
         logger.info("[Worker %d] Cycle %d complete. Starting next cycle.", rank, cycle)
 
 
-# --------------------------------------------------------------------------- #
-# DLActor — named Ray actor holding training state                            #
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+# DLActor — named Ray actor holding training state
+# ---------------------------------------------------------------------------
 
 @ray.remote(max_concurrency=3)
 class DLActor:
@@ -217,8 +453,6 @@ class DLActor:
         self._training_ref: Optional[ray.ObjectRef] = None
         self._app_config = app_config or {}
 
-    # ---- State accessors -------------------------------------------------- #
-
     def get_training_enabled(self) -> bool:
         """Return whether the training loop should continue running."""
         return self._training_enabled
@@ -232,8 +466,6 @@ class DLActor:
             value: New value for the training-enabled flag.
         """
         self._training_enabled = value
-
-    # ---- Training lifecycle ----------------------------------------------- #
 
     def start_dl_proc(self, num_workers: int = 8) -> None:
         """Launch the distributed training loop as a non-blocking Ray remote task.
@@ -254,9 +486,9 @@ class DLActor:
         )
 
 
-# --------------------------------------------------------------------------- #
-# Internal helper — launched as a detached Ray task                           #
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+# Internal helper — launched as a detached Ray task
+# ---------------------------------------------------------------------------
 
 @ray.remote
 def _launch_training(
@@ -282,9 +514,9 @@ def _launch_training(
     return trainer.fit()
 
 
-# --------------------------------------------------------------------------- #
-# Public entry point                                                           #
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
 
 def startup_dl_actor(project_id: int) -> "DLActor":
     """Create the named ``dl_actor`` if it does not exist, then start training.
@@ -317,16 +549,19 @@ def startup_dl_actor(project_id: int) -> "DLActor":
     actor.start_dl_proc.remote(num_workers)
     return actor
 
-def compute_shard_assignments(shard_ids: List[int], num_local_workers: int, rank: int) -> Dict[int, List[int]]:
-    """Compute which Citus shards are assigned to each worker for a project.
+
+def compute_shard_assignments(
+    shard_ids: List[int], num_local_workers: int, rank: int
+) -> List[int]:
+    """Assign Citus shards to the current worker by round-robin modulo.
 
     Args:
-        shard_ids: List of shard IDs to assign.
+        shard_ids: All shard IDs for the project.
         num_local_workers: Number of local workers to divide shards among.
         rank: Rank of the current worker.
-    Returns:
-        List of shard IDs assigned to the current worker.
-    """
 
-    assigned_shards = [s for s in shard_ids if s % num_local_workers == rank]
-    return assigned_shards
+    Returns:
+        List of shard IDs assigned to this worker.
+    """
+    return [s for s in shard_ids if s % num_local_workers == rank]
+

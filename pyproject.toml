@@ -22,6 +22,7 @@ dependencies = [
     "gdal==3.12.3",
     "geoalchemy2>=0.16",
     "shapely>=2.0",
+    "albumentations>=2.0.8",
 ]
 dynamic = ["version"]  # ← version comes from setuptools_scm
 

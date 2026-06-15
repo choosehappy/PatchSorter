@@ -54,13 +54,14 @@ class WorkerPatchStore:
         Returns:
             List of dicts containing ``patch_id``, ``patch_uid``,
             ``label_class_id``, ``image_id``, ``downsample_factor``,
-            ``centroid_x``, ``centroid_y``.  Empty list when no more rows
-            are available.
+            ``centroid_x``, ``centroid_y``, ``patch_image``.
+            Empty list when no more rows are available.
         """
         shard_table = build_table_name(self.project_id, shard_id)
         rows = self._session.execute(
             text(
-                f"SELECT * "
+                f"SELECT patch_id, patch_uid, label_class_id, image_id, "
+                f"downsample_factor, centroid_x, centroid_y, patch_image "
                 f"FROM {shard_table} "
                 f"WHERE patch_id > :after_id "
                 f"ORDER BY patch_id "
