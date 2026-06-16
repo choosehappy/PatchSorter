@@ -10,7 +10,7 @@ services:
     ports:
       - ${CITUS_PORT}:5432
     volumes:
-      - citus_data:/var/lib/postgresql/data
+      - citus_data:/var/lib/postgresql
     networks:
       - ps_net
 

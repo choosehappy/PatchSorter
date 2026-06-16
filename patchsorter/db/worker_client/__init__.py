@@ -1,10 +1,10 @@
 """Worker client helpers (thin wrappers returning SessionManager for worker nodes)."""
 from patchsorter.db.constants import (
-    CITUS_WORKER_HOST,
-    CITUS_WORKER_PORT,
-    CITUS_WORKER_DB,
-    CITUS_WORKER_USER,
-    CITUS_WORKER_PASSWORD,
+    CITUS_LOCAL_HOST,
+    CITUS_LOCAL_PORT,
+    CITUS_LOCAL_DB,
+    CITUS_LOCAL_USER,
+    CITUS_LOCAL_PASSWORD,
 )
 from patchsorter.db.utils import SessionManager
 from patchsorter.db.worker_client.patch import WorkerPatchStore
@@ -21,10 +21,10 @@ def get_client() -> SessionManager:
     global _worker_client
     if _worker_client is None:
         _worker_client = SessionManager(
-            host=CITUS_WORKER_HOST,
-            port=CITUS_WORKER_PORT,
-            dbname=CITUS_WORKER_DB,
-            user=CITUS_WORKER_USER,
-            password=CITUS_WORKER_PASSWORD,
+            host=CITUS_LOCAL_HOST,
+            port=CITUS_LOCAL_PORT,
+            dbname=CITUS_LOCAL_DB,
+            user=CITUS_LOCAL_USER,
+            password=CITUS_LOCAL_PASSWORD,
         )
     return _worker_client

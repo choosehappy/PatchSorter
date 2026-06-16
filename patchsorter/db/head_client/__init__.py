@@ -21,6 +21,11 @@ from patchsorter.db.constants import (
     CITUS_HEAD_DB,
     CITUS_HEAD_USER,
     CITUS_HEAD_PASSWORD,
+    CITUS_LOCAL_PASSWORD,
+    CITUS_LOCAL_HOST,
+    CITUS_LOCAL_PORT,
+    CITUS_LOCAL_DB,
+    CITUS_LOCAL_USER,
 )
 from patchsorter.db.utils import SessionManager
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
@@ -61,15 +66,15 @@ __all__ = [
 _head_client: SessionManager | None = None
 
 
-def get_client() -> SessionManager:
+def get_client(is_local: bool = False) -> SessionManager:
     """Return a `SessionManager` configured for the head node using repo constants."""
     global _head_client
     if _head_client is None:
         _head_client = SessionManager(
-            host=CITUS_HEAD_HOST,
-            port=CITUS_HEAD_PORT,
-            dbname=CITUS_HEAD_DB,
-            user=CITUS_HEAD_USER,
-            password=CITUS_HEAD_PASSWORD,
+            host=CITUS_LOCAL_HOST if is_local else CITUS_HEAD_HOST,
+            port=CITUS_LOCAL_PORT if is_local else CITUS_HEAD_PORT,
+            dbname=CITUS_LOCAL_DB if is_local else CITUS_HEAD_DB,
+            user=CITUS_LOCAL_USER if is_local else CITUS_HEAD_USER,
+            password=CITUS_LOCAL_PASSWORD if is_local else CITUS_HEAD_PASSWORD,
         )
     return _head_client
