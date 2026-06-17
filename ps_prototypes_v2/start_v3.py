@@ -257,21 +257,22 @@ for _ in range(10_000):
 
             #-------------- write to sqlite
             # --- enqueue first view's coords and embeddings to the DB writer (non-blocking)
-            try:
-                # take first view only
-                first_view_coords = proj_coords[0].detach().cpu().float().numpy()
-                first_view_embs = proj_emb[0].detach().cpu().float().numpy()
-                # ids may be tensor or list
+            if True:
                 try:
-                    ids_np = ids.detach().cpu().numpy()
-                except Exception:
-                    import numpy as _np
+                    # take first view only
+                    first_view_coords = proj_coords[0].detach().cpu().float().numpy()
+                    first_view_embs = proj_emb[0].detach().cpu().float().numpy()
+                    # ids may be tensor or list
+                    try:
+                        ids_np = ids.detach().cpu().numpy()
+                    except Exception:
+                        import numpy as _np
 
-                    ids_np = _np.asarray(ids)
+                        ids_np = _np.asarray(ids)
 
-                db_writer.enqueue(ids_np, first_view_coords, first_view_embs)
-            except Exception as _e:
-                logger.exception("DB enqueue failed: %s", _e)
+                    db_writer.enqueue(ids_np, first_view_coords, first_view_embs)
+                except Exception as _e:
+                    logger.exception("DB enqueue failed: %s", _e)
             #------- finish write
 
             pred_logits = logits.view(V, B, -1)
@@ -300,10 +301,10 @@ for _ in range(10_000):
                 # use the learnable prototypes from the joint head for embedding SwAV
                 simclr_emb_loss = swav_loss(proj_emb, prototypes=joint_head.prototypes)
                 # for coordinates, keep k-means-based SwAV (prototypes not provided)
-                simclr_emb_loss_coord = swav_loss(proj_coords)
+                #simclr_emb_loss_coord = swav_loss(proj_coords)
             else:
                 simclr_emb_loss = simclr_loss(proj_emb, temperature=0.07)
-                simclr_emb_loss_coord = simclr_loss(proj_coords, temperature=0.07)
+                #simclr_emb_loss_coord = simclr_loss(proj_coords, temperature=0.07)
 
             # flat [nviews*B, D] — drop-in for all existing functions
             proj_emb = proj_emb.view(-1, proj_emb.shape[-1])
@@ -353,7 +354,7 @@ for _ in range(10_000):
                 COORD_CONSITENCY_LOSS * coord_consistency_loss
                 + COORD_CONTRASTIVE_LOSS * coord_contrastive_loss
                 + SIMCLR_EMB_LOSS * simclr_emb_loss
-                + SIMCLR_EMB_LOSS * simclr_emb_loss_coord
+                #+ SIMCLR_EMB_LOSS * simclr_emb_loss_coord
                 #                        + SPREAD_LOSS * spread_loss_val
                 + MAX_MEAN_LOSS * max_mean_discrepancy_loss
                 # BATCH_BIN_LAMBDA  * occ_loss
@@ -448,7 +449,7 @@ for _ in range(10_000):
                 "loss/coord_contrastive", coord_contrastive_loss.item(), niter_total
             )
             writer.add_scalar("loss/simclr_emb", simclr_emb_loss.item(), niter_total)
-            writer.add_scalar("loss/simclr_coord", simclr_emb_loss_coord.item(), niter_total)
+            #writer.add_scalar("loss/simclr_coord", simclr_emb_loss_coord.item(), niter_total)
             #writer.add_scalar("loss/spread", spread_loss_val.item(), niter_total)
             writer.add_scalar(
                 "loss/max_mean_discrepancy",
@@ -508,7 +509,12 @@ for _ in range(10_000):
 
             writer.add_scalar("loss/num_pseudo/total", total_pseudo, niter_total)
 
-            #add sqlite update
+            #add histograms for embedding dimensions
+            for di,d in enumerate(proj_emb.T):
+                writer.add_histogram(f"emb_dims/proj_emb_{di}", d.detach(), niter_total)
+
+
+
             niter_total += 1
 
 

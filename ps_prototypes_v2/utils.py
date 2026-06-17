@@ -1095,32 +1095,31 @@ def neighborhood_loss(z_batch, proj_coords, k=K_NEIGHBORS, temp=.1):
     loss = 0.0
 
     for v in range(V):
-
         # Build target neighborhood in embedding space (no gradient needed)
-        # with torch.no_grad():
-        #     emb_dists = torch.cdist(z_batch[v], z_batch[v])
-        #     emb_dists_masked = emb_dists.masked_fill(diag_mask, 1e9)
-        #     neighbor_idx = torch.topk(emb_dists_masked, k=k, largest=False).indices  # [B, k]
-
         with torch.no_grad():
-            emb_dists = torch.cdist(z_batch[v], z_batch[v])  # [B, B]
-            emb_dists_masked = emb_dists.masked_fill(diag_mask, 1e9)
+            X = z_batch[v]  # [B, D]
+            # squared distances via norms and matmul: sq_dists[i,j] = ||xi||^2 + ||xj||^2 - 2 xi·xj
+            x_norm = (X * X).sum(dim=1)  # [B]
+            sq = x_norm.unsqueeze(1) + x_norm.unsqueeze(0) - 2.0 * (X @ X.t())  # [B, B]
+            sq = sq.clamp(min=0.0)
+            emb_dists_masked = sq.masked_fill(diag_mask, 1e9)
             neighbor_idx = torch.topk(emb_dists_masked, k=k, largest=False).indices  # [B, k]
 
-            # optional inverse distance weights
-            neighbor_dists = emb_dists[torch.arange(B).unsqueeze(1), neighbor_idx]
+            # optional inverse distance weights (use sqrt for distances)
+            neighbor_sq = sq[torch.arange(B).unsqueeze(1), neighbor_idx]
+            neighbor_dists = torch.sqrt(neighbor_sq + 1e-12)
             weights = 1.0 / (neighbor_dists + 1e-8)
             weights /= weights.sum(dim=1, keepdim=True)
 
-
-        # Projection distances (gradient flows here)
-        proj_dists = torch.cdist(proj_coords[v], proj_coords[v])
+        # Projection distances (gradient flows here) - compute actual distances
+        P = proj_coords[v]
+        p_norm = (P * P).sum(dim=1)
+        proj_sq = p_norm.unsqueeze(1) + p_norm.unsqueeze(0) - 2.0 * (P @ P.t())
+        proj_sq = proj_sq.clamp(min=0.0)
+        proj_dists = torch.sqrt(proj_sq + 1e-12)
         proj_dists_masked = proj_dists.masked_fill(diag_mask, 1e9)
 
         log_probs = torch.log_softmax(-proj_dists_masked / temp, dim=1)  # [B, B]
-
-        # neighbor_log_probs = log_probs.gather(dim=1, index=neighbor_idx)  # [B, k]
-        # loss += -neighbor_log_probs.mean()
 
         neighbor_log_probs = log_probs.gather(dim=1, index=neighbor_idx)
         loss += -(weights * neighbor_log_probs).sum(dim=1).mean()
@@ -1497,45 +1496,142 @@ def _kmeans_prototypes(emb_flat: torch.Tensor, K: int, iters: int = 10) -> torch
     centroids = emb_flat[idx].clone()
 
     for _ in range(max(1, int(iters))):
-        # distances: [N, K]
-        dists = torch.cdist(emb_flat, centroids)
-        labels = dists.argmin(dim=1)
-        # recompute centroids
-        for k in range(K):
-            mask = labels == k
-            if mask.any():
-                centroids[k] = emb_flat[mask].mean(dim=0)
+        # distances (squared) via norms + matmul to avoid cdist overhead
+        x_norm = (emb_flat * emb_flat).sum(dim=1)  # [N]
+        c_norm = (centroids * centroids).sum(dim=1)  # [K]
+        sq = x_norm.unsqueeze(1) + c_norm.unsqueeze(0) - 2.0 * (emb_flat @ centroids.t())  # [N, K]
+        sq = sq.clamp(min=0.0)
+        labels = sq.argmin(dim=1)
+
+        # recompute centroids via index_add (vectorized)
+        sums = torch.zeros((K, D), device=device)
+        sums = sums.index_add(0, labels, emb_flat)
+        counts = torch.bincount(labels, minlength=K).unsqueeze(1).to(device)
+
+        # Handle empty clusters by reinitializing to a random point
+        empty = (counts.squeeze() == 0)
+        if empty.any():
+            # sample random points to seed empty centroids
+            rnd_idx = torch.randperm(N, device=device)[: empty.sum().item()]
+            sums[empty] = emb_flat[rnd_idx]
+            counts[empty] = 1
+
+        centroids = sums / counts
 
     return centroids
 
+# def _distributed_sinkhorn(out: torch.Tensor, iters: int = 3, eps: float = 0.05) -> torch.Tensor:
+# #     """
+# #     Sinkhorn-Knopp to produce balanced soft assignments.
+# #     `out` is [B, K] (scores). Returns Q of shape [B, K] that sums to 1 across all elements
+# #     and is approximately row/col normalized like SwAV.
+# #     """
+# #     with torch.no_grad():
+#         # Support both single-matrix [B, K] and batched [V, B, K]
+#         if out.dim() == 2:
+#             Q = torch.exp(out / eps).t()  # K x B
+#             sum_Q = Q.sum()
+#             Q /= sum_Q
 
-def _distributed_sinkhorn(out: torch.Tensor, iters: int = 3, eps: float = 0.05) -> torch.Tensor:
+#             K, B = Q.shape
+#             r = torch.ones(K, device=out.device) / K
+#             c = torch.ones(B, device=out.device) / B
+
+#             for _ in range(iters):
+#                 # normalize rows
+#                 u = Q.sum(dim=1)
+#                 Q = Q * (r / (u + 1e-12)).unsqueeze(1)
+#                 # normalize cols
+#                 Q = Q * (c / (Q.sum(dim=0) + 1e-12)).unsqueeze(0)
+
+#             Q = (Q / Q.sum(dim=0, keepdim=True))
+#             return Q.t()
+#         elif out.dim() == 3:
+#             # out: [V, B, K] -> operate per-view, produce [V, B, K]
+#             V, B, K = out.shape
+#             Q = torch.exp(out / eps).permute(0, 2, 1).contiguous()  # [V, K, B]
+#             sum_Q = Q.sum(dim=(1, 2), keepdim=True)
+#             Q = Q / (sum_Q + 1e-12)
+
+#             r = torch.ones((V, K), device=out.device) / K
+#             c = torch.ones((V, B), device=out.device) / B
+
+#             for _ in range(iters):
+#                 u = Q.sum(dim=2)  # [V, K]
+#                 Q = Q * (r.unsqueeze(2) / (u.unsqueeze(2) + 1e-12))
+#                 col_sum = Q.sum(dim=1)  # [V, B]
+#                 Q = Q * (c.unsqueeze(1) / (col_sum.unsqueeze(1) + 1e-12))
+
+#             Q = Q / (Q.sum(dim=2, keepdim=True) + 1e-12)
+#             return Q.permute(0, 2, 1).contiguous()  # [V, B, K]
+#         else:
+#             raise ValueError("_distributed_sinkhorn expects 2D or 3D input")
+
+
+
+def _distributed_sinkhorn(out: torch.Tensor, iters: int = 3, eps: float = 0.05, debug: bool = False) -> torch.Tensor:
     """
     Sinkhorn-Knopp to produce balanced soft assignments.
-    `out` is [B, K] (scores). Returns Q of shape [B, K] that sums to 1 across all elements
-    and is approximately row/col normalized like SwAV.
+    Supports 2D input `[B, K]` and 3D batched input `[V, B, K]`.
+    When `debug=True` prints marginal statistics for inspection.
     """
     with torch.no_grad():
-        Q = torch.exp(out / eps).t()  # K x B
-        sum_Q = Q.sum()
-        Q /= sum_Q
+        if out.dim() == 2:
+            Q = torch.exp(out / eps).t()  # [K, B]
+            # column-normalize so each sample column sums to 1 (targets c = 1/B)
+            Q = Q / (Q.sum(dim=0, keepdim=True) + 1e-12)
 
-        K, B = Q.shape
-        r = torch.ones(K, device=out.device) / K
-        c = torch.ones(B, device=out.device) / B
+            K, B = Q.shape
+            r = torch.ones(K, device=out.device) / K
+            c = torch.ones(B, device=out.device) / B
 
-        for _ in range(iters):
-            # normalize rows
-            u = Q.sum(dim=1)
-            Q = Q * (r / (u + 1e-12)).unsqueeze(1)
-            # normalize cols
-            Q = Q * (c / (Q.sum(dim=0) + 1e-12)).unsqueeze(0)
+            for _ in range(iters):
+                u = Q.sum(dim=1)
+                Q = Q * (r / (u + 1e-12)).unsqueeze(1)
+                Q = Q * (c / (Q.sum(dim=0) + 1e-12)).unsqueeze(0)
 
-        Q = (Q / Q.sum(dim=0, keepdim=True))
-        return Q.t()
+            # Return joint assignment shaped [B, K]
+            result = Q.t()
 
+            if debug:
+                proto_marginal = result.sum(dim=0)  # [K]
+                sample_marginal = result.sum(dim=1)  # [B]
+                print(f"Sinkhorn (2D) proto mean={proto_marginal.mean().item():.6e}, std={proto_marginal.std().item():.6e}")
+                print(f"Sinkhorn (2D) sample mean={sample_marginal.mean().item():.6e}, std={sample_marginal.std().item():.6e}")
 
-def swav_loss(proj_emb, K: int = SWAV_PROTOTYPES, kmeans_iters: int = SWAV_KMEANS_ITERS, sinkhorn_iters: int = SWAV_SINKHORN_ITERS, temp: float = 0.1, eps: float = SWAV_EPS, prototypes: Optional[torch.Tensor] = None):
+            return result
+
+        elif out.dim() == 3:
+            V, B, K = out.shape
+            Q = torch.exp(out / eps).permute(0, 2, 1)  # [V, K, B]
+            sum_Q = Q.sum(dim=(1, 2), keepdim=True)
+            Q = Q / (sum_Q + 1e-12)
+
+            r = torch.ones((V, K), device=out.device) / K
+            c = torch.ones((V, B), device=out.device) / B
+
+            for _ in range(iters):
+                u = Q.sum(dim=2)  # [V, K]
+                Q = Q * (r.unsqueeze(2) / (u.unsqueeze(2) + 1e-12))
+                col_sum = Q.sum(dim=1)  # [V, B]
+                Q = Q * (c.unsqueeze(1) / (col_sum.unsqueeze(1) + 1e-12))
+
+            # Return per-view joint assignments shaped [V, B, K]
+            result = Q.permute(0, 2, 1)
+
+            if debug:
+                proto_marginal = result.sum(dim=1)  # [V, K]
+                sample_marginal = result.sum(dim=2)  # [V, B]
+                print(f"Sinkhorn (3D) proto mean={proto_marginal.mean().item():.6e}, std={proto_marginal.std().item():.6e}")
+                print(f"Sinkhorn (3D) sample mean={sample_marginal.mean().item():.6e}, std={sample_marginal.std().item():.6e}")
+
+            return result
+
+        else:
+            raise ValueError("_distributed_sinkhorn expects 2D or 3D input")
+
+def swav_loss(proj_emb, K: int = SWAV_PROTOTYPES, kmeans_iters: int = SWAV_KMEANS_ITERS, sinkhorn_iters: int = SWAV_SINKHORN_ITERS, temp: float = 0.1,
+               eps: float = SWAV_EPS, prototypes: Optional[torch.Tensor] = None, debug: bool = False):
     """
     Simplified in-batch SwAV-like loss.
 
@@ -1548,7 +1644,9 @@ def swav_loss(proj_emb, K: int = SWAV_PROTOTYPES, kmeans_iters: int = SWAV_KMEAN
     V, B, D = proj_emb.shape
     device = proj_emb.device
 
-    emb_flat = F.normalize(proj_emb.view(V * B, D), dim=1)
+    # normalize once and reuse
+    emb = F.normalize(proj_emb, dim=2)
+    emb_flat = emb.view(V * B, D)
 
     # use provided learnable prototypes if supplied, otherwise compute k-means
     if prototypes is not None:
@@ -1561,26 +1659,46 @@ def swav_loss(proj_emb, K: int = SWAV_PROTOTYPES, kmeans_iters: int = SWAV_KMEAN
     # scores: [V, B, K]
     scores = torch.einsum("vbd,kd->vbk", F.normalize(proj_emb, dim=2), prot)
 
-    loss = 0.0
-    n_terms = 0
+    # Vectorized pairwise swapped prediction loss
+    # ensure temperature isn't extremely small (prevents saturation)
+    temp_safe = max(1e-3, float(temp))
+    if debug and temp < 1e-3:
+        print(f"swav_loss warning: temp too small ({temp}), clamping to {temp_safe}")
 
-    for v in range(V):
-        for v2 in range(V):
-            if v == v2:
-                continue
+    # log_probs: [V, B, K]
+    log_probs = F.log_softmax(scores / temp_safe, dim=2)
 
-            with torch.no_grad():
-                q = _distributed_sinkhorn(scores[v2].detach(), iters=sinkhorn_iters, eps=eps)  # [B, K]
+    with torch.no_grad():
+        # compute soft targets q for every view in parallel: returns [V, B, K]
+        # Sinkhorn returns a joint distribution Q that sums to 1 across (B,K).
+        # To obtain per-sample target distributions we scale by B so each row sums to 1.
+        q_all = _distributed_sinkhorn(scores.detach(), iters=sinkhorn_iters, eps=eps, debug=debug)
+        # normalize per-sample to obtain per-sample distributions that sum to 1
+        q_all = q_all / (q_all.sum(dim=2, keepdim=True) + 1e-12)
 
-            # scores[v] is shape [B, K] → softmax over prototype dim (1)
-            log_probs = F.log_softmax(scores[v] / max(1e-8, temp), dim=1)  # [B, K]
+    if debug:
+        with torch.no_grad():
+            print(f"swav_loss debug: scores.shape={scores.shape}, q_all.shape={q_all.shape}, log_probs.shape={log_probs.shape}")
+            print(f"q_all min/max: {q_all.min().item():.3e}/{q_all.max().item():.3e}")
+            print(f"log_probs min/max: {log_probs.min().item():.3e}/{log_probs.max().item():.3e}")
+            # per-sample sums should now be ~1 after scaling
+            sample_sums = q_all.sum(dim=2)  # [V, B]
+            print(f"q_all per-sample sums mean={sample_sums.mean().item():.6e}, std={sample_sums.std().item():.6e}")
+            per_pair_sample = -torch.einsum("ubk,vbk->vub", q_all, log_probs)  # [V,V,B]
+            per_pair_mean_debug = per_pair_sample.mean(dim=2)
+            print(f"per_pair_mean stats mean={per_pair_mean_debug.mean().item():.6e}, min={per_pair_mean_debug.min().item():.6e}, max={per_pair_mean_debug.max().item():.6e}")
 
-            # cross-entropy between soft targets q and log_probs
-            loss_term = -(q * log_probs).sum(dim=1).mean()
-            loss += loss_term
-            n_terms += 1
+    # loss_matrix[v, u] = mean_b [ - sum_k q_all[u, b, k] * log_probs[v, b, k] ]
+    # compute per-pair, keep diagonal to ignore
+    # einsum -> shape [v, u, b]
+    per_pair = -torch.einsum("ubk,vbk->vub", q_all, log_probs)  # [V, V, B]
 
-    if n_terms == 0:
+    # ignore self-prediction pairs (v == u) by masking before reduction
+    mask = ~torch.eye(V, dtype=torch.bool, device=device)
+    if not mask.any():
         return torch.tensor(0.0, device=device)
 
-    return loss / n_terms
+    # collect off-diagonal entries and average
+    off_diag = per_pair[mask.unsqueeze(2).expand_as(per_pair)].view(-1, B)  # [V*(V-1), B]
+    loss = off_diag.mean()
+    return loss
