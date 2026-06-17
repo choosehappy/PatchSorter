@@ -33,11 +33,11 @@ except ImportError:
 
 def get_conn():
     return psycopg.connect(
-        host=CITUS_HEAD_HOST,
-        port=CITUS_HEAD_PORT,
-        dbname=CITUS_HEAD_DB,
-        user=CITUS_HEAD_USER,
-        password=CITUS_HEAD_PASSWORD,
+        host=os.environ.get("CITUS_HEAD_HOST", CITUS_HEAD_HOST),
+        port=os.environ.get("CITUS_HEAD_PORT", CITUS_HEAD_PORT),
+        dbname=os.environ.get("CITUS_HEAD_DB", CITUS_HEAD_DB),
+        user=os.environ.get("CITUS_HEAD_USER", CITUS_HEAD_USER),
+        password=os.environ.get("CITUS_HEAD_PASSWORD", CITUS_HEAD_PASSWORD),
         autocommit=True,
         row_factory=dict_row,
     )

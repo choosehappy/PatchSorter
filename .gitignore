@@ -12,6 +12,7 @@ __pycache__/
 prototyping/data/
 node_modules/
 _version.py
+mounts/
 
 ps_prototypes_v2/.vscode/launch.json
 ps_prototypes_v2/mitosis_ps_labels.pytable

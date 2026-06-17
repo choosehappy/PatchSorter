@@ -15,18 +15,7 @@ Exports:
 - :class:`SettingsStore` — ``settings``
 """
 
-from patchsorter.db.constants import (
-    CITUS_HEAD_HOST,
-    CITUS_HEAD_PORT,
-    CITUS_HEAD_DB,
-    CITUS_HEAD_USER,
-    CITUS_HEAD_PASSWORD,
-    CITUS_LOCAL_PASSWORD,
-    CITUS_LOCAL_HOST,
-    CITUS_LOCAL_PORT,
-    CITUS_LOCAL_DB,
-    CITUS_LOCAL_USER,
-)
+import os
 from patchsorter.db.utils import SessionManager
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 from patchsorter.db.head_client.image import ImageStore
@@ -66,15 +55,15 @@ __all__ = [
 _head_client: SessionManager | None = None
 
 
-def get_client(is_local: bool = False) -> SessionManager:
+def get_client(is_local: bool = True) -> SessionManager:
     """Return a `SessionManager` configured for the head node using repo constants."""
     global _head_client
     if _head_client is None:
         _head_client = SessionManager(
-            host=CITUS_LOCAL_HOST if is_local else CITUS_HEAD_HOST,
-            port=CITUS_LOCAL_PORT if is_local else CITUS_HEAD_PORT,
-            dbname=CITUS_LOCAL_DB if is_local else CITUS_HEAD_DB,
-            user=CITUS_LOCAL_USER if is_local else CITUS_HEAD_USER,
-            password=CITUS_LOCAL_PASSWORD if is_local else CITUS_HEAD_PASSWORD,
+            host=os.environ.get("CITUS_LOCAL_HOST" if is_local else "CITUS_HEAD_HOST", "localhost"),
+            port=int(os.environ.get("CITUS_LOCAL_PORT" if is_local else "CITUS_HEAD_PORT", "5439")),
+            dbname=os.environ.get("CITUS_LOCAL_DB" if is_local else "CITUS_HEAD_DB", "postgres"),
+            user=os.environ.get("CITUS_LOCAL_USER" if is_local else "CITUS_HEAD_USER", "postgres"),
+            password=os.environ.get("CITUS_LOCAL_PASSWORD" if is_local else "CITUS_HEAD_PASSWORD", "password"),
         )
     return _head_client

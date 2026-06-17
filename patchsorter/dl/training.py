@@ -44,7 +44,7 @@ DL_ACTOR_NAME = "dl_actor"
 # Hyperparameters
 # ---------------------------------------------------------------------------
 
-PATCH_SIZE: int = 60
+PATCH_SIZE: int = 256
 EMBED_DIM: int = 16
 PROJ_DIM: int = 2
 HIDDEN_DIM: int = 256
@@ -165,7 +165,7 @@ def train_worker(config: Dict[str, Any]) -> None:
     project_id: int = config["project_id"]
     patches_per_batch: int = config["patches_per_batch"]
 
-    head_sm = head_client.get_client()
+    head_sm = head_client.get_client(is_local=False)
     worker_sm = worker_client.get_client()
     dm = DatabaseManager(head_sm)
 
@@ -508,7 +508,7 @@ def _launch_training(
         },
         scaling_config=ScalingConfig(
             num_workers=num_workers,
-            use_gpu=False,
+            use_gpu=True,
         ),
     )
     return trainer.fit()

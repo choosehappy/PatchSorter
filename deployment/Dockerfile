@@ -41,6 +41,8 @@ WORKDIR /opt/PatchSorter
 
 COPY --chown=ray:users ../pyproject.toml /opt/PatchSorter/
 RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install torch torchvision --system \
+        --index-url https://download.pytorch.org/whl/cu126 && \
     uv pip install -r pyproject.toml --system
     
 COPY --chown=ray:users ./ /opt/PatchSorter/
