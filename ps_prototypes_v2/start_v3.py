@@ -36,10 +36,11 @@ class Dataset(object):
         with tables.open_file(self.fname, "r") as db:
             self.imgs = db.root.patch
             self.labels = db.root.tmp_label  # ps_label has all the data - here we're using just a random set created  in a noteobok
+            
 
             # get the requested image and mask from the pytable
             img = self.imgs[index, :, :, :]
-            label = self.labels[index]
+            label = self.labels[index] 
 
         img_new = img
 
@@ -66,7 +67,8 @@ class Dataset(object):
 
 # Initialize dataset with proper parameters
 dataset = Dataset(
-    "mitosis_ps_labels.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
+    #"mitosis_ps_labels.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
+    "mitosis_train_patches.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
 )
 
 
@@ -155,11 +157,13 @@ joint_head = JointHead(
 ).to(DEVICE)
 #mem_bank = MemoryBank(MEMORY_BANK_SIZE, feature_dim)
 
+from torchsummary import summary
+summary(joint_head, (1024,))
 
 # lr_head = 1e-3
 # lr_backbone = 1e-4
 lr_head = 1e-2
-lr_backbone = 1e-2
+lr_backbone = 1e-3
 weight_decay = 1e-5
 
 # spatial_mask = ContentAwareMask(H=PATCH_SIZE, W=PATCH_SIZE).to(DEVICE)
@@ -227,12 +231,12 @@ patch_mask = gaussian_mask(PATCH_SIZE, PATCH_SIZE).to(DEVICE)
 for _ in range(10_000):
     for batch_idx, batch_data in tqdm(enumerate(vram_prefetcher)):
         # forward all views → [nviews, B, D]
-        with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=True):
+        with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=False): ##TODO: don't use it while we're testing / building 
             *views, labels, orig, ids = batch_data
             labels = labels.long().to(DEVICE)
 
             # imgs = torch.cat(views, dim=0).half().to(DEVICE) / 255.0  # [B*V, C, H, W]
-            views = [v.half().to(DEVICE) for v in views]
+            #views = [v.half().to(DEVICE) for v in views] # lets not do this during development
 
             # Concatenate, convert to half-precision, and normalize
             imgs = torch.cat(views, dim=0) / 255.0  # [B*V, C, H, W]
@@ -301,7 +305,7 @@ for _ in range(10_000):
                 # use the learnable prototypes from the joint head for embedding SwAV
                 simclr_emb_loss = swav_loss(proj_emb, prototypes=joint_head.prototypes)
                 # for coordinates, keep k-means-based SwAV (prototypes not provided)
-                #simclr_emb_loss_coord = swav_loss(proj_coords)
+                #simclr_emb_loss_coord = swav_loss(proj_coords)  -- this seems crazy
             else:
                 simclr_emb_loss = simclr_loss(proj_emb, temperature=0.07)
                 #simclr_emb_loss_coord = simclr_loss(proj_coords, temperature=0.07)

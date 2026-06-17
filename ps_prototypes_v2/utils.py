@@ -489,6 +489,9 @@ class JointHead(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(),
             nn.Linear(hidden_dim, embed_dim),
             nn.BatchNorm1d(embed_dim),
             # nn.ReLU()
@@ -1035,64 +1038,14 @@ def semantic_head_loss(coords, labels, margin=5.0):
 # NEIGHBORHOOD LOSS (GPU kNN, approximate)
 # ------------------------
 def neighborhood_loss(z_batch, proj_coords, k=K_NEIGHBORS, temp=.1):
-#def soft_neighbor_loss(z_batch, proj_coords, k=10, temp=0.1):
-    # if z_batch.shape[0] <= 1:
-    #     return torch.tensor(0.0, device=DEVICE)
-
-    # # find kNN in embedding space (no grad, just index selection)
-    # with torch.no_grad():
-    #     emb_dists = torch.cdist(z_batch, z_batch)
-    #     _, idx = torch.topk(emb_dists, k=k + 1, largest=False)
-    #     idx = idx[:, 1:]  # [B, k] exclude self
-    #     # embedding distances to neighbors (for weighting)
-    #     emb_neighbor_dists = emb_dists.gather(1, idx)  # [B, k]
-    #     # weight by embedding closeness: closer in emb space = higher weight
-    #     weights = 1.0 / (emb_neighbor_dists + EPS)  # [B, k]
-    #     weights = weights / weights.sum(dim=1, keepdim=True)  # normalize
-
-    # # projection distances to neighbors (grad flows through here)
-    # neighbor_coords = proj_coords[idx]  # [B, k, 2]
-    # proj_neighbor_dists = torch.norm(
-    #     proj_coords.unsqueeze(1) - neighbor_coords, dim=2
-    # )  # [B, k]
-
-    # # weighted penalty: embedding-close neighbors should be proj-close too
-    # loss = (weights * proj_neighbor_dists**2).sum(dim=1).mean()
-    # return loss
-    # """
-    # z_batch:     [V, B, D]
-    # proj_coords: [V, B, 2]
-    # """
-    # V, B, D = z_batch.shape
-
-    # same_patch = (torch.arange(B, device=z_batch.device).unsqueeze(0) ==
-    #               torch.arange(B, device=z_batch.device).unsqueeze(1))  # [B, B]
-    # eye = torch.eye(B, dtype=torch.bool, device=z_batch.device)
-
-    # loss = 0.0
-    # for v in range(V):
-    #     # each view independently defines its own neighborhood target
-    #     with torch.no_grad():
-    #         emb_dists = torch.cdist(z_batch[v], z_batch[v])  # [B, B]
-    #         emb_dists = emb_dists.masked_fill(same_patch, float('inf'))
-    #         neighbor_idx = torch.topk(emb_dists, k, largest=False).indices  # [B, k]
-    #         target = torch.zeros(B, B, device=z_batch.device)
-    #         target.scatter_(1, neighbor_idx, 1.0 / k)
-
-    #     # projection loss for this view
-    #     proj_dists = torch.cdist(proj_coords[v], proj_coords[v])  # [B, B]
-    #     proj_dists = proj_dists.masked_fill(same_patch | eye, float('inf'))
-    #     log_probs = torch.log_softmax(-proj_dists / temp, dim=1)
-    #     loss += -(target * log_probs).sum(dim=1).mean()
-
-    # return loss / V
-
     V, B, D = z_batch.shape
     assert k < B, f"k={k} must be < batch size={B}"
 
     diag_mask = torch.eye(B, dtype=torch.bool, device=z_batch.device)
 
     loss = 0.0
+    adaptive_temp = None
+
 
     for v in range(V):
         # Build target neighborhood in embedding space (no gradient needed)
@@ -1119,7 +1072,14 @@ def neighborhood_loss(z_batch, proj_coords, k=K_NEIGHBORS, temp=.1):
         proj_dists = torch.sqrt(proj_sq + 1e-12)
         proj_dists_masked = proj_dists.masked_fill(diag_mask, 1e9)
 
-        log_probs = torch.log_softmax(-proj_dists_masked / temp, dim=1)  # [B, B]
+
+        if adaptive_temp is None:
+            with torch.no_grad():
+                nn_dists = proj_dists.detach().masked_fill(diag_mask, 1e9).min(dim=1).values
+                adaptive_temp = (nn_dists.mean() / (1.0 + 0.5 * k)).clamp(0.05, 20.0)
+
+
+        log_probs = torch.log_softmax(-proj_dists_masked / adaptive_temp, dim=1)  # [B, B]
 
         neighbor_log_probs = log_probs.gather(dim=1, index=neighbor_idx)
         loss += -(weights * neighbor_log_probs).sum(dim=1).mean()
@@ -1294,142 +1254,6 @@ def simclr_loss(proj_emb, temperature=0.5):
         return loss
 
 
-def vicreg_loss(proj_emb, sim_coeff=25.0, var_coeff=25.0, cov_coeff=1.0, epsilon=1e-4):
-    """
-    proj_emb: [N, D] or [V, B, D]
-    If [N, D], we assume it's already flattened view * batch
-    """
-
-    # Handle both shapes - either [N, D] or [V, B, D]
-    if len(proj_emb.shape) == 2:
-        # Assume flat shape [N, D]
-        emb = proj_emb.float()
-        N, D = proj_emb.shape
-
-        # For flattened input, we can't do view-wise invariance
-        # Just compute variance and covariance loss for the whole tensor
-        # Compute variance loss (minimize variance of each feature dimension)
-        var_loss = torch.mean(torch.var(emb, dim=0))
-
-        # Compute covariance loss (minimize covariances between features)
-        centered_emb = emb - torch.mean(emb, dim=0, keepdim=True)
-        cov_matrix = torch.matmul(centered_emb.T, centered_emb) / (N - 1 + epsilon)
-        cov_loss = torch.sum(cov_matrix**2) - torch.sum(torch.diag(cov_matrix) ** 2)
-
-        # Total loss
-        loss = sim_coeff * 0.0 + var_coeff * var_loss + cov_coeff * cov_loss
-
-        return loss
-    else:
-        # Handle [V, B, D] shape (original implementation)
-        V, B, D = proj_emb.shape
-        emb_flat = proj_emb.view(V * B, D).float()
-
-        # split back into views for pairwise invariance
-        views = proj_emb.unbind(dim=0)  # V x [B, D]
-
-        # --- Invariance: pull same sample together across views ---
-        inv_loss = sum(
-            F.mse_loss(views[i].float(), views[j].float())
-            for i in range(V)
-            for j in range(i + 1, V)
-        ) / (V * (V - 1) // 2)
-
-        # --- Variance: push std of each dim above epsilon ---
-        std = emb_flat.std(dim=0)  # [D]
-        var_loss = F.relu(1.0 - std).mean()
-
-        # --- Covariance: decorrelate dimensions ---
-        emb_centered = emb_flat - emb_flat.mean(dim=0)
-        cov = (emb_centered.T @ emb_centered) / (B * V - 1)  # [D, D]
-        off_diag = cov.pow(2).sum() - cov.diagonal().pow(2).sum()
-        cov_loss = off_diag / D
-
-        return sim_coeff * inv_loss + var_coeff * var_loss + cov_coeff * cov_loss
-
-
-# def log_nearest_neighbors(writer, img_aug, orig, proj_emb, proj_coords, niter_total,
-#                            n_queries=5, n_neighbors=5):
-
-#     V_B, D = proj_emb.shape
-#     B = orig.shape[0]
-#     V = V_B // B
-
-#     # --- orig imgs: [B, 64, 64, 3] -> [B, 3, 64, 64] ---
-#     imgs_orig = orig.float() / 255.0 if orig.max() > 1.0 else orig.float()
-#     imgs_orig = imgs_orig.cpu().permute(0, 3, 1, 2)  # [B, 3, H, W]
-
-#     # --- aug imgs: [V*B, 3, h, w] -> [V, B, 3, h, w] ---
-#     imgs_aug = img_aug.float() / 255.0 if img_aug.max() > 1.0 else img_aug.float()
-#     imgs_aug = imgs_aug.cpu().view(V, B, *img_aug.shape[1:])
-
-#     # Normalize embeddings and reshape
-#     emb = F.normalize(proj_emb.detach().cpu().float(), dim=-1).view(V, B, D)
-#     emb_v0, emb_v1 = emb[0], emb[1]  # [B, D] each
-
-#     coords = proj_coords.detach().cpu().float().view(V, B, -1)
-#     coords_v0, coords_v1 = coords[0], coords[1]  # [B, 2] each
-
-#     query_idx = torch.randperm(B)[:n_queries].tolist()
-
-#     H, W = imgs_orig.shape[2], imgs_orig.shape[3]
-
-#     def pad_to(t, th, tw):
-#         _, _, h, w = t.shape
-#         ph, pw = (th - h) // 2, (tw - w) // 2
-#         return F.pad(t, (pw, tw - w - pw, ph, th - h - ph))
-
-#     def make_grid(sim, use_aug_query, use_aug_neighbors):
-#         q_imgs  = imgs_aug[0] if use_aug_query     else imgs_orig
-#         nn_imgs = imgs_aug[1] if use_aug_neighbors else imgs_orig
-#         if use_aug_query:     q_imgs  = pad_to(q_imgs,  H, W)
-#         if use_aug_neighbors: nn_imgs = pad_to(nn_imgs, H, W)
-
-#         rows = []
-#         for qi in query_idx:
-#             nn_idx = sim[qi].argsort(descending=True).tolist()
-#             nn_idx = [i for i in nn_idx if i != qi][:n_neighbors]
-#             row = torch.cat([q_imgs[qi].unsqueeze(0), nn_imgs[nn_idx]], dim=0)
-#             rows.append(row)
-#         return vutils.make_grid(torch.cat(rows, dim=0), nrow=n_neighbors + 1, padding=2, normalize=False)
-
-#     sim_emb   = torch.mm(emb_v0,    emb_v1.T)                        # [B, B]
-#     sim_coords = -torch.cdist(coords_v0, coords_v1)                  # [B, B] higher = closer
-
-#     for space, sim in [("emb", sim_emb), ("coords", sim_coords)]:
-#         writer.add_image(f"nn/{space}/orig_orig", make_grid(sim, False, False), niter_total)
-#         writer.add_image(f"nn/{space}/orig_aug",  make_grid(sim, False, True),  niter_total)
-#         writer.add_image(f"nn/{space}/aug_orig",  make_grid(sim, True,  False), niter_total)
-#         writer.add_image(f"nn/{space}/aug_aug",   make_grid(sim, True,  True),  niter_total)
-
-#     # Positive rank
-#     ranks = [(sim_emb[b].argsort(descending=True) == b).nonzero(as_tuple=True)[0].item()
-#              for b in range(B)]
-#     writer.add_scalar("nn/mean_positive_rank", sum(ranks) / len(ranks), niter_total)
-#     writer.add_histogram("nn/positive_rank_dist", torch.tensor(ranks), niter_total)
-
-
-# def log_nearest_neighbors_orig(writer, orig, sim_emb, sim_coords, niter_total, n_queries=5, n_neighbors=5):
-#     B = orig.shape[0]
-#     n_queries = min(n_queries, B)
-
-#     imgs = orig.float() / 255.0 if orig.max() > 1.0 else orig.float()
-#     imgs = imgs.cpu().permute(0, 3, 1, 2)  # [B, 3, H, W]
-
-#     query_idx = torch.randperm(B)[:n_queries].tolist()
-
-#     def make_grid(sim):
-#         rows = []
-#         for qi in query_idx:
-#             nn_idx = sim[qi].argsort(descending=True).tolist()
-#             nn_idx = [i for i in nn_idx if i != qi][:n_neighbors]
-#             row = torch.cat([imgs[qi].unsqueeze(0), imgs[nn_idx]], dim=0)
-#             rows.append(row)
-#         return vutils.make_grid(torch.cat(rows, dim=0), nrow=n_neighbors + 1, padding=2, normalize=False)
-
-#     writer.add_image("nn_orig/emb",    make_grid(sim_emb),    niter_total)
-#     writer.add_image("nn_orig/coords", make_grid(sim_coords), niter_total)
-
 
 def gaussian_mask(H, W, sigma=0.3):
     cy, cx = H / 2, W / 2
@@ -1439,47 +1263,6 @@ def gaussian_mask(H, W, sigma=0.3):
     mask = torch.exp(-(xx**2 + yy**2) / (2 * (sigma * H) ** 2))
     return mask / mask.max()  # [H, W]
 
-
-# class ContentAwareMask(nn.Module):
-#     def __init__(self, in_channels=3, sigma=0.3, H=64, W=64):
-#         super().__init__()
-
-#         # small encoder to predict mask from image
-#         self.encoder = nn.Sequential(
-#             nn.Conv2d(in_channels, 16, kernel_size=3, padding=1),
-#             nn.ReLU(),
-#             nn.Conv2d(16, 32, kernel_size=3, padding=1),
-#             nn.ReLU(),
-#             nn.Conv2d(32, 1, kernel_size=3, padding=1),
-#             nn.Sigmoid()  # [B, 1, H, W]
-#         )
-
-#         self._init_to_gaussian(in_channels, H, W, sigma)
-
-#     def _init_to_gaussian(self, in_channels, H, W, sigma):
-#         # target gaussian
-#         cy, cx = H / 2, W / 2
-#         y = torch.arange(H).float() - cy
-#         x = torch.arange(W).float() - cx
-#         yy, xx = torch.meshgrid(y, x, indexing='ij')
-#         target = torch.exp(-(xx**2 + yy**2) / (2 * (sigma * H)**2))
-#         target = (target / target.max()).unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
-
-#         # fit encoder to output gaussian for random inputs
-#         opt = torch.optim.Adam(self.encoder.parameters(), lr=1e-3)
-#         for _ in range(500):
-#             dummy = torch.randn(8, in_channels, H, W)
-#             pred  = self.encoder(dummy)
-#             loss  = F.mse_loss(pred, target.expand(8, -1, -1, -1))
-#             opt.zero_grad()
-#             loss.backward()
-#             opt.step()
-
-#         print(f"mask init loss: {loss.item():.4f}")
-
-#     def forward(self, imgs):
-#         mask = self.encoder(imgs)  # [B, 1, H, W]
-#         return imgs * mask
 
 
 def _kmeans_prototypes(emb_flat: torch.Tensor, K: int, iters: int = 10) -> torch.Tensor:
@@ -1520,115 +1303,41 @@ def _kmeans_prototypes(emb_flat: torch.Tensor, K: int, iters: int = 10) -> torch
 
     return centroids
 
-# def _distributed_sinkhorn(out: torch.Tensor, iters: int = 3, eps: float = 0.05) -> torch.Tensor:
-# #     """
-# #     Sinkhorn-Knopp to produce balanced soft assignments.
-# #     `out` is [B, K] (scores). Returns Q of shape [B, K] that sums to 1 across all elements
-# #     and is approximately row/col normalized like SwAV.
-# #     """
-# #     with torch.no_grad():
-#         # Support both single-matrix [B, K] and batched [V, B, K]
-#         if out.dim() == 2:
-#             Q = torch.exp(out / eps).t()  # K x B
-#             sum_Q = Q.sum()
-#             Q /= sum_Q
-
-#             K, B = Q.shape
-#             r = torch.ones(K, device=out.device) / K
-#             c = torch.ones(B, device=out.device) / B
-
-#             for _ in range(iters):
-#                 # normalize rows
-#                 u = Q.sum(dim=1)
-#                 Q = Q * (r / (u + 1e-12)).unsqueeze(1)
-#                 # normalize cols
-#                 Q = Q * (c / (Q.sum(dim=0) + 1e-12)).unsqueeze(0)
-
-#             Q = (Q / Q.sum(dim=0, keepdim=True))
-#             return Q.t()
-#         elif out.dim() == 3:
-#             # out: [V, B, K] -> operate per-view, produce [V, B, K]
-#             V, B, K = out.shape
-#             Q = torch.exp(out / eps).permute(0, 2, 1).contiguous()  # [V, K, B]
-#             sum_Q = Q.sum(dim=(1, 2), keepdim=True)
-#             Q = Q / (sum_Q + 1e-12)
-
-#             r = torch.ones((V, K), device=out.device) / K
-#             c = torch.ones((V, B), device=out.device) / B
-
-#             for _ in range(iters):
-#                 u = Q.sum(dim=2)  # [V, K]
-#                 Q = Q * (r.unsqueeze(2) / (u.unsqueeze(2) + 1e-12))
-#                 col_sum = Q.sum(dim=1)  # [V, B]
-#                 Q = Q * (c.unsqueeze(1) / (col_sum.unsqueeze(1) + 1e-12))
-
-#             Q = Q / (Q.sum(dim=2, keepdim=True) + 1e-12)
-#             return Q.permute(0, 2, 1).contiguous()  # [V, B, K]
-#         else:
-#             raise ValueError("_distributed_sinkhorn expects 2D or 3D input")
-
-
 
 def _distributed_sinkhorn(out: torch.Tensor, iters: int = 3, eps: float = 0.05, debug: bool = False) -> torch.Tensor:
     """
     Sinkhorn-Knopp to produce balanced soft assignments.
-    Supports 2D input `[B, K]` and 3D batched input `[V, B, K]`.
+    Only supports  3D batched input `[V, B, K]`.
     When `debug=True` prints marginal statistics for inspection.
     """
     with torch.no_grad():
-        if out.dim() == 2:
-            Q = torch.exp(out / eps).t()  # [K, B]
-            # column-normalize so each sample column sums to 1 (targets c = 1/B)
-            Q = Q / (Q.sum(dim=0, keepdim=True) + 1e-12)
+        V, B, K = out.shape
+        Q = torch.exp(out / eps).permute(0, 2, 1)  # [V, K, B]
+        sum_Q = Q.sum(dim=(1, 2), keepdim=True)
+        Q = Q / (sum_Q + 1e-12)
 
-            K, B = Q.shape
-            r = torch.ones(K, device=out.device) / K
-            c = torch.ones(B, device=out.device) / B
+        r = torch.ones((V, K), device=out.device) / K
+        c = torch.ones((V, B), device=out.device) / B
 
-            for _ in range(iters):
-                u = Q.sum(dim=1)
-                Q = Q * (r / (u + 1e-12)).unsqueeze(1)
-                Q = Q * (c / (Q.sum(dim=0) + 1e-12)).unsqueeze(0)
+        for _ in range(iters):
+            u = Q.sum(dim=2)  # [V, K]
+            Q = Q * (r.unsqueeze(2) / (u.unsqueeze(2) + 1e-12))
+            col_sum = Q.sum(dim=1)  # [V, B]
+            Q = Q * (c.unsqueeze(1) / (col_sum.unsqueeze(1) + 1e-12))
 
-            # Return joint assignment shaped [B, K]
-            result = Q.t()
+        # Return per-view joint assignments shaped [V, B, K]
+        result = Q.permute(0, 2, 1)
 
-            if debug:
-                proto_marginal = result.sum(dim=0)  # [K]
-                sample_marginal = result.sum(dim=1)  # [B]
-                print(f"Sinkhorn (2D) proto mean={proto_marginal.mean().item():.6e}, std={proto_marginal.std().item():.6e}")
-                print(f"Sinkhorn (2D) sample mean={sample_marginal.mean().item():.6e}, std={sample_marginal.std().item():.6e}")
+        if debug:
+            proto_marginal = result.sum(dim=1)  # [V, K]
+            sample_marginal = result.sum(dim=2)  # [V, B]
+            print(f"Sinkhorn (3D) proto mean={proto_marginal.mean().item():.6e}, std={proto_marginal.std().item():.6e}")
+            print(f"Sinkhorn (3D) sample mean={sample_marginal.mean().item():.6e}, std={sample_marginal.std().item():.6e}")
 
-            return result
+        return result
 
-        elif out.dim() == 3:
-            V, B, K = out.shape
-            Q = torch.exp(out / eps).permute(0, 2, 1)  # [V, K, B]
-            sum_Q = Q.sum(dim=(1, 2), keepdim=True)
-            Q = Q / (sum_Q + 1e-12)
-
-            r = torch.ones((V, K), device=out.device) / K
-            c = torch.ones((V, B), device=out.device) / B
-
-            for _ in range(iters):
-                u = Q.sum(dim=2)  # [V, K]
-                Q = Q * (r.unsqueeze(2) / (u.unsqueeze(2) + 1e-12))
-                col_sum = Q.sum(dim=1)  # [V, B]
-                Q = Q * (c.unsqueeze(1) / (col_sum.unsqueeze(1) + 1e-12))
-
-            # Return per-view joint assignments shaped [V, B, K]
-            result = Q.permute(0, 2, 1)
-
-            if debug:
-                proto_marginal = result.sum(dim=1)  # [V, K]
-                sample_marginal = result.sum(dim=2)  # [V, B]
-                print(f"Sinkhorn (3D) proto mean={proto_marginal.mean().item():.6e}, std={proto_marginal.std().item():.6e}")
-                print(f"Sinkhorn (3D) sample mean={sample_marginal.mean().item():.6e}, std={sample_marginal.std().item():.6e}")
-
-            return result
-
-        else:
-            raise ValueError("_distributed_sinkhorn expects 2D or 3D input")
+    # else:
+    #     raise ValueError("_distributed_sinkhorn expects 2D or 3D input")
 
 def swav_loss(proj_emb, K: int = SWAV_PROTOTYPES, kmeans_iters: int = SWAV_KMEANS_ITERS, sinkhorn_iters: int = SWAV_SINKHORN_ITERS, temp: float = 0.1,
                eps: float = SWAV_EPS, prototypes: Optional[torch.Tensor] = None, debug: bool = False):
@@ -1657,7 +1366,8 @@ def swav_loss(proj_emb, K: int = SWAV_PROTOTYPES, kmeans_iters: int = SWAV_KMEAN
         prot = F.normalize(prot, dim=1)
 
     # scores: [V, B, K]
-    scores = torch.einsum("vbd,kd->vbk", F.normalize(proj_emb, dim=2), prot)
+    scores = torch.einsum("vbd,kd->vbk", emb, prot)
+
 
     # Vectorized pairwise swapped prediction loss
     # ensure temperature isn't extremely small (prevents saturation)
@@ -1673,22 +1383,11 @@ def swav_loss(proj_emb, K: int = SWAV_PROTOTYPES, kmeans_iters: int = SWAV_KMEAN
         # Sinkhorn returns a joint distribution Q that sums to 1 across (B,K).
         # To obtain per-sample target distributions we scale by B so each row sums to 1.
         q_all = _distributed_sinkhorn(scores.detach(), iters=sinkhorn_iters, eps=eps, debug=debug)
-        # normalize per-sample to obtain per-sample distributions that sum to 1
-        q_all = q_all / (q_all.sum(dim=2, keepdim=True) + 1e-12)
+        # normalize per-sample to obtain per-sample distributions that sum to 1#: AJ this was comp generated, i don't think its correct since this isn't waht sinkhorn wants to do
+        #q_all = q_all / (q_all.sum(dim=2, keepdim=True) + 1e-12)
+        q_all = q_all * scores.shape[1]
 
-    if debug:
-        with torch.no_grad():
-            print(f"swav_loss debug: scores.shape={scores.shape}, q_all.shape={q_all.shape}, log_probs.shape={log_probs.shape}")
-            print(f"q_all min/max: {q_all.min().item():.3e}/{q_all.max().item():.3e}")
-            print(f"log_probs min/max: {log_probs.min().item():.3e}/{log_probs.max().item():.3e}")
-            # per-sample sums should now be ~1 after scaling
-            sample_sums = q_all.sum(dim=2)  # [V, B]
-            print(f"q_all per-sample sums mean={sample_sums.mean().item():.6e}, std={sample_sums.std().item():.6e}")
-            per_pair_sample = -torch.einsum("ubk,vbk->vub", q_all, log_probs)  # [V,V,B]
-            per_pair_mean_debug = per_pair_sample.mean(dim=2)
-            print(f"per_pair_mean stats mean={per_pair_mean_debug.mean().item():.6e}, min={per_pair_mean_debug.min().item():.6e}, max={per_pair_mean_debug.max().item():.6e}")
 
-    # loss_matrix[v, u] = mean_b [ - sum_k q_all[u, b, k] * log_probs[v, b, k] ]
     # compute per-pair, keep diagonal to ignore
     # einsum -> shape [v, u, b]
     per_pair = -torch.einsum("ubk,vbk->vub", q_all, log_probs)  # [V, V, B]
@@ -1699,6 +1398,8 @@ def swav_loss(proj_emb, K: int = SWAV_PROTOTYPES, kmeans_iters: int = SWAV_KMEAN
         return torch.tensor(0.0, device=device)
 
     # collect off-diagonal entries and average
-    off_diag = per_pair[mask.unsqueeze(2).expand_as(per_pair)].view(-1, B)  # [V*(V-1), B]
+    #off_diag = per_pair[mask.unsqueeze(2).expand_as(per_pair)].view(-1, B)  # [V*(V-1), B]
+    off_diag = per_pair[mask]  # Robustly yields [V * (V - 1), B]
+
     loss = off_diag.mean()
     return loss
