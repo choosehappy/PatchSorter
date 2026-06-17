@@ -209,7 +209,11 @@ def neighborhood_loss(
         Scalar loss.
     """
     V, B, D = z_batch.shape
-    assert k < B, f"k={k} must be < batch size B={B}"
+    k = min(k, B - 1)
+    if k < 1:
+        print(f"Warning: k={k} is too small for batch size B={B}, skipping neighborhood loss.")
+        return torch.tensor(0.0, device=z_batch.device)
+
     diag_mask = torch.eye(B, dtype=torch.bool, device=z_batch.device)
     loss = 0.0
 
