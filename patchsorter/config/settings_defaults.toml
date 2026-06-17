@@ -48,13 +48,18 @@ disabled = true
 
 [settings.dl_num_workers]
 scope   = "project"
-default = "8"
+default = "1"
 type    = "integer"
 
 [settings.dl_patches_per_batch]
 scope   = "project"
-default = "10000"
+default = "500"
 type    = "integer"
+
+[settings.patch_size]
+scope = "project"
+default = "64"
+type = "integer"
 
 # ---------------------------------------------------------------------------
 # Application-scoped settings

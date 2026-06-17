@@ -107,6 +107,7 @@ class DatabaseManager:
                 for (schema, tbl) in cur.fetchall():
                     cur.execute(f"DROP TABLE IF EXISTS {tbl} CASCADE;")
                     print(f"Dropped {schema}.{tbl}")
+            conn.commit()
 
     def setup_schema(self) -> None:
         """Create all tables and extensions required by the application.

@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import cv2
 import numpy as np
+from patchsorter.db.head_client.project import ProjectStore
 import torch
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
@@ -44,7 +45,6 @@ DL_ACTOR_NAME = "dl_actor"
 # Hyperparameters
 # ---------------------------------------------------------------------------
 
-PATCH_SIZE: int = 256
 EMBED_DIM: int = 16
 PROJ_DIM: int = 2
 HIDDEN_DIM: int = 256
@@ -160,11 +160,12 @@ def train_worker(config: Dict[str, Any]) -> None:
     Args:
         config: Dict passed by :class:`DLActor`.  Expected keys:
             - ``project_id`` (int)
-            - ``patches_per_batch`` (int)
+            - ``app_config`` (Dict[str, Any])
     """
     project_id: int = config["project_id"]
-    patches_per_batch: int = config["patches_per_batch"]
-
+    app_config = config["app_config"]
+    patches_per_batch: int = app_config.get("dl_patches_per_batch", 1000)
+    patch_size: int = app_config.get("patch_size", 64)
     head_sm = head_client.get_client(is_local=False)
     worker_sm = worker_client.get_client()
     dm = DatabaseManager(head_sm)
@@ -178,7 +179,7 @@ def train_worker(config: Dict[str, Any]) -> None:
     # -----------------------------------------------------------------------
     # Model initialisation
     # -----------------------------------------------------------------------
-    backbone, feature_dim = backbone_init(PATCH_SIZE)
+    backbone, feature_dim = backbone_init(patch_size)
     joint_head = JointHead(
         in_dim=feature_dim,
         hidden_dim=HIDDEN_DIM,
@@ -204,7 +205,7 @@ def train_worker(config: Dict[str, Any]) -> None:
     scaler = torch.amp.GradScaler("cuda")
 
     label_tracker = LabeledRateTracker(N_CLASS, momentum=0.9, device=str(device))
-    geom_transform, photo_transform = get_transforms(PATCH_SIZE)
+    geom_transform, photo_transform = get_transforms(patch_size)
 
     writer = SummaryWriter(
         log_dir=f"runs/worker_{rank}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -255,7 +256,7 @@ def train_worker(config: Dict[str, Any]) -> None:
             imgs_np: List[np.ndarray] = []
             valid_patches: List[Dict[str, Any]] = []
             for patch in batch:
-                img = _decode_patch_image(patch.get("patch_image"), PATCH_SIZE)
+                img = _decode_patch_image(patch.get("patch_image"), patch_size)
                 if img is None:
                     continue
                 imgs_np.append(img)
@@ -446,9 +447,8 @@ class DLActor:
     Use :func:`startup_dl_actor` to create the actor and start training.
     """
 
-    def __init__(self, project_id: int, patches_per_batch: int, app_config: Dict[str, Any]) -> None:
+    def __init__(self, project_id: int, app_config: Dict[str, Any]) -> None:
         self._project_id = project_id
-        self._patches_per_batch = patches_per_batch
         self._training_enabled: bool = False
         self._training_ref: Optional[ray.ObjectRef] = None
         self._app_config = app_config or {}
@@ -481,7 +481,7 @@ class DLActor:
         self._training_enabled = True
         self._training_ref = _launch_training.remote(
             self._project_id,
-            self._patches_per_batch,
+            self._app_config,
             num_workers,
         )
 
@@ -493,7 +493,7 @@ class DLActor:
 @ray.remote
 def _launch_training(
     project_id: int,
-    patches_per_batch: int,
+    app_config: Dict[str, Any],
     num_workers: int,
 ) -> Any:
     """Blocking Ray task that runs TorchTrainer.fit().
@@ -504,7 +504,7 @@ def _launch_training(
         train_loop_per_worker=train_worker,
         train_loop_config={
             "project_id": project_id,
-            "patches_per_batch": patches_per_batch,
+            "app_config": app_config,
         },
         scaling_config=ScalingConfig(
             num_workers=num_workers,
@@ -538,13 +538,12 @@ def startup_dl_actor(project_id: int) -> "DLActor":
         settings_store = SettingsStore(session)
         app_config = settings_store.get_all_as_dict(project_id)
 
-    patches_per_batch: int = app_config.get("dl_patches_per_batch", 1000)
     num_workers: int = app_config.get("dl_num_workers", 8)
 
     actor = DLActor.options(  # type: ignore[attr-defined]
         name=DL_ACTOR_NAME,
         get_if_exists=True,
-    ).remote(project_id, patches_per_batch, app_config=app_config)
+    ).remote(project_id, app_config)
 
     actor.start_dl_proc.remote(num_workers)
     return actor
