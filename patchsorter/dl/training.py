@@ -7,9 +7,9 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import cv2
 import numpy as np
-from patchsorter.db.head_client.project import ProjectStore
 import torch
 import torch.nn.functional as F
+from patchsorter.db.head_client.project import ProjectStore
 from torch.utils.tensorboard import SummaryWriter
 import ray
 import ray.train
@@ -21,6 +21,8 @@ from ray.train import ScalingConfig
 
 from patchsorter.db import head_client, worker_client
 from patchsorter.db.head_client.database_manager import DatabaseManager
+from patchsorter.db.head_client.label_class import LabelClassStore
+from patchsorter.api.v1.label_class.models import LabelClassResponse
 from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.db.worker_client.patch import WorkerPatchStore
 from patchsorter.dl.model import JointHead, backbone_init
@@ -49,7 +51,6 @@ EMBED_DIM: int = 16
 PROJ_DIM: int = 2
 HIDDEN_DIM: int = 256
 GRID_SIZE: float = 100
-N_CLASS: int = 5
 NVIEWS: int = 4
 BATCH_SIZE: int = 1024
 PSEUDO_THRESH: float = 0.9
@@ -69,6 +70,83 @@ REPULSION_LAMBDA: float = 0.1
 
 _IDEAL_SPACING = GRID_SIZE / math.sqrt(BATCH_SIZE)
 REPULSION_MARGIN: float = _IDEAL_SPACING * 10.5
+
+_UNASSIGNED_CLASS_ID = 1
+"""Reserved ``label_class_id`` for the "Unlabeled" class."""
+
+
+# ---------------------------------------------------------------------------
+# LabelMap — bidirectional DB ID <-> model class index mapping
+# ---------------------------------------------------------------------------
+
+class LabelMap:
+    """Bidirectional mapping between DB ``label_class_id`` and model class indices.
+
+    Excludes the unassigned class (``label_class_id == 1``) from the model's
+    output space entirely.  This guarantees that argmax predictions can never
+    produce the "Unlabeled" ID.
+
+    The mapping is built from the ordered list of valid (non-unassigned)
+    :class:`~patchsorter.api.v1.label_class.models.LabelClassResponse` rows for a project.
+    Valid classes are sorted by ``label_class_id`` so the mapping is
+    deterministic.
+
+    Attributes:
+        id_to_idx: ``{db_label_class_id: model_class_index}``
+        idx_to_id: ``{model_class_index: db_label_class_id}``
+    """
+
+    def __init__(self, label_classes: List[LabelClassResponse]) -> None:
+        valid = sorted(
+            [lc for lc in label_classes if lc.label_class_id != _UNASSIGNED_CLASS_ID],
+            key=lambda lc: lc.label_class_id,
+        )
+        self._id_to_idx: Dict[int, int] = {lc.label_class_id: i for i, lc in enumerate(valid)}
+        self._idx_to_id: Dict[int, int] = {i: lc.label_class_id for i, lc in enumerate(valid)}
+
+    @property
+    def id_to_idx(self) -> Dict[int, int]:
+        return self._id_to_idx
+
+    @property
+    def idx_to_id(self) -> Dict[int, int]:
+        return self._idx_to_id
+
+    def get_n_classes(self) -> int:
+        """Return the number of valid (non-unassigned) classes.
+
+        This is the value that should be passed as ``num_classes`` to the
+        model and as ``nclasses`` to :class:`~patchsorter.dl.losses.LabeledRateTracker`.
+        """
+        return len(self._id_to_idx)
+
+    def to_model_index(self, label_class_id: int | None) -> int:
+        """Convert a DB ``label_class_id`` to a model class index.
+
+        Args:
+            label_class_id: The database class ID, or ``None`` / ``1`` for
+                the unassigned class.
+
+        Returns:
+            A zero-based model class index (``0 .. n_classes-1``) for valid
+            classes, or ``-1`` for the unassigned / ``None`` case.
+        """
+        if label_class_id is None or label_class_id == _UNASSIGNED_CLASS_ID:
+            return -1
+        return self._id_to_idx.get(label_class_id, -1)
+
+    def from_model_index(self, model_idx: int) -> int:
+        """Convert a model class index back to a DB ``label_class_id``.
+
+        Args:
+            model_idx: A zero-based model class index.
+
+        Returns:
+            The corresponding ``label_class_id`` from the database.
+            Returns ``1`` (unassigned) as a safe fallback for out-of-range
+            indices.
+        """
+        return self._idx_to_id.get(model_idx, _UNASSIGNED_CLASS_ID)
 
 # ---------------------------------------------------------------------------
 # Image decoding helper
@@ -164,6 +242,7 @@ def train_worker(config: Dict[str, Any]) -> None:
     """
     project_id: int = config["project_id"]
     app_config = config["app_config"]
+    label_classes: List[LabelClassResponse] = config["label_classes"]
     patches_per_batch: int = app_config.get("dl_patches_per_batch", 1000)
     patch_size: int = app_config.get("patch_size", 64)
     world_size: int = app_config.get("world_size", 4096)
@@ -171,6 +250,12 @@ def train_worker(config: Dict[str, Any]) -> None:
     head_sm = head_client.get_client(is_local=False)
     worker_sm = worker_client.get_client()
     dm = DatabaseManager(head_sm)
+
+    # -------------------------------------------------------------------
+    # Build label map from label_classes
+    # -------------------------------------------------------------------
+    label_map = LabelMap(label_classes)
+    n_classes = label_map.get_n_classes()
 
     context = get_context()
     rank = context.get_world_rank()
@@ -187,7 +272,7 @@ def train_worker(config: Dict[str, Any]) -> None:
         hidden_dim=HIDDEN_DIM,
         embed_dim=EMBED_DIM,
         proj_dim=PROJ_DIM,
-        num_classes=N_CLASS,
+        num_classes=n_classes,
         grid_size=GRID_SIZE,
     )
 
@@ -206,7 +291,7 @@ def train_worker(config: Dict[str, Any]) -> None:
     )
     scaler = torch.amp.GradScaler("cuda")
 
-    label_tracker = LabeledRateTracker(N_CLASS, momentum=0.9, device=str(device))
+    label_tracker = LabeledRateTracker(n_classes, momentum=0.9, device=str(device))
     geom_transform, photo_transform = get_transforms(patch_size)
 
     writer = SummaryWriter(
@@ -282,9 +367,9 @@ def train_worker(config: Dict[str, Any]) -> None:
 
             imgs_tensor = torch.cat(views, dim=0).float().div_(255.0).to(device)  # [V*B, C, H, W]
 
-            # Labels: repeat across views in the same layout
+            # Labels: convert DB label_class_id -> model class index, repeat across views
             raw_labels = torch.tensor(
-                [p["label_class_id"] if p["label_class_id"] is not None else -1
+                [label_map.to_model_index(p["label_class_id"])
                  for p in valid_patches],
                 dtype=torch.long,
             )  # [B]
@@ -377,7 +462,7 @@ def train_worker(config: Dict[str, Any]) -> None:
                     grid_cell_i,
                     grid_cell_j,
                     now,
-                    int(pred_classes[i].item()),
+                    label_map.from_model_index(int(pred_classes[i].item())),
                 ))
 
             pred_shard_id = shard_map.get_b_shard_for_a_shard(shard_id)
@@ -449,11 +534,12 @@ class DLActor:
     Use :func:`startup_dl_actor` to create the actor and start training.
     """
 
-    def __init__(self, project_id: int, app_config: Dict[str, Any]) -> None:
+    def __init__(self, project_id: int, app_config: Dict[str, Any], label_classes: List[LabelClassResponse]) -> None:
         self._project_id = project_id
         self._training_enabled: bool = False
         self._training_ref: Optional[ray.ObjectRef] = None
         self._app_config = app_config or {}
+        self._label_classes = label_classes
 
     def get_training_enabled(self) -> bool:
         """Return whether the training loop should continue running."""
@@ -485,6 +571,7 @@ class DLActor:
             self._project_id,
             self._app_config,
             num_workers,
+            self._label_classes,
         )
 
 
@@ -497,6 +584,7 @@ def _launch_training(
     project_id: int,
     app_config: Dict[str, Any],
     num_workers: int,
+    label_classes: List[LabelClassResponse],
 ) -> Any:
     """Blocking Ray task that runs TorchTrainer.fit().
 
@@ -507,6 +595,7 @@ def _launch_training(
         train_loop_config={
             "project_id": project_id,
             "app_config": app_config,
+            "label_classes": label_classes,
         },
         scaling_config=ScalingConfig(
             num_workers=num_workers,
@@ -540,12 +629,16 @@ def startup_dl_actor(project_id: int) -> "DLActor":
         settings_store = SettingsStore(session)
         app_config = settings_store.get_all_as_dict(project_id)
 
+        # Fetch label classes for the worker to build the LabelMap
+        label_class_store = LabelClassStore(session)
+        label_classes = label_class_store.list_by_project(project_id)
+
     num_workers: int = app_config.get("dl_num_workers", 8)
 
     actor = DLActor.options(  # type: ignore[attr-defined]
         name=DL_ACTOR_NAME,
         get_if_exists=True,
-    ).remote(project_id, app_config)
+    ).remote(project_id, app_config, label_classes)
 
     actor.start_dl_proc.remote(num_workers)
     return actor
@@ -565,4 +658,3 @@ def compute_shard_assignments(
         List of shard IDs assigned to this worker.
     """
     return [s for s in shard_ids if s % num_local_workers == rank]
-
