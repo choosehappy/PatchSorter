@@ -15,6 +15,7 @@ from db_writer import SQLiteWriter
 import atexit
 
 from save_utils import save_models_checkpoint, load_models_checkpoint
+from utils_profile import start_profiler
 
 import tables
 
@@ -37,13 +38,13 @@ class Dataset(object):
     def __getitem__(self, index):
         with tables.open_file(self.fname, "r") as db:
             self.imgs = db.root.patch
-            #self.labels = db.root.tmp_label  # ps_label has all the data - here we're using just a random set created  in a noteobok
+            self.labels = db.root.tmp_label  # ps_label has all the data - here we're using just a random set created  in a noteobok
             
 
             # get the requested image and mask from the pytable
             img = self.imgs[index, :, :, :]
-            #label = self.labels[index] 
-            label = -1
+            label = self.labels[index] 
+            #label = -1
 
         img_new = img
 
@@ -81,7 +82,7 @@ dataloader = DataLoader(
     batch_size=BATCH_SIZE,
     shuffle=False,
     #num_workers=64,
-    num_workers=8,
+    num_workers=16,
     pin_memory=True,
     drop_last=True,
     persistent_workers=True,
@@ -158,7 +159,7 @@ joint_head = JointHead(
     PROJ_DIM,
     num_classes=N_CLASS,
     grid_size=GRID_SIZE,
-).to(DEVICE)
+).to(DEVICE,non_blocking=True)
 #mem_bank = MemoryBank(MEMORY_BANK_SIZE, feature_dim)
 
 
@@ -187,8 +188,13 @@ optimizer = torch.optim.AdamW(
     weight_decay=weight_decay,
 )
 
-backbone = backbone.to(DEVICE)
-joint_head = joint_head.to(DEVICE)
+backbone = backbone.to(DEVICE,non_blocking=True)
+joint_head = joint_head.to(DEVICE,non_blocking=True)
+
+# print("Starting compile")
+# backbone = torch.compile(backbone)
+# joint_head = torch.compile(joint_head)
+# print("end compile")
 
 from torchsummary import summary
 summary(backbone, (3,64,64,))
@@ -220,28 +226,31 @@ REPULSION_MARGIN = ideal_spacing * 10.5  # slight buffer above ideal
 
 del batch_imgs, batch_labels, original_imgs  # free up memory from initial batch
 
-all_views = torch.cat([v.float().to(DEVICE) / 255.0 for v in views], dim=0)
+all_views = torch.cat([v.float().to(DEVICE,non_blocking=True) / 255.0 for v in views], dim=0)
 
-## ---- UNCOMMENT - JUST COMMENTED OUT FORS PEEED
-z_init, proj_coords_init = initialize_projection_from_batch(
-    backbone, joint_head, all_views, writer, grid_size=GRID_SIZE
-)
+
+if not LOAD_CHECKPOINT:
+    ## ---- UNCOMMENT - JUST COMMENTED OUT FORS PEEED
+    z_init, proj_coords_init = initialize_projection_from_batch(
+        backbone, joint_head, all_views, writer, grid_size=GRID_SIZE
+    )
 
 #mem_bank.add_candidates(z_init, proj_coords_init)
 
 scaler = torch.amp.GradScaler("cuda")
-import os
 
-os.makedirs("./models", exist_ok=True)
 
 # initialize DB writer (non-blocking) - stores first view's x,y and embedding blob per id
 db_writer = SQLiteWriter(db_path="./coords_embeddings.db", batch_size=512, flush_interval=0.25)
 atexit.register(db_writer.close)
 
+# Initialize torch profiler if enabled
+torch_profiler = start_profiler(TORCH_PROFILE,wait=5,active=5)
+
 #spread_loss = SpreadLoss(grid_size=GRID_SIZE, quantile=0.95)
 
 
-patch_mask = gaussian_mask(PATCH_SIZE, PATCH_SIZE).to(DEVICE)
+patch_mask = gaussian_mask(PATCH_SIZE, PATCH_SIZE).to(DEVICE,non_blocking=True)
 
 
 for _ in range(10_000):
@@ -249,13 +258,13 @@ for _ in range(10_000):
         # forward all views → [nviews, B, D]
         with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=False): ##TODO: don't use it while we're testing / building 
             *views, labels, orig, ids = batch_data
-            labels = labels.long().to(DEVICE)
+            labels = labels.long().to(DEVICE,non_blocking=True)
 
-            # imgs = torch.cat(views, dim=0).half().to(DEVICE) / 255.0  # [B*V, C, H, W]
-            #views = [v.half().to(DEVICE) for v in views] # lets not do this during development
+            # imgs = torch.cat(views, dim=0).half().to(DEVICE,non_blocking=True) / 255.0  # [B*V, C, H, W]
+            # views = [v.half().to(DEVICE,non_blocking=True) for v in views] # lets not do this during development
 
             # Concatenate, convert to half-precision, and normalize
-            imgs = torch.cat(views, dim=0) / 255.0  # [B*V, C, H, W]
+            imgs = torch.cat(views, dim=0).to(DEVICE,non_blocking=True) / 255.0  # [B*V, C, H, W]
 
             if USE_MASK:
                 # imgs = spatial_mask(imgs)
@@ -398,6 +407,10 @@ for _ in range(10_000):
             #mem_bank.age_all()
 
             if niter_total % LOG_EVERY == 0:
+                #add histograms for embedding dimensions
+                for di,d in enumerate(proj_emb.T):
+                    writer.add_histogram(f"emb_dims/proj_emb_{di}", d.detach(), niter_total)
+
                 logger.info("writing embeddings")
                 log_embeddings(
                     writer,
@@ -536,13 +549,13 @@ for _ in range(10_000):
 
             writer.add_scalar("loss/num_pseudo/total", total_pseudo, niter_total)
 
-            #add histograms for embedding dimensions
-            for di,d in enumerate(proj_emb.T):
-                writer.add_histogram(f"emb_dims/proj_emb_{di}", d.detach(), niter_total)
+
 
 
 
             niter_total += 1
+            if torch_profiler:
+                torch_profiler.step()
 
 
 # final save of model checkpoints

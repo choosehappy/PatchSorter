@@ -62,3 +62,4 @@ SWAV_EPS = 0.05
 
 
 LOAD_CHECKPOINT = False
+TORCH_PROFILE = False  # Enable torch profiler (record CPU/CUDA traces to runs/torch_prof)
