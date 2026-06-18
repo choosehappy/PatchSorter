@@ -14,6 +14,8 @@ from configs import *
 from db_writer import SQLiteWriter
 import atexit
 
+from save_utils import save_models_checkpoint, load_models_checkpoint
+
 import tables
 
 
@@ -35,12 +37,13 @@ class Dataset(object):
     def __getitem__(self, index):
         with tables.open_file(self.fname, "r") as db:
             self.imgs = db.root.patch
-            self.labels = db.root.tmp_label  # ps_label has all the data - here we're using just a random set created  in a noteobok
+            #self.labels = db.root.tmp_label  # ps_label has all the data - here we're using just a random set created  in a noteobok
             
 
             # get the requested image and mask from the pytable
             img = self.imgs[index, :, :, :]
-            label = self.labels[index] 
+            #label = self.labels[index] 
+            label = -1
 
         img_new = img
 
@@ -55,7 +58,7 @@ class Dataset(object):
                     self.photo_transform(image=self.geom_transform(image=img_new)["image"])["image"]
                     for _ in range(self.nviews - 1)
                 )
-                return (anchor, *views, label, img,index)
+                return (anchor, *views, label, img, index)
 
         else:
             print("no aug?")
@@ -69,6 +72,7 @@ class Dataset(object):
 dataset = Dataset(
     #"mitosis_ps_labels.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
     "mitosis_train_patches.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
+    #"deepMEL_1D1_-_2021-02-10_17.31.50.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
 )
 
 
@@ -157,8 +161,7 @@ joint_head = JointHead(
 ).to(DEVICE)
 #mem_bank = MemoryBank(MEMORY_BANK_SIZE, feature_dim)
 
-from torchsummary import summary
-summary(joint_head, (1024,))
+
 
 # lr_head = 1e-3
 # lr_backbone = 1e-4
@@ -187,9 +190,22 @@ optimizer = torch.optim.AdamW(
 backbone = backbone.to(DEVICE)
 joint_head = joint_head.to(DEVICE)
 
-label_tracker = LabeledRateTracker(N_CLASS, momentum=0.9, device=DEVICE)  # outside loop
+from torchsummary import summary
+summary(backbone, (3,64,64,))
+summary(joint_head, (1024,))
 
 logger = logging.getLogger(__name__)
+
+# Optionally load latest checkpoint
+if LOAD_CHECKPOINT:
+    try:
+        load_models_checkpoint("./model",backbone=backbone, joint_head=joint_head)
+    except Exception:
+        logger.exception("Loading checkpoint failed")
+
+label_tracker = LabeledRateTracker(N_CLASS, momentum=0.9, device=DEVICE)  # outside loop
+
+
 from datetime import datetime
 writer = SummaryWriter(log_dir=f"runs/run_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
 
@@ -408,6 +424,13 @@ for _ in range(10_000):
                     n_neighbors=5,
                 )
 
+                # save a timestamped checkpoint to avoid overwriting
+                try:
+                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    save_models_checkpoint("./model", timestamp=ts, backbone=backbone, joint_head=joint_head)
+                except Exception:
+                    logger.exception("Checkpoint save failed at iteration %s", niter_total)
+
                 if LOG_ORIGS:
                     imgs_orig = orig.permute(0, 3, 1, 2).to(DEVICE) / 255.0
                     imgs_orig = center_crop(imgs_orig, PATCH_SIZE)
@@ -521,6 +544,12 @@ for _ in range(10_000):
 
             niter_total += 1
 
+
+# final save of model checkpoints
+try:
+    save_models_checkpoint("./model")
+except Exception:
+    logger.exception("Final checkpoint save failed")
 
 logger.info("Exiting training!")
 writer.close()

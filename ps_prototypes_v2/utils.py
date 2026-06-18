@@ -200,7 +200,8 @@ class LabeledRateTracker:
         # Normalized freq for EMA
         freq = counts / total
         store = self.momentum * store + (1 - self.momentum) * freq
-        store[store < 1.0 / total] = 0.0
+        #store[store < 1.0 / total] = 0.0
+        store[store < 1e-5] = 0.0 #remove dead ones
 
         return store, counts
 

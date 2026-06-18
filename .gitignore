@@ -27,3 +27,6 @@ ps_prototypes_v2/coords_embeddings.db
 ps_prototypes_v2/coords_embeddings.db-shm
 ps_prototypes_v2/coords_embeddings.db-wal
 ps_prototypes_v2/mitosis_train_patches.pytable
+ps_prototypes_v2/model/*
+ps_prototypes_v2/model_mitosis/*
+ps_prototypes_v2/model_deepmel/*
