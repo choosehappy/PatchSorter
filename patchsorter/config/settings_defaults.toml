@@ -53,7 +53,7 @@ type    = "integer"
 
 [settings.dl_patches_per_batch]
 scope   = "project"
-default = "500"
+default = "1024"
 type    = "integer"
 
 [settings.patch_size]

@@ -48,10 +48,10 @@ DL_ACTOR_NAME = "dl_actor"
 EMBED_DIM: int = 16
 PROJ_DIM: int = 2
 HIDDEN_DIM: int = 256
-GRID_SIZE: float = 4096
+GRID_SIZE: float = 100
 N_CLASS: int = 5
 NVIEWS: int = 4
-BATCH_SIZE: int = 256
+BATCH_SIZE: int = 1024
 PSEUDO_THRESH: float = 0.9
 N_TRAIN_STEPS: int = 500  # number of gradient steps per cycle (training inner loop)
 LOG_EVERY: int = 100      # log TensorBoard scalars every N batches
@@ -166,6 +166,8 @@ def train_worker(config: Dict[str, Any]) -> None:
     app_config = config["app_config"]
     patches_per_batch: int = app_config.get("dl_patches_per_batch", 1000)
     patch_size: int = app_config.get("patch_size", 64)
+    world_size: int = app_config.get("world_size", 4096)
+    GRID_SIZE_SCALE: float = world_size / GRID_SIZE
     head_sm = head_client.get_client(is_local=False)
     worker_sm = worker_client.get_client()
     dm = DatabaseManager(head_sm)
@@ -364,8 +366,8 @@ def train_worker(config: Dict[str, Any]) -> None:
             now = datetime.datetime.now(tz=datetime.timezone.utc)
             records: List[tuple] = []
             for i, patch in enumerate(valid_patches):
-                embed_x = float(first_coords[i, 0].item())
-                embed_y = float(first_coords[i, 1].item())
+                embed_x = float(first_coords[i, 0].item()) * GRID_SIZE_SCALE
+                embed_y = float(first_coords[i, 1].item()) * GRID_SIZE_SCALE
                 grid_cell_i = int(embed_x)
                 grid_cell_j = int(embed_y)
                 records.append((
