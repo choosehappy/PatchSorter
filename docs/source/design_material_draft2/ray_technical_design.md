@@ -62,7 +62,7 @@ WorkerPatchStore.fetch_patch_batch(shard_id, after_id, batch_size):
 Each worker runs `train_worker(config)` as the per-worker entry point for `TorchTrainer`. The config dict contains:
 
 - `project_id` (int) — project to train for.
-- `app_config` (Dict[str, Any]) — read from project settings table. Key values:
+- `app_config` (Dict[str, Any]) — read from application-level settings. Key values:
   - `dl_patches_per_batch` — batch size for the dataloader.
   - `patch_size` — image dimensions (H×W).
   - `world_size` — total number of distributed workers, used to scale embedding coordinates.
@@ -141,7 +141,7 @@ class DLActor:
     start_dl_proc(num_workers: int)    # launches detached _launch_training task
 ```
 
-`startup_dl_actor(project_id)` reads `dl_num_workers` and `dl_patches_per_batch` from project settings, fetches label classes, creates (or reuses via `get_if_exists=True`) the named `DLActor`, and calls `start_dl_proc.remote(num_workers)`.
+`startup_dl_actor(project_id)` reads `dl_num_workers` (application-scoped) and `dl_patches_per_batch` (project-scoped) from the merged settings (app-level defaults + project overrides), fetches label classes, creates (or reuses via `get_if_exists=True`) the named `DLActor`, and calls `start_dl_proc.remote(num_workers)`.
 
 ### Detached Training Task
 
@@ -162,6 +162,46 @@ class DLActor:
 - Predictions are written back to the colocated `pred_patch_latest` shard via COPY.
 - Shard mapping between patch and pred_patch tables is obtained via `DatabaseManager.get_shard_map_for_patch_and_pred()` which queries `pg_dist_shard` for colocated shard pairs.
 - Table management (rotation) is coordinated globally via Ray Train barriers and the rank-0 worker.
+
+## GPU Spreading Across Local Workers
+
+By default, Ray sets `CUDA_VISIBLE_DEVICES` to a single GPU per worker, preventing multiple workers from sharing a physical GPU. Spreading workers across GPUs requires disabling this behavior:
+
+### Environment Variables
+
+```
+RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0
+TRAIN_ENABLE_SHARE_CUDA_VISIBLE_DEVICES=0
+CUDA_VISIBLE_DEVICES=0,1
+```
+
+- `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=0` — prevents Ray from overriding `CUDA_VISIBLE_DEVICES` in worker processes.
+- `TRAIN_ENABLE_SHARE_CUDA_VISIBLE_DEVICES=0` — disables Ray Train's default behavior of sharing a single CUDA context across workers on the same GPU.
+- `CUDA_VISIBLE_DEVICES` — lists all GPUs available on the host (e.g., `0,1`).
+
+### Worker GPU Selection
+
+Each worker selects its GPU using its local rank:
+
+```python
+local_rank = ray.train.get_context().get_local_rank()
+device = torch.device('cuda', local_rank)
+model = ray.train.torch.prepare_model(model, device)
+```
+
+### ScalingConfig
+
+The number of workers comes from the application-scoped `dl_num_workers` setting. Fractional GPU allocation enables multiple workers per physical GPU:
+
+```python
+scaling_config = ScalingConfig(
+    num_workers=dl_num_workers,
+    use_gpu=True,
+    resources_per_worker={"GPU": 0.1}
+)
+```
+
+The `GPU` resource value is **only used by Ray's scheduler** for placement decisions — it does not limit the amount of VRAM available to a worker. A worker requesting `0.1` GPU can still use the full physical GPU's VRAM if the OS and CUDA driver allow it. The fraction simply tells Ray how many workers it can co-schedule on a single GPU (e.g., `0.1` allows up to 10 workers per GPU).
 
 ## Schema Context
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import os
 import logging
 import math
 from typing import Any, Dict, Iterator, List, Optional, Tuple
@@ -9,13 +10,15 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.distributed.algorithms.join import Join
 from patchsorter.db.head_client.project import ProjectStore
 from torch.utils.tensorboard import SummaryWriter
 import ray
 import ray.train
 import ray.train.torch
 from ray.train import get_context
-from ray.train.collective import barrier
+# from ray.train.collective import barrier
+import torch.distributed as dist
 from ray.train.torch import TorchTrainer
 from ray.train import ScalingConfig
 
@@ -259,9 +262,17 @@ def train_worker(config: Dict[str, Any]) -> None:
 
     context = get_context()
     rank = context.get_world_rank()
-    device = ray.train.torch.get_device()
+    local_rank = context.get_local_rank()
+    device = torch.device("cuda", local_rank % torch.cuda.device_count())
 
     actor = ray.get_actor(DL_ACTOR_NAME)
+
+    logger.debug(
+        "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=%s, CUDA_VISIBLE_DEVICES=%s",
+        os.environ.get("RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES", ""),
+        os.environ.get("CUDA_VISIBLE_DEVICES", ""),
+    )
+
 
     # -----------------------------------------------------------------------
     # Model initialisation
@@ -305,11 +316,11 @@ def train_worker(config: Dict[str, Any]) -> None:
         shard_map = dm.get_shard_map_for_patch_and_pred(project_id)
         all_local_shards = shard_map.get_table_a_shard_list()
         assigned_shards = compute_shard_assignments(
-            all_local_shards, context.get_local_world_size(), rank
+            all_local_shards, context.get_local_world_size(), local_rank
         )
 
         cycle += 1
-        logger.info("[Worker %d] Starting cycle %d.", rank, cycle)
+        logger.info("[Worker %d, local_rank %d] Starting cycle %d.", rank, local_rank, cycle)
 
         # -------------------------------------------------------------------
         # TODO: Selective training loop (backprop phase goes here)
@@ -338,183 +349,184 @@ def train_worker(config: Dict[str, Any]) -> None:
         joint_head.train()
 
         dataset = ShardDataset(worker_sm, project_id, assigned_shards, patches_per_batch)
-        for shard_id, batch in dataset:
-            # Decode images
-            imgs_np: List[np.ndarray] = []
-            valid_patches: List[Dict[str, Any]] = []
-            for patch in batch:
-                img = _decode_patch_image(patch.get("patch_image"), patch_size)
-                if img is None:
-                    continue
-                imgs_np.append(img)
-                valid_patches.append(patch)
+        with Join([backbone, joint_head]):
+            for shard_id, batch in dataset:
+                # Decode images
+                imgs_np: List[np.ndarray] = []
+                valid_patches: List[Dict[str, Any]] = []
+                for patch in batch:
+                    img = _decode_patch_image(patch.get("patch_image"), patch_size)
+                    if img is None:
+                        raise ValueError(f"Failed to decode patch_id {patch['patch_id']} in shard {shard_id}")
+                    imgs_np.append(img)
+                    valid_patches.append(patch)
 
-            if not imgs_np:
-                continue
+                if not imgs_np:
+                    raise ValueError(f"No valid images decoded in shard {shard_id} for cycle {cycle}")
 
-            B = len(imgs_np)
+                B = len(imgs_np)
 
-            # Build NVIEWS augmented views per patch.
-            # Each view is produced by geom + photo transforms independently.
-            # Layout after cat: [v0_b0..v0_bB-1, v1_b0..v1_bB-1, ...] → [V*B, C, H, W]
-            views: List[torch.Tensor] = []
-            for _ in range(NVIEWS):
-                view_tensors = [
-                    photo_transform(image=geom_transform(image=img)["image"])["image"]
-                    for img in imgs_np
-                ]  # list of [C, H, W] uint8 tensors
-                views.append(torch.stack(view_tensors))  # [B, C, H, W]
+                # Build NVIEWS augmented views per patch.
+                # Each view is produced by geom + photo transforms independently.
+                # Layout after cat: [v0_b0..v0_bB-1, v1_b0..v1_bB-1, ...] → [V*B, C, H, W]
+                views: List[torch.Tensor] = []
+                for _ in range(NVIEWS):
+                    view_tensors = [
+                        photo_transform(image=geom_transform(image=img)["image"])["image"]
+                        for img in imgs_np
+                    ]  # list of [C, H, W] uint8 tensors
+                    views.append(torch.stack(view_tensors))  # [B, C, H, W]
 
-            imgs_tensor = torch.cat(views, dim=0).float().div_(255.0).to(device)  # [V*B, C, H, W]
+                imgs_tensor = torch.cat(views, dim=0).float().div_(255.0).to(device)  # [V*B, C, H, W]
 
-            # Labels: convert DB label_class_id -> model class index, repeat across views
-            raw_labels = torch.tensor(
-                [label_map.to_model_index(p["label_class_id"])
-                 for p in valid_patches],
-                dtype=torch.long,
-            )  # [B]
-            labels = raw_labels.repeat(NVIEWS).to(device)  # [V*B]
+                # Labels: convert DB label_class_id -> model class index, repeat across views
+                raw_labels = torch.tensor(
+                    [label_map.to_model_index(p["label_class_id"])
+                    for p in valid_patches],
+                    dtype=torch.long,
+                )  # [B]
+                labels = raw_labels.repeat(NVIEWS).to(device)  # [V*B]
 
-            optimizer.zero_grad()
-            with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=True):
-                z = backbone(imgs_tensor)              # [V*B, D]
-                emb, coords, logits = joint_head(z)   # [V*B, embed_dim], [V*B, 2], [V*B, C]
+                optimizer.zero_grad()
+                with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=True):
+                    z = backbone(imgs_tensor)              # [V*B, D]
+                    emb, coords, logits = joint_head(z)   # [V*B, embed_dim], [V*B, 2], [V*B, C]
 
-                emb_norm = torch.nn.functional.normalize(emb, dim=-1)
-                proj_emb = emb_norm.view(NVIEWS, B, -1)   # [V, B, embed_dim]
-                proj_coords = coords.view(NVIEWS, B, -1)  # [V, B, 2]
+                    emb_norm = torch.nn.functional.normalize(emb, dim=-1)
+                    proj_emb = emb_norm.view(NVIEWS, B, -1)   # [V, B, embed_dim]
+                    proj_coords = coords.view(NVIEWS, B, -1)  # [V, B, 2]
 
-                # Contrastive losses
-                simclr_emb_loss = simclr_loss(proj_emb, temperature=0.07)
-                simclr_coord_loss = simclr_loss(proj_coords, temperature=0.07)
+                    # Contrastive losses
+                    simclr_emb_loss = simclr_loss(proj_emb, temperature=0.07)
+                    simclr_coord_loss = simclr_loss(proj_coords, temperature=0.07)
 
-                # Coordinate consistency across views
-                anchor_coords = proj_coords[0:1]  # [1, B, 2]
-                coord_consistency = ((proj_coords[1:] - anchor_coords) ** 2).sum(dim=-1).mean()
+                    # Coordinate consistency across views
+                    anchor_coords = proj_coords[0:1]  # [1, B, 2]
+                    coord_consistency = ((proj_coords[1:] - anchor_coords) ** 2).sum(dim=-1).mean()
 
-                # Coordinate contrastive: push different samples apart
-                dists = torch.cdist(anchor_coords.squeeze(0), anchor_coords.squeeze(0))  # [B, B]
-                off_diag = ~torch.eye(B, dtype=torch.bool, device=device)
-                coord_contrastive = (1.0 / (dists[off_diag] + 1e-6)).mean()
+                    # Coordinate contrastive: push different samples apart
+                    dists = torch.cdist(anchor_coords.squeeze(0), anchor_coords.squeeze(0))  # [B, B]
+                    off_diag = ~torch.eye(B, dtype=torch.bool, device=device)
+                    coord_contrastive = (1.0 / (dists[off_diag] + 1e-6)).mean()
 
-                # Flatten back to [V*B, ...] for per-sample losses
-                emb_flat = proj_emb.reshape(-1, proj_emb.shape[-1])   # [V*B, embed_dim]
-                coords_flat = proj_coords.reshape(-1, 2)               # [V*B, 2]
+                    # Flatten back to [V*B, ...] for per-sample losses
+                    emb_flat = proj_emb.reshape(-1, proj_emb.shape[-1])   # [V*B, embed_dim]
+                    coords_flat = proj_coords.reshape(-1, 2)               # [V*B, 2]
 
-                # Neighborhood + spread losses
-                neigh_loss = neighborhood_loss(proj_emb, proj_coords)
-                mmd_loss = max_mean_discrepancy(coords_flat, grid_size=GRID_SIZE)
-                repul_loss = repulsion_loss(coords_flat, margin=REPULSION_MARGIN)
+                    # Neighborhood + spread losses
+                    neigh_loss = neighborhood_loss(proj_emb, proj_coords)
+                    mmd_loss = max_mean_discrepancy(coords_flat, grid_size=GRID_SIZE)
+                    repul_loss = repulsion_loss(coords_flat, margin=REPULSION_MARGIN)
 
-                # Semantic losses (operate on labeled samples only)
-                sem_coord_attr, sem_coord_repel = semantic_head_loss(coords_flat, labels)
-                sem_emb_attr, sem_emb_repel = semantic_head_loss(emb_flat, labels, margin=0.5)
+                    # Semantic losses (operate on labeled samples only)
+                    sem_coord_attr, sem_coord_repel = semantic_head_loss(coords_flat, labels)
+                    sem_emb_attr, sem_emb_repel = semantic_head_loss(emb_flat, labels, margin=0.5)
 
-                # Prediction losses
-                class_weights = label_tracker.get_class_weights()
-                sup_loss = prediction_loss_sup(logits, labels, class_weights=class_weights)
-                pseudo_loss, pred_labels, high_conf = prediction_loss_pseudo(
-                    logits, labels,
-                    pseudo_thresh=PSEUDO_THRESH,
-                    views_per_patch=NVIEWS,
+                    # Prediction losses
+                    class_weights = label_tracker.get_class_weights()
+                    sup_loss = prediction_loss_sup(logits, labels, class_weights=class_weights)
+                    pseudo_loss, pred_labels, high_conf = prediction_loss_pseudo(
+                        logits, labels,
+                        pseudo_thresh=PSEUDO_THRESH,
+                        views_per_patch=NVIEWS,
+                    )
+                    pred_loss = sup_loss + PSEUDO_PRED_LAMBDA * pseudo_loss
+
+                    labeled_rate, _, num_pseudo = label_tracker.update(
+                        raw_labels.to(device),
+                        pred_labels[high_conf][::NVIEWS] if high_conf.any() else None,
+                    )
+
+                    total_loss = (
+                        COORD_CONSISTENCY_LOSS  * coord_consistency
+                        + COORD_CONTRASTIVE_LOSS * coord_contrastive
+                        + SIMCLR_EMB_LOSS       * simclr_emb_loss
+                        + SIMCLR_EMB_LOSS       * simclr_coord_loss
+                        + MAX_MEAN_LOSS         * mmd_loss
+                        + NEIGHBOR_LAMBDA       * neigh_loss
+                        + SEMANTIC_LAMBDA       * (sem_coord_attr + sem_coord_repel)
+                        + SEMANTIC_LAMBDA       * (sem_emb_attr   + sem_emb_repel)
+                        + PRED_LAMBDA           * pred_loss
+                    )
+
+                scaler.scale(total_loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+
+                # Save predictions for every patch using first view's coords/logits
+                # (indices 0..B-1 in the V*B stacked layout)
+                with torch.no_grad():
+                    first_coords = coords[:B].float()        # [B, 2]
+                    first_logits = logits[:B].float()        # [B, C]
+                    pred_classes = first_logits.argmax(dim=-1)
+
+                now = datetime.datetime.now(tz=datetime.timezone.utc)
+                records: List[tuple] = []
+                for i, patch in enumerate(valid_patches):
+                    embed_x = float(first_coords[i, 0].item()) * GRID_SIZE_SCALE
+                    embed_y = float(first_coords[i, 1].item()) * GRID_SIZE_SCALE
+                    grid_cell_i = int(embed_x)
+                    grid_cell_j = int(embed_y)
+                    records.append((
+                        patch["patch_id"],
+                        embed_x,
+                        embed_y,
+                        grid_cell_i,
+                        grid_cell_j,
+                        now,
+                        label_map.from_model_index(int(pred_classes[i].item())),
+                    ))
+
+                pred_shard_id = shard_map.get_b_shard_for_a_shard(shard_id)
+                with worker_sm.get_session() as session:
+                    WorkerPatchStore(project_id, session).insert_predictions_to_shard(
+                        pred_shard_id, records
+                    )
+                logger.debug(
+                    "[Worker %d] Cycle %d — shard %d, wrote %d predictions.",
+                    rank, cycle, shard_id, len(records),
                 )
-                pred_loss = sup_loss + PSEUDO_PRED_LAMBDA * pseudo_loss
 
-                labeled_rate, _, num_pseudo = label_tracker.update(
-                    raw_labels.to(device),
-                    pred_labels[high_conf][::NVIEWS] if high_conf.any() else None,
-                )
+                if niter_total % LOG_EVERY == 0:
+                    writer.add_scalar("loss/total",              total_loss.item(),    niter_total)
+                    writer.add_scalar("loss/coord_consistency",  coord_consistency.item(), niter_total)
+                    writer.add_scalar("loss/coord_contrastive",  coord_contrastive.item(), niter_total)
+                    writer.add_scalar("loss/simclr_emb",         simclr_emb_loss.item(),   niter_total)
+                    writer.add_scalar("loss/simclr_coord",       simclr_coord_loss.item(), niter_total)
+                    writer.add_scalar("loss/max_mean_discrepancy", mmd_loss.item(),       niter_total)
+                    writer.add_scalar("loss/repulsion",          repul_loss.item(),        niter_total)
+                    writer.add_scalar("loss/neighborhood",       neigh_loss.item(),        niter_total)
+                    writer.add_scalar("loss/semantic_coord",     (sem_coord_attr + sem_coord_repel).item(), niter_total)
+                    writer.add_scalar("loss/semantic_coord_attract", sem_coord_attr.item(), niter_total)
+                    writer.add_scalar("loss/semantic_coord_repel",   sem_coord_repel.item(), niter_total)
+                    writer.add_scalar("loss/semantic_emb",       (sem_emb_attr + sem_emb_repel).item(), niter_total)
+                    writer.add_scalar("loss/semantic_emb_attract",   sem_emb_attr.item(),  niter_total)
+                    writer.add_scalar("loss/semantic_emb_repel",     sem_emb_repel.item(), niter_total)
+                    writer.add_scalar("loss/pred",               pred_loss.item(),         niter_total)
+                    writer.add_scalar("loss/pred_supervised",    sup_loss.item(),          niter_total)
+                    writer.add_scalar("loss/pred_pseudo",        pseudo_loss.item(),       niter_total)
+                    writer.add_scalar("train/labeled_rate",      labeled_rate,             niter_total)
 
-                total_loss = (
-                    COORD_CONSISTENCY_LOSS  * coord_consistency
-                    + COORD_CONTRASTIVE_LOSS * coord_contrastive
-                    + SIMCLR_EMB_LOSS       * simclr_emb_loss
-                    + SIMCLR_EMB_LOSS       * simclr_coord_loss
-                    + MAX_MEAN_LOSS         * mmd_loss
-                    + NEIGHBOR_LAMBDA       * neigh_loss
-                    + SEMANTIC_LAMBDA       * (sem_coord_attr + sem_coord_repel)
-                    + SEMANTIC_LAMBDA       * (sem_emb_attr   + sem_emb_repel)
-                    + PRED_LAMBDA           * pred_loss
-                )
+                    total_pseudo = 0
+                    if num_pseudo is not None and num_pseudo.any():
+                        total_pseudo = num_pseudo.sum().item()
+                        for cls_i in (num_pseudo > 0).nonzero(as_tuple=True)[0].tolist():
+                            writer.add_scalar(f"train/num_pseudo/{cls_i}", num_pseudo[cls_i].item(), niter_total)
+                    writer.add_scalar("train/num_pseudo/total", total_pseudo, niter_total)
 
-            scaler.scale(total_loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-
-            # Save predictions for every patch using first view's coords/logits
-            # (indices 0..B-1 in the V*B stacked layout)
-            with torch.no_grad():
-                first_coords = coords[:B].float()        # [B, 2]
-                first_logits = logits[:B].float()        # [B, C]
-                pred_classes = first_logits.argmax(dim=-1)
-
-            now = datetime.datetime.now(tz=datetime.timezone.utc)
-            records: List[tuple] = []
-            for i, patch in enumerate(valid_patches):
-                embed_x = float(first_coords[i, 0].item()) * GRID_SIZE_SCALE
-                embed_y = float(first_coords[i, 1].item()) * GRID_SIZE_SCALE
-                grid_cell_i = int(embed_x)
-                grid_cell_j = int(embed_y)
-                records.append((
-                    patch["patch_id"],
-                    embed_x,
-                    embed_y,
-                    grid_cell_i,
-                    grid_cell_j,
-                    now,
-                    label_map.from_model_index(int(pred_classes[i].item())),
-                ))
-
-            pred_shard_id = shard_map.get_b_shard_for_a_shard(shard_id)
-            with worker_sm.get_session() as session:
-                WorkerPatchStore(project_id, session).insert_predictions_to_shard(
-                    pred_shard_id, records
-                )
-            logger.debug(
-                "[Worker %d] Cycle %d — shard %d, wrote %d predictions.",
-                rank, cycle, shard_id, len(records),
-            )
-
-            if niter_total % LOG_EVERY == 0:
-                writer.add_scalar("loss/total",              total_loss.item(),    niter_total)
-                writer.add_scalar("loss/coord_consistency",  coord_consistency.item(), niter_total)
-                writer.add_scalar("loss/coord_contrastive",  coord_contrastive.item(), niter_total)
-                writer.add_scalar("loss/simclr_emb",         simclr_emb_loss.item(),   niter_total)
-                writer.add_scalar("loss/simclr_coord",       simclr_coord_loss.item(), niter_total)
-                writer.add_scalar("loss/max_mean_discrepancy", mmd_loss.item(),       niter_total)
-                writer.add_scalar("loss/repulsion",          repul_loss.item(),        niter_total)
-                writer.add_scalar("loss/neighborhood",       neigh_loss.item(),        niter_total)
-                writer.add_scalar("loss/semantic_coord",     (sem_coord_attr + sem_coord_repel).item(), niter_total)
-                writer.add_scalar("loss/semantic_coord_attract", sem_coord_attr.item(), niter_total)
-                writer.add_scalar("loss/semantic_coord_repel",   sem_coord_repel.item(), niter_total)
-                writer.add_scalar("loss/semantic_emb",       (sem_emb_attr + sem_emb_repel).item(), niter_total)
-                writer.add_scalar("loss/semantic_emb_attract",   sem_emb_attr.item(),  niter_total)
-                writer.add_scalar("loss/semantic_emb_repel",     sem_emb_repel.item(), niter_total)
-                writer.add_scalar("loss/pred",               pred_loss.item(),         niter_total)
-                writer.add_scalar("loss/pred_supervised",    sup_loss.item(),          niter_total)
-                writer.add_scalar("loss/pred_pseudo",        pseudo_loss.item(),       niter_total)
-                writer.add_scalar("train/labeled_rate",      labeled_rate,             niter_total)
-
-                total_pseudo = 0
-                if num_pseudo is not None and num_pseudo.any():
-                    total_pseudo = num_pseudo.sum().item()
-                    for cls_i in (num_pseudo > 0).nonzero(as_tuple=True)[0].tolist():
-                        writer.add_scalar(f"train/num_pseudo/{cls_i}", num_pseudo[cls_i].item(), niter_total)
-                writer.add_scalar("train/num_pseudo/total", total_pseudo, niter_total)
-
-            niter_total += 1
+                niter_total += 1
 
         logger.info("[Worker %d] Cycle %d done. Waiting at barrier.", rank, cycle)
 
         # Barrier 1: all workers finished inserting for this cycle
-        barrier()
+        dist.barrier()
 
         if rank == 0:
             DatabaseManager(head_sm).rotate_pred_patch_tables(project_id)
             logger.info("[Rank 0] Cycle %d — table rotation complete.", cycle)
 
         # Barrier 2: rotation complete, all workers may proceed
-        barrier()
+        dist.barrier()
         logger.info("[Worker %d] Cycle %d complete. Starting next cycle.", rank, cycle)
 
 
@@ -600,6 +612,7 @@ def _launch_training(
         scaling_config=ScalingConfig(
             num_workers=num_workers,
             use_gpu=True,
+            resources_per_worker={"GPU": 0.1},
         ),
     )
     return trainer.fit()
@@ -645,16 +658,16 @@ def startup_dl_actor(project_id: int) -> "DLActor":
 
 
 def compute_shard_assignments(
-    shard_ids: List[int], num_local_workers: int, rank: int
+    shard_ids: List[int], num_local_workers: int, local_rank: int
 ) -> List[int]:
     """Assign Citus shards to the current worker by round-robin modulo.
 
     Args:
         shard_ids: All shard IDs for the project.
         num_local_workers: Number of local workers to divide shards among.
-        rank: Rank of the current worker.
+        local_rank: Local rank of the current worker.
 
     Returns:
         List of shard IDs assigned to this worker.
     """
-    return [s for s in shard_ids if s % num_local_workers == rank]
+    return [s for s in shard_ids if s % num_local_workers == local_rank]
