@@ -1,0 +1,72 @@
+# PatchSorter settings defaults
+#
+# Each entry defines one canonical setting.  The "scope" field controls
+# where the setting lives at runtime:
+#
+#   scope = "application"  – stored with project_id = NULL (app-wide)
+#   scope = "project"      – stored per project_id
+#
+# Fields
+# ------
+# scope          : "application" | "project"
+# default        : string representation of the default value
+# type           : "enum" | "string" | "boolean" | "integer"
+# allowed_values : (enum only) list of valid values
+# disabled       : (optional, default false) if true the value cannot be
+#                  changed after the initial seed — the setting is read-only
+
+# ---------------------------------------------------------------------------
+# Project-scoped settings
+# ---------------------------------------------------------------------------
+
+[settings.world_size]
+scope    = "project"
+default  = "4096"
+type     = "integer"
+disabled = true
+
+[settings.agg_hierarchy_depth]
+scope    = "project"
+default  = "4"
+type     = "integer"
+disabled = true
+# agg_hierarchy_depth must be greater than 1
+
+[settings.osm_zoom_offset]
+scope    = "project"
+default  = "8"
+type     = "integer"
+disabled = true
+# coarsest aggregation level; maps OSM tile zoom z=0 to grid level 8
+
+[settings.max_level]
+scope    = "project"
+default  = "12"
+type     = "integer"
+disabled = true
+# finest aggregation level; equals osm_zoom_offset + agg_hierarchy_depth
+
+[settings.dl_num_workers]
+scope   = "project"
+default = "1"
+type    = "integer"
+
+[settings.dl_patches_per_batch]
+scope   = "project"
+default = "1024"
+type    = "integer"
+
+[settings.patch_size]
+scope = "project"
+default = "64"
+type = "integer"
+
+# ---------------------------------------------------------------------------
+# Application-scoped settings
+# ---------------------------------------------------------------------------
+
+[settings.log_level]
+scope          = "application"
+default        = "INFO"
+type           = "enum"
+allowed_values = ["DEBUG", "INFO", "WARNING", "ERROR"]

@@ -1,0 +1,8 @@
+.devcontainer/
+docker-compose*.yml
+mounts/
+.env
+Dockerfile*
+.opencode/
+.ruff_cache/
+__pycache__/

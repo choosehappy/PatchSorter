@@ -1,0 +1,347 @@
+/* ---- Layout ---- */
+.labeling-page {
+    position: relative;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    background: #fff;
+    display: flex;
+    flex-direction: row;
+}
+
+.split-container {
+    height: 100%;
+    width: 100%;
+}
+
+.split-container > .gutter {
+    background-color: #eee;
+    background-repeat: no-repeat;
+    background-position: 50%;
+    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAeCAYAAADkftS9AAAAIklEQVQoU2M4c+bMfxAGAgYYmwGrIIiDjrELjpo5aiZeMwF+yNnOs5KSvgAAAABJRU5ErkJggg==');
+    cursor: col-resize;
+}
+
+.labeling-column {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.labeling-column-map {
+    flex: 1;
+    position: relative;
+}
+
+.labeling-column-gallery {
+    flex: 0 0 auto;
+    min-width: 200px;
+}
+
+/* ---- Shared controls panel style ---- */
+#controls-left,
+#controls-right {
+    position: absolute;
+    z-index: 100;
+    background: rgba(255, 255, 255, 0.97);
+    color: #222;
+    padding: 14px 18px;
+    border-radius: 10px;
+    font-family: sans-serif;
+    font-size: 13px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    width: max-content;
+    transition: box-shadow 0.2s ease;
+}
+
+/* ---- Center controls overlay: reset, color by, filter by ---- */
+#controls-left {
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+/* ---- Bottom-right overlay: pin + confusion matrix ---- */
+#controls-right {
+    bottom: 10px;
+    right: 10px;
+}
+
+#controls-left .header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+#controls-left .header button {
+    padding: 6px 14px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #f5f5f5;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+#controls-left .header button:hover { background: #e0e0e0; }
+
+#controls-left .control-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+#controls-left .control-row.flattened {
+    flex-direction: row;
+    align-items: end;
+    gap: 18px;
+    margin-bottom: 12px;
+}
+
+#controls-left .control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#controls-left .control-group label {
+    font-size: 11px;
+    color: #666;
+    font-weight: 500;
+}
+
+#controls-left .control-group select {
+    padding: 5px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 12px;
+    min-width: 120px;
+}
+
+/* ---- Confusion Matrix ---- */
+.matrix-container {
+    margin-top: 8px;
+    overflow: visible;
+}
+
+.matrix-table {
+    border-collapse: collapse;
+    font-size: 11px;
+    table-layout: fixed;
+}
+
+.matrix-table th,
+.matrix-table td {
+    width: 32px;
+    height: 32px;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+    border: 2px solid transparent;
+    transition: border-color 0.15s, background-color 0.15s;
+    white-space: nowrap;
+    min-width: 32px;
+    box-sizing: border-box;
+}
+
+/* Wider Totals column */
+.matrix-table th.totals-header:last-child,
+.matrix-table td.totals-cell:last-child {
+    width: 60px;
+    min-width: 60px;
+    max-width: 80px;
+}
+
+.matrix-table .cell,
+.matrix-table .totals-cell {
+    overflow: hidden;
+    max-width: 32px;
+}
+
+.matrix-table .gt-header,
+.matrix-table .pred-header,
+.matrix-table .totals-header,
+.matrix-table .corner-cell {
+    overflow: visible;
+}
+
+.matrix-table .corner-cell { cursor: default; }
+
+.matrix-table .gt-header {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    font-weight: 600;
+    color: #fff;
+    padding: 4px 2px;
+    font-size: 10px;
+    white-space: nowrap;
+    height: 70px;
+}
+
+.matrix-table .pred-header {
+    font-weight: 600;
+    color: #fff;
+    padding: 4px 6px;
+    font-size: 10px;
+    white-space: nowrap;
+    text-align: left;
+}
+
+.matrix-table .totals-header {
+    font-weight: 600;
+    font-size: 10px;
+    color: #666;
+    background: #f0f0f0;
+}
+
+.matrix-table .cell {
+    background: #f8f8f8;
+    color: #000;
+    font-size: 9px;
+    position: relative;
+}
+
+.matrix-table .cell.selected { border-width: 3px; }
+.matrix-table .cell:hover { background: #f0f0f0; }
+
+.matrix-table .totals-cell {
+    background: #f8f8f8;
+    color: #666;
+    font-size: 10px;
+}
+
+.axis-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #333;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    padding-right: 8px;
+}
+
+.gt-axis-label {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: #333;
+    padding-bottom: 4px;
+}
+
+/* ---- Confusion Matrix pin wrapper ---- */
+.cm-wrapper {
+    position: relative;
+    margin-top: 8px;
+}
+
+.cm-pin-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: #666;
+    cursor: pointer;
+    margin-bottom: 4px;
+    user-select: none;
+}
+
+/* When unpinned: collapse matrix, reveal on hover of the controls panel */
+.cm-content {
+    overflow: hidden;
+    max-height: 600px;
+    max-width: 600px;
+    opacity: 1;
+    transition: max-height 0.3s ease, max-width 0.3s ease, opacity 0.3s ease;
+}
+
+.cm-wrapper:not(.pinned) .cm-content {
+    max-height: 0;
+    max-width: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+#controls-right:hover .cm-wrapper:not(.pinned) .cm-content {
+    max-height: 600px;
+    max-width: 600px;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+#zoom-info { margin-top: 8px; font-size: 10px; color: #999; }
+
+/* ---- Refresh Timer ---- */
+.refresh-timer-inner {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.refresh-circle {
+    flex-shrink: 0;
+    display: block;
+}
+
+#zoom-info-floating {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    z-index: 110;
+    background: rgba(255,255,255,0.7);
+    color: #222;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 11px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+    pointer-events: none;
+    user-select: none;
+}
+
+/* ---- ToggleButtonGroup ---- */
+.toggle-button-group {
+    display: inline-flex;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid #ccc;
+}
+
+.toggle-button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border: none;
+    background: #f5f5f5;
+    cursor: pointer;
+    font-size: 12px;
+    color: #333;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+}
+
+.toggle-button + .toggle-button {
+    border-left: 1px solid #ccc;
+}
+
+.toggle-button.active {
+    background: #0d6efd;
+    color: #fff;
+}
+
+.toggle-button:hover:not(.active) {
+    background: #e0e0e0;
+}
+
+.toggle-icon {
+    font-size: 14px;
+    line-height: 1;
+}
+
+.toggle-label {
+    font-weight: 500;
+}

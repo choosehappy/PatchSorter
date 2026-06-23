@@ -1,0 +1,6 @@
+/* Outline h2 headings */
+.content h2 {
+    border: 1px solid var(--color-foreground-border);
+    padding-bottom: 1px;
+    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.4);
+}

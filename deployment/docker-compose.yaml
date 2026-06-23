@@ -1,0 +1,60 @@
+name: ${COMPOSE_PROJECT_NAME}
+services:
+  citus:
+    build:
+      context: .
+      dockerfile: Dockerfile.citus-postgis
+    container_name: citus
+    environment:
+      POSTGRES_PASSWORD: ${CITUS_HEAD_PASSWORD}
+      POSTGRES_USER: ${CITUS_HEAD_USER}
+      POSTGRES_DB: ${CITUS_HEAD_DB}
+    ports:
+      - ${CITUS_HEAD_PORT}:5432
+    volumes:
+      - citus_data:/var/lib/postgresql
+    networks:
+      - ps_net
+
+  ps:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    container_name: ps
+    image: histotools/patchsorter:local
+    environment:
+      CITUS_HEAD_HOST: ${CITUS_HEAD_HOST}
+      CITUS_HEAD_PORT: ${CITUS_HEAD_PORT}
+      CITUS_HEAD_DB: ${CITUS_HEAD_DB}
+      CITUS_HEAD_USER: ${CITUS_HEAD_USER}
+      CITUS_HEAD_PASSWORD: ${CITUS_HEAD_PASSWORD}
+      CITUS_LOCAL_HOST: ${CITUS_LOCAL_HOST}
+      CITUS_LOCAL_PORT: ${CITUS_LOCAL_PORT}
+      CITUS_LOCAL_DB: ${CITUS_LOCAL_DB}
+      CITUS_LOCAL_USER: ${CITUS_LOCAL_USER}
+      CITUS_LOCAL_PASSWORD: ${CITUS_LOCAL_PASSWORD}
+    ports:
+      - ${SERVER_PORT}:5000
+      - ${UI_PORT}:5173
+      - ${RAY_DASHBOARD_PORT}:8265
+    networks:
+      - ps_net
+    stdin_open: true
+    tty: true
+    shm_size: '12gb'
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+    volumes:
+      - /data/jjaco34:/opt/PatchSorter/mounts
+
+networks:
+  ps_net:
+    driver: bridge
+
+volumes:
+  citus_data:

@@ -1,0 +1,13 @@
+services:
+  ps:
+    user: root
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    image: histotools/patchsorter:local
+    command: 
+      /bin/bash
+    volumes:
+      - ..:/opt/PatchSorter
+    cap_add:
+      - SYS_PTRACE

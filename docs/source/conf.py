@@ -3,6 +3,12 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
+import os
+import sys
+
+# Make the patchsorter package importable by autodoc
+sys.path.insert(0, os.path.abspath('../..'))
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
@@ -20,6 +26,11 @@ extensions = [
     'sphinx.ext.viewcode',
     'sphinx_design',
     'myst_parser',
+    'sphinxcontrib.mermaid',
+]
+
+myst_enable_extensions = [
+    "tasklist"
 ]
 
 # Allow .md files as source
@@ -36,7 +47,7 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'sphinx_rtd_theme'
+html_theme = 'furo'
 html_static_path = ['_static']
 
 # Add custom JavaScript to set dark mode as default
@@ -47,4 +58,9 @@ html_js_files = [
 # Add custom CSS for further customization
 html_css_files = [
     'custom.css',
+]
+
+autodoc_mock_imports = [
+    "torch", "ray", "numpy", "pandas", "pillow",
+    "sqlalchemy", "psycopg", "tensorboardx", "pyarrow"
 ]

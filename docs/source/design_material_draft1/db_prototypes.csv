@@ -1,0 +1,22 @@
+Link,Title,Description,Result
+[](#lasso-query),Lasso patches,Time to return 1 million patches from a lasso operation,
+[](#hover-over-scatter-plot),Get patch by bucket,"Time to return a single patch by cell id, from 1 billion patch table",
+[](#toggle-show-patches),Show patches,"Time to return the first patch for 1000 cells, from 1 billion patch table",
+[](#assign-reassign-ground-truth-labels),Assign labels,Time to update ground truth labels for 1000 patches within 1b row table,"13ms, ~74,000 patches/s"
+[](#insert-new-predictions),Insert 1B rows monotonic ids,"Time to insert 1B monotonically increasing ids in a table, with optimizations.","0.49h, ~600k r/s"
+[](#insert-new-predictions),Insert 1B rows non-monotonic ids,"Time to insert 1B non-monotonically increasing ids in a table, with optimizations.",
+[](#insert-new-predictions),Insert 1000 random rows w/ fk,Time to insert 1000 random rows in table w foreign key relation to 1b row table,"4,944 r/s"
+[](#insert-new-predictions),Insert 1000 sequential rows w/ fk,Time to insert 1000 sequential rows in table w foreign key relation to 1b row table,"119,250 r/s"
+[](#insert-new-predictions),Insert 1000 rows w/  ij index,Time to insert 1000 rows in empty table w/ ij b-tree index,"68,519 r/s"
+[](#insert-new-predictions),Insert 1000 rows w/ z index,Time to insert 1000 rows in empty table w/ z b-tree index,"61,315 r/s"
+[](#insert-new-predictions),Insert 1000 rows w/  ij index & fk,Time to insert 1000 rows in empty table w/ ij b-tree index & foreign key constraint,"4,397 r/s"
+[](#insert-new-predictions),Insert 1000 rows w/ z index & fk,Time to insert 1000 rows in empty table w/ z b-tree index & foreign key constraint,"5,248 r/s"
+[](#insert-new-predictions),Insert 1000 rows w/ z index on full table,Time to insert 1000 rows in 1b row table w/ z b-tree index.,"106ms, ~9,465 r/s"
+[](#insert-new-predictions),Insert 1000 rows w/ ij index on full table,Time to insert 1000 rows in 800M row table w/ ij b-tree index.,"25ms, ~39,378 r/s"
+[](#insert-new-predictions),insert 1 pred w/ IMV,Time to insert 1 pred in 1b row table w/ incremental materialized view,
+[](#insert-new-predictions),insert 1000 pred w/ IMV,Time to insert 1000 preds in 1b row table w/ incremental materialized view,
+[](#insert-new-predictions),insert 1 pred w/ TimescaleDB,Time to insert 1 pred in 1b row table w/ TimescaleDB,
+[](#insert-new-predictions),insert 1000 pred w/ TimescaleDB,Time to insert 1000 pred in 1b row table w/ TimescaleDB,
+[](#remove-old-predictions),Clean up partitions,Time to drop old TimescaleDB partitions,
+[](#patch-extraction),Insert 1B rows sequentially,time to insert 1B rows into un-indexed table,"1.02h (est), ~270k r/s "
+[](#insert-new-predictions),Update grid indices v2_pred_patch,"Time to update grid_cell_i/grid_cell_j for 1000 randomly selected rows in ~800M row v2_pred_patch table (baseline, bloated, post-VACUUM phases)","325.7 ms, 3,070 rows/s"

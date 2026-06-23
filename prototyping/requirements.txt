@@ -1,0 +1,9 @@
+pandas
+matplotlib
+numpy
+psycopg2-binary
+scipy
+pyspark
+sqlalchemy
+geoalchemy2
+tqdm

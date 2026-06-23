@@ -5,4 +5,6 @@ PatchSorter is an open-source digital pathology tool for histologic object label
 :maxdepth: 2
 :caption: Contents:
 
-design_material/index.md
+design_material_draft1/index.md
+design_material_draft2/index.md
+api/db
