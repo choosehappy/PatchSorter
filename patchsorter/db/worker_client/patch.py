@@ -115,6 +115,29 @@ class WorkerPatchStore:
     # Prediction writes                                                    #
     # ------------------------------------------------------------------ #
 
+    def get_local_patch_count(self, shard_ids: List[int]) -> List[int]:
+        """Return the patch count for each of a list of local shards.
+
+        Uses a single query with UNION ALL to count rows in all specified
+        shard tables at once.
+
+        Args:
+            shard_ids: List of numeric Citus shard IDs to count rows in.
+
+        Returns:
+            List of ``COUNT(*)`` values, one per shard in *shard_ids*.
+        """
+        if not shard_ids:
+            return []
+        union_parts = " UNION ALL ".join(
+            f"SELECT {i} AS rn, COUNT(*) AS cnt FROM {build_table_name(self.project_id, sid)}"
+            for i, sid in enumerate(shard_ids)
+        )
+        result = self._session.execute(
+            text(f"SELECT cnt FROM ({union_parts}) sub ORDER BY rn"),
+        ).scalars().all()
+        return list(result)
+
     def insert_predictions_to_shard(
         self,
         shard_id: int,
