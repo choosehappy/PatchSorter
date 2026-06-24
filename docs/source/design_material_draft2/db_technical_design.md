@@ -196,11 +196,11 @@ Factory results are cached per `(project_id[, level])` to prevent duplicate mapp
 ## Deletion Protocols
 
 ### Deleting an Annotation (Label) Class
+The "Unassigned" class (`label_class_id = -1`) is a reserved default and **cannot be deleted**.
 
-The "Unlabeled" class (`label_class_id = 1`) is a reserved default and **cannot be deleted**.
+1. **Reset patch ground truth labels.** `UPDATE projectN_patch SET label_class_id = -1 WHERE label_class_id = $deleted_id` across all shards.
 
-1. **Reset patch ground truth labels.** `UPDATE projectN_patch SET label_class_id = 1 WHERE label_class_id = $deleted_id` across all shards.
-2. **Reset prediction labels.** `UPDATE projectN_pred_patch_latest SET label_class_id = 1 WHERE label_class_id = $deleted_id` and the same for `projectN_pred_patch_last`.
+2. **Reset prediction labels.** `UPDATE projectN_pred_patch_latest SET label_class_id = -1 WHERE label_class_id = $deleted_id` and the same for `projectN_pred_patch_last`.
 3. **Reset confusion matrix references.** `UPDATE projectN_confusion_matrix_ln SET pred_label = 1 WHERE pred_label = $deleted_id` and the same for `gt_label`.
 4. **Delete the label class row.** `DELETE FROM label_class WHERE label_class_id = $deleted_id`.
 
@@ -208,7 +208,7 @@ Steps 1–3 must complete successfully before step 4 is executed. All steps shou
 
 ### Deleting an Image
 
-1. **Reset patch ground truth labels to "Unlabeled".** `UPDATE projectN_patch SET label_class_id = 1 WHERE image_id = $deleted_image_id`.
+1. **Reset patch ground truth labels to "Unassigned".** `UPDATE projectN_patch SET label_class_id = -1 WHERE image_id = $deleted_image_id`.
 2. **Delete predictions for the image's patches.** `DELETE FROM projectN_pred_patch_latest WHERE patch_id IN (SELECT patch_id FROM projectN_patch WHERE image_id = $deleted_image_id)` and the same for `projectN_pred_patch_last`.
 3. **Delete the patches.** `DELETE FROM projectN_patch WHERE image_id = $deleted_image_id`.
 4. **Delete the image row.** `DELETE FROM image WHERE image_id = $deleted_image_id`.
