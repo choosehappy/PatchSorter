@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom';
 import { Navbar, Nav, Container } from 'react-bootstrap';
-import { CaretRightFill } from 'react-bootstrap-icons';
+import { CaretRightFill, BellFill } from 'react-bootstrap-icons';
 import Badge from 'react-bootstrap/Badge';
-import { BellFill } from 'react-bootstrap-icons';
 import { useState } from 'react';
+import { useNotificationCenter } from 'react-toastify/addons/use-notification-center';
+import NotificationCenter from './NotificationCenter';
 
 interface Project {
     id: string;
@@ -25,8 +26,9 @@ const Item = ({ children }: { children: React.ReactNode }) => (
 
 const Navigation = ({ currentProject }: NavigationProps) => {
     const [showNotifications, setShowNotifications] = useState(false);
-    // Placeholder for notification count
-    const unread = 0;
+    const notificationCenter = useNotificationCenter();
+    const unread = notificationCenter?.unreadCount ?? 0;
+
     return (
         <>
             <Navbar bg="dark" data-bs-theme="dark">
@@ -61,7 +63,11 @@ const Navigation = ({ currentProject }: NavigationProps) => {
                     </Nav>
                 </Container>
             </Navbar>
-            {/* NotificationCenter would go here if implemented */}
+            <NotificationCenter
+                show={showNotifications}
+                onHide={() => setShowNotifications(false)}
+                notificationCenter={notificationCenter}
+            />
         </>
     );
 };
