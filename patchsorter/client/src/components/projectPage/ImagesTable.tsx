@@ -4,7 +4,7 @@ import { useQueries } from '@tanstack/react-query'
 import { SlickgridReact } from 'slickgrid-react'
 import type { Column, GridOption, SlickgridReactInstance, OnSelectedRowsChangedEventArgs } from 'slickgrid-react'
 import type { ImageResponse, ImageStatsResponse, LabelClassResponse } from '../../api_client'
-import { getImageStatsApiV1ProjectsProjectIdImagesImageIdStatsGet } from '../../api_client'
+import { getImageStatsProjectsProjectIdImagesImageIdStatsGet } from '../../api_client'
 
 interface ImagesTableProps {
     projectId: number
@@ -22,7 +22,7 @@ export default function ImagesTable({ projectId, images, labelClasses, isLoading
     const imageStatQueries = useQueries({
         queries: images.map(img => ({
             queryKey: ['imageStats', projectId, img.image_id],
-            queryFn: () => getImageStatsApiV1ProjectsProjectIdImagesImageIdStatsGet({
+            queryFn: () => getImageStatsProjectsProjectIdImagesImageIdStatsGet({
                 path: { project_id: projectId, image_id: img.image_id }
             }).then(r => r.data),
             enabled: images.length > 0,
@@ -38,7 +38,7 @@ export default function ImagesTable({ projectId, images, labelClasses, isLoading
 
     const buildColumns = useCallback((): Column[] => {
         const thumbnailFormatter = (_row: number, _cell: number, value: unknown) => {
-            const src = `/api/v1/projects/${projectId}/images/${value}/thumbnail/`
+            const src = `/projects/${projectId}/images/${value}/thumbnail/`
             return (
                 '<span class="spinner-border spinner-border-sm" role="status"></span>' +
                 '<span class="text-danger" style="display:none;font-size:1.5rem">&times;</span>' +

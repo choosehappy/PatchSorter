@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { client } from '../api_client/client'
-import { type ServeTileApiV1ProjectsProjectIdTilesZxyPngGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet } from '../api_client'
+import { client } from '../api_client/client.gen'
+import { type ServeTileProjectsProjectIdTilesZxyPngGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet } from '../api_client'
 
 // GeoJS loaded via CDN in index.html
 declare const geo: any
@@ -191,7 +191,7 @@ export default function Viewport({
         const sumOver = colorBy !== 'gt' ? 'gt' : 'pred'
         const bounds = mapRef.current.bounds()
 
-        const tile_url = '/api/v1/projects/{project_id}/tiles/{z}/{x}/{y}.png' satisfies ServeTileApiV1ProjectsProjectIdTilesZxyPngGetData['url']
+        const tile_url = '/projects/{project_id}/tiles/{z}/{x}/{y}.png' satisfies ServeTileProjectsProjectIdTilesZxyPngGetData['url']
 
         const query: Record<string, any> = {
             sum_over: sumOver,
@@ -216,7 +216,7 @@ export default function Viewport({
             path: { z, x, y, project_id: projectId },
             query,
             url: tile_url
-        } as ServeTileApiV1ProjectsProjectIdTilesZxyPngGetData
+        } as ServeTileProjectsProjectIdTilesZxyPngGetData
 
         return client.buildUrl(options)
     }
@@ -238,7 +238,7 @@ export default function Viewport({
             .map(p => ({
                 ul: { x: p.grid_cell_i!, y: p.grid_cell_j! - 2 * half },
                 lr: { x: p.grid_cell_i! + 2 * half, y: p.grid_cell_j! },
-                image: `/api/v1/projects/${projectId}/patches/${p.patch_id}/image`,
+                image: `/projects/${projectId}/patches/${p.patch_id}/image`,
             }))
     }
 
@@ -384,7 +384,7 @@ export default function Viewport({
                 const zoom = Math.round(mapRef.current.zoom())
                 const queryRange = Math.max(2, Math.round(PATCH_QUERY_RANGE_POINT * Math.pow(2, -zoom)))
 
-                samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet({
+                samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet({
                     client,
                     path: { project_id: projectId },
                     query: { x: evt.geo.x, y: evt.geo.y, lp: lp, patch_query_range: queryRange },
@@ -532,7 +532,7 @@ export default function Viewport({
         }))
         Promise.all(
             points.map(({ x, y }) =>
-                samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet({
+                samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet({
                     client,
                     path: { project_id: projectId },
                     query: { x, y, lp },
@@ -576,7 +576,7 @@ export default function Viewport({
                 }))
                 const rawResults = await Promise.all(
                     pts.map(({ x, y }) =>
-                        samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet({
+                        samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet({
                             client,
                             path: { project_id: projectId },
                             query: { x, y, lp },

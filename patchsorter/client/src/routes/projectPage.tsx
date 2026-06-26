@@ -6,11 +6,11 @@ import MetadataSection from '../components/projectPage/MetadataSection'
 import LabelClassesTable from '../components/projectPage/LabelClassesTable'
 import ImagesTable from '../components/projectPage/ImagesTable'
 import {
-    getProjectApiV1ProjectsProjectIdGet,
-    getProjectStatsApiV1ProjectsProjectIdStatsGet,
-    listSettingsApiV1ProjectsProjectIdSettingsGet,
-    listLabelClassesApiV1ProjectsProjectIdLabelClassesGet,
-    listImagesApiV1ProjectsProjectIdImagesGet,
+    getProjectProjectsProjectIdGet,
+    getProjectStatsProjectsProjectIdStatsGet,
+    listSettingsProjectsProjectIdSettingsGet,
+    listLabelClassesProjectsProjectIdLabelClassesGet,
+    listImagesProjectsProjectIdImagesGet,
 } from '../api_client'
 
 export default function ProjectPage() {
@@ -20,23 +20,23 @@ export default function ProjectPage() {
 
     const { data: project, isLoading: projectLoading } = useQuery({
         queryKey: ['project', projectId],
-        queryFn: () => getProjectApiV1ProjectsProjectIdGet({ path: { project_id: projectId } }).then(r => r.data),
+        queryFn: () => getProjectProjectsProjectIdGet({ path: { project_id: projectId } }).then(r => r.data),
     })
     const { data: stats, isLoading: statsLoading } = useQuery({
         queryKey: ['projectStats', projectId],
-        queryFn: () => getProjectStatsApiV1ProjectsProjectIdStatsGet({ path: { project_id: projectId } }).then(r => r.data),
+        queryFn: () => getProjectStatsProjectsProjectIdStatsGet({ path: { project_id: projectId } }).then(r => r.data),
     })
     const { data: settings, isLoading: settingsLoading } = useQuery({
         queryKey: ['projectSettings', projectId],
-        queryFn: () => listSettingsApiV1ProjectsProjectIdSettingsGet({ path: { project_id: projectId } }).then(r => r.data),
+        queryFn: () => listSettingsProjectsProjectIdSettingsGet({ path: { project_id: projectId } }).then(r => r.data),
     })
     const { data: labelClasses, isLoading: labelClassesLoading } = useQuery({
         queryKey: ['labelClasses', projectId],
-        queryFn: () => listLabelClassesApiV1ProjectsProjectIdLabelClassesGet({ path: { project_id: projectId } }).then(r => r.data),
+        queryFn: () => listLabelClassesProjectsProjectIdLabelClassesGet({ path: { project_id: projectId } }).then(r => r.data),
     })
     const { data: images, isLoading: imagesLoading } = useQuery({
         queryKey: ['projectImages', projectId],
-        queryFn: () => listImagesApiV1ProjectsProjectIdImagesGet({ path: { project_id: projectId } }).then(r => r.data),
+        queryFn: () => listImagesProjectsProjectIdImagesGet({ path: { project_id: projectId } }).then(r => r.data),
     })
 
     return (

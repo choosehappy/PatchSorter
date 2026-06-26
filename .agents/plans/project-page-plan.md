@@ -128,11 +128,11 @@ import MetadataSection from '../components/projectPage/MetadataSection'
 import LabelClassesTable from '../components/projectPage/LabelClassesTable'
 import ImagesTable from '../components/projectPage/ImagesTable'
 import {
-    getProjectApiV1ProjectsProjectIdGet,
-    getProjectStatsApiV1ProjectsProjectIdStatsGet,
-    getProjectSettingsApiV1ProjectsProjectIdSettingsGet,
-    listLabelClassesApiV1ProjectsProjectIdLabelClassesGet,
-    listProjectImagesApiV1ProjectsProjectIdImagesGet,
+    getProjectProjectsProjectIdGet,
+    getProjectStatsProjectsProjectIdStatsGet,
+    getProjectSettingsProjectsProjectIdSettingsGet,
+    listLabelClassesProjectsProjectIdLabelClassesGet,
+    listProjectImagesProjectsProjectIdImagesGet,
 } from '../api_client'
 
 export default function ProjectPage() {
@@ -142,23 +142,23 @@ export default function ProjectPage() {
 
     const { data: project, isLoading: projectLoading } = useQuery({
         queryKey: ['project', projectId],
-        queryFn: () => getProjectApiV1ProjectsProjectIdGet({ path: { project_id: projectId } }).then(r => r.data),
+        queryFn: () => getProjectProjectsProjectIdGet({ path: { project_id: projectId } }).then(r => r.data),
     })
     const { data: stats, isLoading: statsLoading } = useQuery({
         queryKey: ['projectStats', projectId],
-        queryFn: () => getProjectStatsApiV1ProjectsProjectIdStatsGet({ path: { project_id: projectId } }).then(r => r.data),
+        queryFn: () => getProjectStatsProjectsProjectIdStatsGet({ path: { project_id: projectId } }).then(r => r.data),
     })
     const { data: settings, isLoading: settingsLoading } = useQuery({
         queryKey: ['projectSettings', projectId],
-        queryFn: () => getProjectSettingsApiV1ProjectsProjectIdSettingsGet({ path: { project_id: projectId } }).then(r => r.data),
+        queryFn: () => getProjectSettingsProjectsProjectIdSettingsGet({ path: { project_id: projectId } }).then(r => r.data),
     })
     const { data: labelClasses, isLoading: labelClassesLoading } = useQuery({
         queryKey: ['labelClasses', projectId],
-        queryFn: () => listLabelClassesApiV1ProjectsProjectIdLabelClassesGet({ path: { project_id: projectId } }).then(r => r.data),
+        queryFn: () => listLabelClassesProjectsProjectIdLabelClassesGet({ path: { project_id: projectId } }).then(r => r.data),
     })
     const { data: images, isLoading: imagesLoading } = useQuery({
         queryKey: ['projectImages', projectId],
-        queryFn: () => listProjectImagesApiV1ProjectsProjectIdImagesGet({ path: { project_id: projectId } }).then(r => r.data),
+        queryFn: () => listProjectImagesProjectsProjectIdImagesGet({ path: { project_id: projectId } }).then(r => r.data),
     })
 
     return (
@@ -238,7 +238,7 @@ import {
     CheckboxSelectColumn, RowSelectionModel,
 } from 'slickgrid-react'
 import ConfirmationModal from '../ConfirmationModal'   // create or reuse
-import { deleteLabelClassApiV1ProjectsProjectIdLabelClassesLabelClassIdDelete } from '../../api_client'
+import { deleteLabelClassProjectsProjectIdLabelClassesLabelClassIdDelete } from '../../api_client'
 
 export default function LabelClassesTable({ projectId, labelClasses, isLoading, onMutated }) {
     const gridRef = useRef<SlickgridReactInstance | null>(null)
@@ -318,7 +318,7 @@ export default function LabelClassesTable({ projectId, labelClasses, isLoading, 
     const handleDelete = async () => {
         await Promise.all(
             [...selectedIds].map(id =>
-                deleteLabelClassApiV1ProjectsProjectIdLabelClassesLabelClassIdDelete({
+                deleteLabelClassProjectsProjectIdLabelClassesLabelClassIdDelete({
                     path: { project_id: projectId, label_class_id: id }
                 })
             )
@@ -375,7 +375,7 @@ This is the most complex component. It has:
 const imageStatQueries = useQueries({
     queries: images.map(img => ({
         queryKey: ['imageStats', projectId, img.image_id],
-        queryFn: () => getImageStatsApiV1ProjectsProjectIdImagesImageIdStatsGet({
+        queryFn: () => getImageStatsProjectsProjectIdImagesImageIdStatsGet({
             path: { project_id: projectId, image_id: img.image_id }
         }).then(r => r.data),
         enabled: images.length > 0,

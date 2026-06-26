@@ -11,7 +11,7 @@ from .export.routes import router as export_router
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="PatchSorter Tile Server", version="1.0.0")
+    app = FastAPI(title="PatchSorter Tile Server", version="1.0.0", root_path="/api/v1")
 
     app.add_middleware(
         CORSMiddleware,
@@ -20,13 +20,13 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.include_router(confusion_matrix_router, prefix="/api/v1")
-    app.include_router(project_router, prefix="/api/v1")
-    app.include_router(label_class_router, prefix="/api/v1")
-    app.include_router(patch_router, prefix="/api/v1")
-    app.include_router(settings_router, prefix="/api/v1")
-    app.include_router(image_router, prefix="/api/v1")
-    app.include_router(export_router, prefix="/api/v1")
+    app.include_router(confusion_matrix_router)
+    app.include_router(project_router)
+    app.include_router(label_class_router)
+    app.include_router(patch_router)
+    app.include_router(settings_router)
+    app.include_router(image_router)
+    app.include_router(export_router)
 
     # Global session managers are lazily constructed by the package getters
     # (get_head_session_manager / get_worker_session_manager) when needed.

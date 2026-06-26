@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { client } from '../api_client/client'
+import { client } from '../api_client/client.gen'
 import './patchGallery.css'
 import type { PatchResponse, LabelClassResponse } from '../api_client'
 
@@ -29,7 +29,7 @@ export default function PatchImage({ projectId, patch, labelClasses, isSelected 
             try {
                 const res = await client.get({
                     path: { project_id: projectId, patch_id: patch.patch_id },
-                    url: '/api/v1/projects/{project_id}/patches/{patch_id}/image',
+                    url: '/projects/{project_id}/patches/{patch_id}/image',
                 })
                 if (!cancelled && res.data) {
                     const blob = res.data as Blob
