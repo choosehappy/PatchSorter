@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { client } from '../api_client/client.gen'
+import { client } from '../api_client/client'
 import './patchGallery.css'
 import type { PatchResponse, LabelClassResponse } from '../api_client'
 

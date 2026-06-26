@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { client } from '../api_client/client.gen'
+import { client } from '../api_client/client'
 import { type ServeTileApiV1ProjectsProjectIdTilesZxyPngGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet } from '../api_client'
 
 // GeoJS loaded via CDN in index.html

@@ -36,14 +36,15 @@ class ProjectStore:
             description: Optional longer description of the project.
 
         Returns:
-            A dict with ``project_id``, ``project_name``, and ``description``.
+            A dict with ``project_id``, ``project_name``, ``description``,
+            and ``creation_ts``.
         """
         row = self._session.execute(
             text(
                 """
                 INSERT INTO project (project_name, description)
                 VALUES (:name, :description)
-                RETURNING project_id, project_name, description
+                RETURNING project_id, project_name, description, creation_ts
                 """
             ),
             {"name": name, "description": description},
@@ -51,6 +52,51 @@ class ProjectStore:
         result = dict(row)
         SettingsStore(self._session).seed_project_settings(result["project_id"])
         return result
+
+    def update(self, project_id: int, name: Optional[str] = None, description: Optional[str] = None) -> Dict[str, Any]:
+        """Update a project's name and/or description.
+
+        Args:
+            project_id: The integer ID of the project to update.
+            name: Optional new project name.
+            description: Optional new description.
+
+        Returns:
+            A dict with the updated ``project_id``, ``project_name``,
+            ``description``, and ``creation_ts``.
+
+        Raises:
+            RuntimeError: If the project does not exist.
+        """
+        set_clauses = []
+        params: Dict[str, Any] = {"project_id": project_id}
+        if name is not None:
+            set_clauses.append("project_name = :name")
+            params["name"] = name
+        if description is not None:
+            set_clauses.append("description = :description")
+            params["description"] = description
+        if not set_clauses:
+            return self.get(project_id)
+        query = text(
+            f"UPDATE project SET {', '.join(set_clauses)}, creation_ts = NOW() "
+            "WHERE project_id = :project_id "
+            "RETURNING project_id, project_name, description, creation_ts"
+        )
+        row = self._session.execute(query, params).mappings().one_or_none()
+        if not row:
+            raise RuntimeError(f"Project {project_id} not found")
+        return dict(row)
+
+    def get(self, project_id: int) -> Dict[str, Any]:
+        """Return a single project as a dict, or raise RuntimeError."""
+        row = self._session.execute(
+            text("SELECT * FROM project WHERE project_id = :project_id"),
+            {"project_id": project_id},
+        ).mappings().one_or_none()
+        if not row:
+            raise RuntimeError(f"Project {project_id} not found")
+        return dict(row)
 
     def list_all(self) -> List[Dict[str, Any]]:
         """Return all projects ordered by ``project_id`` ascending.

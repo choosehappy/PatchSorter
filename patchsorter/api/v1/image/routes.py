@@ -1,0 +1,72 @@
+from typing import List
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
+from sqlalchemy import text
+
+from patchsorter.db.head_client import get_client as get_head_client
+from patchsorter.db.head_client.image import ImageStore
+from patchsorter.db.head_client.models import build_table_name
+from patchsorter.api.v1.image.models import ImageResponse, ImageStatsResponse
+
+router = APIRouter()
+
+
+@router.get("/projects/{project_id}/images/", response_model=List[ImageResponse])
+def list_images(project_id: int) -> List[ImageResponse]:
+    client = get_head_client()
+    with client.get_session() as session:
+        store = ImageStore(session)
+        rows = store.list_by_project(project_id)
+    return [ImageResponse.model_validate(r) for r in rows]
+
+
+@router.get("/projects/{project_id}/images/{image_id}/stats/", response_model=ImageStatsResponse)
+def get_image_stats(project_id: int, image_id: int) -> ImageStatsResponse:
+    client = get_head_client()
+    with client.get_session() as session:
+        store = ImageStore(session)
+        row = store.get(image_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        tbl = build_table_name(project_id)
+        total_row = session.execute(
+            text(f"SELECT COUNT(*) FROM {tbl} WHERE image_id = :image_id"),
+            {"image_id": image_id},
+        ).scalar()
+        labeled_row = session.execute(
+            text(f"SELECT COUNT(*) FROM {tbl} WHERE image_id = :image_id AND label_class_id > 1"),
+            {"image_id": image_id},
+        ).scalar()
+    return ImageStatsResponse(
+        total_patches=total_row,
+        labeled_patches=labeled_row,
+    )
+
+
+@router.get("/projects/{project_id}/images/{image_id}/thumbnail/")
+def get_image_thumbnail(project_id: int, image_id: int) -> Response:
+    client = get_head_client()
+    with client.get_session() as session:
+        store = ImageStore(session)
+        row = store.get(image_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        tbl = build_table_name(project_id)
+        thumbnail_row = session.execute(
+            text(f"SELECT thumbnail FROM {tbl} WHERE image_id = :image_id"),
+            {"image_id": image_id},
+        ).mappings().first()
+
+    if not thumbnail_row or not thumbnail_row.get("thumbnail"):
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+
+    return Response(
+        content=thumbnail_row["thumbnail"],
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "public, max-age=31536000",
+        },
+    )
