@@ -90,7 +90,7 @@ dataloader = DataLoader(
     prefetch_factor=4, #UNCOMMENT
 )
 # prefetcher = cuda_prefetc[her(dataloader)
-vram_prefetcher = threaded_vram_prefetcher(dataloader, buffer_size=4) #UNCOMMENT
+vram_prefetcher = threaded_vram_prefetcher(dataloader, buffer_size=4, device=DEVICE) #UNCOMMENT
 #vram_prefetcher = dataloader
 
 
@@ -197,9 +197,9 @@ joint_head = joint_head.to(DEVICE,non_blocking=True)
 # joint_head = torch.compile(joint_head)
 # print("end compile")
 
-from torchsummary import summary
-summary(backbone, (3,64,64,))
-summary(joint_head, (1024,))
+from torchinfo import summary
+summary(backbone, (1,3,64,64),device=DEVICE)
+summary(joint_head, (1,1024),device=DEVICE)
 
 logger = logging.getLogger(__name__)
 
@@ -351,10 +351,11 @@ for _ in range(10_000):
             #repulsion_loss_val = repulsion_loss(proj_coords, margin=REPULSION_MARGIN)
             repulsion_loss_val = torch.tensor(0.0, device=DEVICE)  
 
-            semantic_coord_attr_loss, semantic_coord_repel_loss = semantic_head_loss(proj_coords, labels)
+            semantic_coord_attr_loss, semantic_coord_repel_loss = semantic_head_loss(proj_coords / GRID_SIZE, labels, margin=.05)
             semantic_coord_loss = (semantic_coord_attr_loss + semantic_coord_repel_loss)  # report seperately
 
-            proj_emb_norm = F.normalize(proj_emb, dim=1 )  # projects onto unit hypersphere
+            #proj_emb_norm = F.normalize(proj_emb, dim=1 )  # projects onto unit hypersphere
+            proj_emb_norm = proj_emb #normalization was done above --- not name refactoring yet
 
             semantic_emb_attr_loss, semantic_emb_repel_loss = semantic_head_loss(proj_emb_norm, labels, margin=0.5)
             
@@ -365,8 +366,7 @@ for _ in range(10_000):
             sup_pred_loss = prediction_loss_sup(pred_logits,labels,class_weights=class_weights)
 
             pseudo_pred_loss, pred_labels, high_conf = prediction_loss_pseudo(pred_logits,labels,pseudo_class_weights=None,pseudo_thresh=PSEUDO_THRESH,views_per_patch=NVIEWS)  # i don't think we want psudo class weights
-            pred_loss = (sup_pred_loss + PSEUDO_PRED_LAMBDA * pseudo_pred_loss)  # report seperately
-
+            
             labeled_rate, num_label, num_pseudo = label_tracker.update(
                 labels, pred_labels[high_conf] if high_conf is not None else None
             )  # update with current batch's true and pseudo labels
@@ -397,11 +397,12 @@ for _ in range(10_000):
                 # + INTRA_BIN_LAMBDA  * intra_loss
                 + NEIGHBOR_LAMBDA * neigh_loss
                 #                   + TEMPORAL_LAMBDA   * loss_temp
-                + SEMANTIC_LAMBDA
+                + SEMANTIC_COORD_LAMBDA
                 * semantic_coord_loss  # * labeled_rate  # not sure if this addidtional makes sense?
-                + SEMANTIC_LAMBDA
+                + SEMANTIC_EMB_LAMBDA
                 * semantic_emb_loss  # * labeled_rate  # not sure if this addidtional makes sense?
-                + PRED_LAMBDA * pred_loss
+                + PRED_SUP_LAMBDA * sup_pred_loss
+                + PRED_PSEUDO_LAMBDA * pseudo_pred_loss
             )
 
             optimizer.zero_grad()

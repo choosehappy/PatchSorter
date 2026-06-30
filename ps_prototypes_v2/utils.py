@@ -62,41 +62,43 @@ import torch
 import torch
 
 
-def to_cuda(obj, stream):
-    """Recursively moves tensors to GPU in a specific stream."""
+def to_cuda(obj, stream, device: Optional[Union[torch.device, int]] = None):
+    """Recursively moves tensors to GPU in a specific stream and device."""
     if isinstance(obj, torch.Tensor):
         with torch.cuda.stream(stream):
-            return obj.cuda(non_blocking=True)
+            if device is None:
+                return obj.cuda(non_blocking=True)
+            return obj.cuda(device=device, non_blocking=True)
     elif isinstance(obj, list):
-        return [to_cuda(v, stream) for v in obj]
+        return [to_cuda(v, stream, device=device) for v in obj]
     elif isinstance(obj, tuple):
-        return tuple(to_cuda(v, stream) for v in obj)
+        return tuple(to_cuda(v, stream, device=device) for v in obj)
     return obj
 
 
-def cuda_prefetcher(loader):
-    stream = torch.cuda.Stream()
+def cuda_prefetcher(loader, device: Union[torch.device, int] = torch.device("cuda:0")):
+    stream = torch.cuda.Stream(device=device)
     loader_iter = iter(loader)
 
     def bck_load():
         try:
             batch = next(loader_iter)
             # This handles *views, labels, orig automatically
-            return to_cuda(batch, stream)
+            return to_cuda(batch, stream, device=device)
         except StopIteration:
             return None
 
     next_batch = bck_load()
 
     while next_batch is not None:
-        torch.cuda.current_stream().wait_stream(stream)
+        torch.cuda.current_stream(device=device).wait_stream(stream)
 
         current_batch = next_batch
 
         # Record stream for every tensor in the batch to prevent memory corruption
         def record_all(obj):
             if isinstance(obj, torch.Tensor):
-                obj.record_stream(torch.cuda.current_stream())
+                obj.record_stream(torch.cuda.current_stream(device=device))
             elif isinstance(obj, (list, tuple)):
                 for i in obj:
                     record_all(i)
@@ -118,26 +120,28 @@ from collections import deque
 from queue import Queue
 
 
-def threaded_vram_prefetcher(loader, buffer_size=10):
-    stream = torch.cuda.Stream()
+def threaded_vram_prefetcher(
+    loader,
+    buffer_size: int = 10,
+    device: Union[torch.device, int] = torch.device("cuda:0"),
+):
+    stream = torch.cuda.Stream(device=device)
     loader_iter = iter(loader)
     # Use a thread-safe Queue for handoff
     gpu_queue = Queue(maxsize=buffer_size)
 
     def producer():
         """This runs in a background thread to keep the VRAM full."""
-        try:
-            for batch in loader_iter:
-                # 1. Move to GPU (This happens in the background stream)
-                with torch.cuda.stream(stream):
-                    gpu_batch = to_cuda(batch, stream)
+        for batch in loader_iter:
+            # 1. Move to GPU (This happens in the background stream)
+            with torch.cuda.stream(stream):
+                gpu_batch = to_cuda(batch, stream, device=device)
 
-                # 2. Put it in the queue.
-                # If the queue is full (buffer_size reached), this thread sleeps.
-                gpu_queue.put(gpu_batch)
+            # 2. Put it in the queue.
+            # If the queue is full (buffer_size reached), this thread sleeps.
+            gpu_queue.put(gpu_batch)
 
-        except StopIteration:
-            gpu_queue.put(None)  # Signal end of data
+        gpu_queue.put(None)  # Signal end of data
 
     # Start the "Background Refiller" thread
     worker_thread = threading.Thread(target=producer, daemon=True)
@@ -151,12 +155,12 @@ def threaded_vram_prefetcher(loader, buffer_size=10):
             break
 
         # Ensure the background CUDA copy is finished before the model touches it
-        torch.cuda.current_stream().wait_stream(stream)
+        torch.cuda.current_stream(device=device).wait_stream(stream)
 
         # Record stream for memory safety
         def record_all(obj):
             if isinstance(obj, torch.Tensor):
-                obj.record_stream(torch.cuda.current_stream())
+                obj.record_stream(torch.cuda.current_stream(device=device))
             elif isinstance(obj, (list, tuple)):
                 for i in obj:
                     record_all(i)
@@ -1005,9 +1009,9 @@ def prediction_loss_pseudo(
 #     return pseudo_loss, pred_labels, high_conf
 
 
-def semantic_head_loss(coords, labels, margin=5.0):
+def semantic_head_loss(coords, labels, margin=0.5):
     """
-    coords: [B,2] 2D projection coordinates (float tensor)
+    coords: [B,?] either 2d or full feature embedding. note that they should be scaled accordingly
     labels: [B] tensor of class labels (-1 for unlabeled)
     margin: minimum distance for repulsion between different classes
     returns: scalar loss

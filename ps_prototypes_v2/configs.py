@@ -22,14 +22,16 @@ GRID_SIZE = 100  # projection grid
 # INTER_BIN_LAMBDA = 0.1
 # PSEUDO_PRED_LAMBDA=.8
 
-SEMANTIC_LAMBDA = 1.0
+SEMANTIC_COORD_LAMBDA = 1.0
+SEMANTIC_EMB_LAMBDA = 10.0
 TEMPORAL_ALPHA = 0.05  # unchanged, decay rate is fine
 TEMPORAL_LAMBDA = 0.15
 BATCH_BIN_LAMBDA = 1.0
 NEIGHBOR_LAMBDA = .5 #need t oforce high trustworthyness
 INTRA_BIN_LAMBDA = 0.3
-PSEUDO_PRED_LAMBDA = 0.4
-PRED_LAMBDA = 100.0  # supervised pred should be strong
+PSEUDO_PRED_LAMBDA = 0.1
+PRED_SUP_LAMBDA = 1_000.0
+PRED_PSEUDO_LAMBDA = PRED_SUP_LAMBDA * PSEUDO_PRED_LAMBDA
 REPULSION_LAMBDA = 0.1
 COORD_CONSITENCY_LOSS = 1
 COORD_CONTRASTIVE_LOSS = 0
@@ -47,7 +49,7 @@ LOG_EVERY = 100
 
 K_NEIGHBORS = 50 # was 5 -- but i think these should be much higher
 EPS = 1e-6
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = "cuda:1" if torch.cuda.is_available() else "cpu"
 
 PATCH_SIZE = 60  # 64 #this should allow for some local translation
 N_CLASS = 5
