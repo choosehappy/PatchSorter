@@ -146,8 +146,9 @@ However, it is not currently used because it's expensive to run a SQL query with
 Instead, the frontend currently calls the sample_patches_by_point endpoint for each of the 200 points in the grid, 
 which allows for immediate progressive loading of patch images. However, this doubles the number of REST requests (1 request returns patch metadata, and 1 request returns the patch image).
 
-I should also note that the viewport currently waits for all sample_patches_by_point requests to complete (Promise.all) before rendering the patch images - I'm thinking of swapping this to a true progressive loading approach where each patch image is rendered 
-as soon as it is received, but that would require some changes to the frontend code. The implementation currently supports abort signals when the user pans or zooms, which should be preserved in any future changes.
+I should also note that the viewport currently waits for all sample_patches_by_point requests to complete (Promise.all) before rendering the patch images. 
+This can be improved upon to greedily render patches as they are received, requiring some changes to the frontend code.
+The implementation currently supports abort signals when the user pans or zooms, which should be preserved in any future changes.
 """
 @router.get("/projects/{project_id}/sample/by-bbox/patches/", response_model=List[PatchResponse])
 def sample_patches_by_bbox(
