@@ -4,14 +4,19 @@ import torch.nn.functional as F
 from albumentations.pytorch import ToTensorV2
 from torchvision.transforms.functional import center_crop
 from tqdm import tqdm
-from torch.utils.tensorboard import SummaryWriter
 import logging
 
 from utils import *
 from patch_logging import *
+from utils_logging import (
+    enqueue_embeddings_to_db,
+    init_db_writer,
+    init_summary_writer,
+    log_embedding_histograms,
+    log_training_scalars,
+)
 import timm
 from configs import *
-from db_writer import SQLiteWriter
 import atexit
 
 from save_utils import save_models_checkpoint, load_models_checkpoint
@@ -214,7 +219,7 @@ label_tracker = LabeledRateTracker(N_CLASS, momentum=0.9, device=DEVICE)  # outs
 
 
 from datetime import datetime
-writer = SummaryWriter(log_dir=f"runs/run_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+writer = init_summary_writer()
 
 niter_total = 0
 # last_save = 0
@@ -242,7 +247,7 @@ scaler = torch.amp.GradScaler("cuda")
 
 
 # initialize DB writer (non-blocking) - stores first view's x,y and embedding blob per id
-db_writer = SQLiteWriter(db_path="./coords_embeddings.db", batch_size=BATCH_SIZE, flush_interval=0.25)
+db_writer = init_db_writer(db_path="./coords_embeddings.db", batch_size=BATCH_SIZE, flush_interval=0.25)
 atexit.register(db_writer.close)
 
 # Initialize torch profiler if enabled
@@ -290,21 +295,9 @@ for _ in range(10_000):
             proj_coords = coords.view(V, B, -1)
 
             #-------------- write to sqlite
-            # --- enqueue first view's coords and embeddings to the DB writer (non-blocking)
             if LOG_EMBEDDINGS_TOSQL:
                 try:
-                    # take first view only
-                    first_view_coords = proj_coords[0].detach().cpu().float().numpy()
-                    first_view_embs = proj_emb[0].detach().cpu().float().numpy()
-                    # ids may be tensor or list
-                    try:
-                        ids_np = ids.detach().cpu().numpy()
-                    except Exception:
-                        import numpy as _np
-
-                        ids_np = _np.asarray(ids)
-
-                    db_writer.enqueue(ids_np, first_view_coords, first_view_embs)
+                    enqueue_embeddings_to_db(db_writer, proj_coords, proj_emb, ids)
                 except Exception as _e:
                     logger.exception("DB enqueue failed: %s", _e)
             #------- finish write
@@ -414,9 +407,7 @@ for _ in range(10_000):
             #mem_bank.age_all()
 
             if niter_total % LOG_EVERY == 0:
-                #add histograms for embedding dimensions
-                for di,d in enumerate(proj_emb.T):
-                    writer.add_histogram(f"emb_dims/proj_emb_{di}", d.detach(), niter_total)
+                log_embedding_histograms(writer, proj_emb, niter_total)
 
                 logger.info("writing embeddings")
                 log_embeddings(
@@ -488,119 +479,44 @@ for _ in range(10_000):
                     del emb_orig_norm, sim_emb, sim_coords
 
             # tensorboard
-            writer.add_scalar("loss/total", total_loss.item(), niter_total)
-            writer.add_scalar(
-                "loss/coord_consistency", coord_consistency_loss.item(), niter_total
-            )
-            writer.add_scalar(
-                "loss/coord_contrastive", coord_contrastive_loss.item(), niter_total
-            )
-            writer.add_scalar("loss/simclr_emb", simclr_emb_loss.item(), niter_total)
-            #writer.add_scalar("loss/simclr_coord", simclr_emb_loss_coord.item(), niter_total)
-            #writer.add_scalar("loss/spread", spread_loss_val.item(), niter_total)
-            writer.add_scalar(
-                "loss/max_mean_discrepancy",
-                max_mean_discrepancy_loss.item(),
-                niter_total,3
-            )
-            writer.add_scalar("loss/repulsion", repulsion_loss_val.item(), niter_total)
-            # writer.add_scalar("loss/occupancy", occ_loss.item(), niter_total)
-            # writer.add_scalar("loss/intra_bin", intra_loss.item(), niter_total)
-            writer.add_scalar("loss/neighborhood", neigh_loss.item(), niter_total)
-#            writer.add_scalar("loss/temporal", loss_temp.item(), niter_total)
-            writer.add_scalar(
-                "loss/semantic_coord", semantic_coord_loss.item(), niter_total
-            )
-            # writer.add_scalar('loss/semantic_coord_weighted',   semantic_coord_loss.item() * labeled_rate, niter_total)
-            # writer.add_scalar('train/semantic_coord_lambda',    labeled_rate * SEMANTIC_LAMBDA,      niter_total)
-            writer.add_scalar(
-                "loss/semantic_coord_attract",
-                semantic_coord_attr_loss.item(),
-                niter_total,
-            )
-            writer.add_scalar(
-                "loss/semantic_coord_repel",
-                semantic_coord_repel_loss.item(),
-                niter_total,
-            )
+            loss_values = {
+                "loss/total": total_loss.item(),
+                "loss/coord_consistency": coord_consistency_loss.item(),
+                "loss/coord_contrastive": coord_contrastive_loss.item(),
+                "loss/simclr_emb": simclr_emb_loss.item(),
+                "loss/max_mean_discrepancy": max_mean_discrepancy_loss.item(),
+                "loss/repulsion": repulsion_loss_val.item(),
+                "loss/neighborhood": neigh_loss.item(),
+                "loss/semantic_coord": semantic_coord_loss.item(),
+                "loss/semantic_coord_attract": semantic_coord_attr_loss.item(),
+                "loss/semantic_coord_repel": semantic_coord_repel_loss.item(),
+                "loss/semantic_emb": semantic_emb_loss.item(),
+                "loss/semantic_emb_attract": semantic_emb_attr_loss.item(),
+                "loss/semantic_emb_repel": semantic_emb_repel_loss.item(),
+                "loss/pred_supervised": sup_pred_loss.item(),
+                "loss/pred_pseudo": pseudo_pred_loss.item(),
+            }
 
-            writer.add_scalar(
-                "loss/semantic_emb", semantic_emb_loss.item(), niter_total
-            )
-            # writer.add_scalar('loss/semantic_emb_weighted',   semantic_emb_loss.item() * labeled_rate, niter_total)
-            writer.add_scalar(
-                "loss/semantic_emb_attract", semantic_emb_attr_loss.item(), niter_total
-            )
-            writer.add_scalar(
-                "loss/semantic_emb_repel", semantic_emb_repel_loss.item(), niter_total
-            )
+            scaled_loss_values = {
+                "loss_scaled/coord_consistency": COORD_CONSITENCY_LOSS * coord_consistency_loss.item(),
+                "loss_scaled/coord_contrastive": COORD_CONTRASTIVE_LOSS * coord_contrastive_loss.item(),
+                "loss_scaled/simclr_emb": SIMCLR_EMB_LOSS * simclr_emb_loss.item(),
+                "loss_scaled/max_mean_discrepancy": MAX_MEAN_LOSS * max_mean_discrepancy_loss.item(),
+                "loss_scaled/neighborhood": NEIGHBOR_LAMBDA * neigh_loss.item(),
+                "loss_scaled/semantic_coord": SEMANTIC_COORD_LAMBDA * semantic_coord_loss.item(),
+                "loss_scaled/semantic_emb": SEMANTIC_EMB_LAMBDA * semantic_emb_loss.item(),
+                "loss_scaled/pred_supervised": PRED_SUP_LAMBDA * sup_pred_loss.item(),
+                "loss_scaled/pred_pseudo": PRED_PSEUDO_LAMBDA * pseudo_pred_loss.item(),
+            }
 
-            writer.add_scalar("loss/pred_supervised", sup_pred_loss.item(), niter_total)
-            writer.add_scalar("loss/pred_pseudo", pseudo_pred_loss.item(), niter_total)
-            writer.add_scalar("train/labeled_rate", labeled_rate, niter_total)
-
-            writer.add_scalar(
-                "loss_scaled/coord_consistency",
-                COORD_CONSITENCY_LOSS * coord_consistency_loss.item(),
+            log_training_scalars(
+                writer,
+                loss_values,
+                scaled_loss_values,
+                labeled_rate,
+                num_pseudo,
                 niter_total,
             )
-            writer.add_scalar(
-                "loss_scaled/coord_contrastive",
-                COORD_CONTRASTIVE_LOSS * coord_contrastive_loss.item(),
-                niter_total,
-            )
-            writer.add_scalar(
-                "loss_scaled/simclr_emb",
-                SIMCLR_EMB_LOSS * simclr_emb_loss.item(),
-                niter_total,
-            )
-            writer.add_scalar(
-                "loss_scaled/max_mean_discrepancy",
-                MAX_MEAN_LOSS * max_mean_discrepancy_loss.item(),
-                niter_total,
-            )
-            writer.add_scalar(
-                "loss_scaled/neighborhood",
-                NEIGHBOR_LAMBDA * neigh_loss.item(),
-                niter_total,
-            )
-            writer.add_scalar(
-                "loss_scaled/semantic_coord",
-                SEMANTIC_COORD_LAMBDA * semantic_coord_loss.item(),
-                niter_total,
-            )
-            writer.add_scalar(
-                "loss_scaled/semantic_emb",
-                SEMANTIC_EMB_LAMBDA * semantic_emb_loss.item(),
-                niter_total,
-            )
-            writer.add_scalar(
-                "loss_scaled/pred_supervised",
-                PRED_SUP_LAMBDA * sup_pred_loss.item(),
-                niter_total,
-            )
-            writer.add_scalar(
-                "loss_scaled/pred_pseudo",
-                PRED_PSEUDO_LAMBDA * pseudo_pred_loss.item(),
-                niter_total,
-            )
-
-            # writer.add_scalar(
-            #     "train/temporal_margin",
-            #     margin if mem_z.shape[0] > 0 else 5.0,
-            #     niter_total,
-            # )
-            # writer.add_scalar("train/memory_size", mem_bank.z.shape[0], niter_total)
-
-            total_pseudo = 0
-            if num_pseudo is not None and num_pseudo.any():
-                total_pseudo = num_pseudo.sum()
-                for i in (num_pseudo > 0).nonzero(as_tuple=True)[0].tolist():
-                    writer.add_scalar(
-                        f"loss/num_pseudo/{i}", num_pseudo[i].item(), niter_total
-                    )
-
-            writer.add_scalar("loss/num_pseudo/total", total_pseudo, niter_total)
 
 
 
