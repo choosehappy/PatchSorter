@@ -19,6 +19,7 @@ from utils_profile import start_profiler
 
 import tables
 
+torch.set_float32_matmul_precision('high')
 
 class Dataset(object):
     def __init__(self, fname, nviews, transforms=None):
@@ -51,12 +52,12 @@ class Dataset(object):
         if self.geom_transform:
             geom_out = self.geom_transform(image=img_new)
             img_geom = geom_out["image"]
-            anchor = ToTensorV2()(image=img_geom)["image"]
+            anchor = ToTensorV2()(image=img_geom)["image"].float()
 
             if self.photo_transform:
                 
                 views = tuple(
-                    self.photo_transform(image=self.geom_transform(image=img_new)["image"])["image"]
+                    self.photo_transform(image=self.geom_transform(image=img_new)["image"])["image"].float()
                     for _ in range(self.nviews - 1)
                 )
                 return (anchor, *views, label, img, index)
@@ -82,7 +83,7 @@ dataloader = DataLoader(
     batch_size=BATCH_SIZE,
     shuffle=False,
     #num_workers=64,
-    num_workers=16,
+    num_workers=32,
     pin_memory=True,
     drop_last=True,
     persistent_workers=True,
@@ -241,7 +242,7 @@ scaler = torch.amp.GradScaler("cuda")
 
 
 # initialize DB writer (non-blocking) - stores first view's x,y and embedding blob per id
-db_writer = SQLiteWriter(db_path="./coords_embeddings.db", batch_size=512, flush_interval=0.25)
+db_writer = SQLiteWriter(db_path="./coords_embeddings.db", batch_size=BATCH_SIZE, flush_interval=0.25)
 atexit.register(db_writer.close)
 
 # Initialize torch profiler if enabled
@@ -264,7 +265,11 @@ for _ in range(10_000):
             # views = [v.half().to(DEVICE,non_blocking=True) for v in views] # lets not do this during development
 
             # Concatenate, convert to half-precision, and normalize
-            imgs = torch.cat(views, dim=0).to(DEVICE,non_blocking=True) / 255.0  # [B*V, C, H, W]
+            views_gpu = [v.to(DEVICE, non_blocking=True) for v in views]
+            imgs = torch.stack(views_gpu, dim=1).flatten(0, 1) / 255.0  # [B*V, C, H, W]
+            del views_gpu
+            #imgs = torch.cat(views, dim=0).to(DEVICE,non_blocking=True) / 255.0  # [B*V, C, H, W]
+
 
             if USE_MASK:
                 # imgs = spatial_mask(imgs)
@@ -286,7 +291,7 @@ for _ in range(10_000):
 
             #-------------- write to sqlite
             # --- enqueue first view's coords and embeddings to the DB writer (non-blocking)
-            if True:
+            if LOG_EMBEDDINGS_TOSQL:
                 try:
                     # take first view only
                     first_view_coords = proj_coords[0].detach().cpu().float().numpy()
@@ -343,7 +348,8 @@ for _ in range(10_000):
 
 #            spread_loss_val = spread_loss(proj_coords)
             max_mean_discrepancy_loss = max_mean_discrepancy(proj_coords)
-            repulsion_loss_val = repulsion_loss(proj_coords, margin=REPULSION_MARGIN)
+            #repulsion_loss_val = repulsion_loss(proj_coords, margin=REPULSION_MARGIN)
+            repulsion_loss_val = torch.tensor(0.0, device=DEVICE)  
 
             semantic_coord_attr_loss, semantic_coord_repel_loss = semantic_head_loss(proj_coords, labels)
             semantic_coord_loss = (semantic_coord_attr_loss + semantic_coord_repel_loss)  # report seperately
@@ -494,7 +500,7 @@ for _ in range(10_000):
             writer.add_scalar(
                 "loss/max_mean_discrepancy",
                 max_mean_discrepancy_loss.item(),
-                niter_total,
+                niter_total,3
             )
             writer.add_scalar("loss/repulsion", repulsion_loss_val.item(), niter_total)
             # writer.add_scalar("loss/occupancy", occ_loss.item(), niter_total)

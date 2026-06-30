@@ -30,3 +30,7 @@ ps_prototypes_v2/mitosis_train_patches.pytable
 ps_prototypes_v2/model/*
 ps_prototypes_v2/model_mitosis/*
 ps_prototypes_v2/model_deepmel/*
+ps_prototypes_v2/model_mitosis2/*
+ps_prototypes_v2/*.svg
+ps_prototypes_v2/*.pytable
+ps_prototypes_v2/train_v4.txt
