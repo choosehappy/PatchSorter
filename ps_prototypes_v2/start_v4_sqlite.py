@@ -1,4 +1,7 @@
 # %%
+import io
+import sqlite3
+
 import torch
 import torch.nn.functional as F
 from albumentations.pytorch import ToTensorV2
@@ -23,6 +26,7 @@ from save_utils import save_models_checkpoint, load_models_checkpoint
 from utils_profile import start_profiler
 
 import tables
+import numpy as np
 
 torch.set_float32_matmul_precision('high')
 
@@ -34,23 +38,39 @@ class Dataset(object):
             transforms if transforms else (None, None)
         )
 
-        with tables.open_file(self.fname, "r") as db:
-            self.nitems = db.root.patch.shape[0]
+        self.table_name = "mitosis_patches"
+        self.conn = sqlite3.connect(self.fname)
+        self.cursor = self.conn.cursor()
+        self.cursor.execute(f"SELECT COUNT(*) FROM {self.table_name}")
+        self.nitems = self.cursor.fetchone()[0]
 
         self.imgs = None
         self.labels = None
         self.nviews = nviews
 
-    def __getitem__(self, index):
-        with tables.open_file(self.fname, "r") as db:
-            self.imgs = db.root.patch
-            self.labels = db.root.tmp_label  # ps_label has all the data - here we're using just a random set created  in a noteobok
-            
+    def _deserialize_blob(self, blob):
+        if blob is None:
+            raise ValueError("No data returned from SQLite")
+        try:
+            with io.BytesIO(blob) as buffer:
+                arr = np.load(buffer, allow_pickle=False)
+            return np.asarray(arr)
+        except Exception:
+            return np.frombuffer(blob, dtype=np.uint8)
 
-            # get the requested image and mask from the pytable
-            img = self.imgs[index, :, :, :]
-            label = self.labels[index] 
-            #label = -1
+    def __getitem__(self, index):
+        self.cursor.execute(
+            f"SELECT patch, tmp_label FROM {self.table_name} WHERE id = ?",
+            (index + 1,),
+        )
+        row = self.cursor.fetchone()
+
+        if row is None:
+            raise IndexError(index)
+
+        img_blob, label = row
+        img = self._deserialize_blob(img_blob)
+        label = int(label)
 
         img_new = img
 
@@ -60,7 +80,6 @@ class Dataset(object):
             anchor = ToTensorV2()(image=img_geom)["image"].float()
 
             if self.photo_transform:
-                
                 views = tuple(
                     self.photo_transform(image=self.geom_transform(image=img_new)["image"])["image"].float()
                     for _ in range(self.nviews - 1)
@@ -78,7 +97,7 @@ class Dataset(object):
 # Initialize dataset with proper parameters
 dataset = Dataset(
     #"mitosis_ps_labels.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
-    "mitosis_train_patches.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
+    "mitosis_train_patches.db", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
     #"deepMEL_1D1_-_2021-02-10_17.31.50.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
 )
 
