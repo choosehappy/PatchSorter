@@ -17,7 +17,7 @@ function Cell({ loading, value }: { loading: boolean; value?: React.ReactNode })
 }
 
 export default function MetadataSection({ project, projectLoading, stats, statsLoading, settings, settingsLoading }: MetadataSectionProps) {
-    const patchSize = settings?.find(s => s.setting_name === 'patch_size')?.setting_value
+    const patchSize = settings?.find(s => s.setting_key === 'patch_size')?.setting_value
 
     return (
         <section>

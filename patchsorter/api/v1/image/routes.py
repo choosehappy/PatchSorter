@@ -18,6 +18,8 @@ def list_images(project_id: int) -> List[ImageResponse]:
     with client.get_session() as session:
         store = ImageStore(session)
         rows = store.list_by_project(project_id)
+
+        session.expunge_all()
     return [ImageResponse.model_validate(r) for r in rows]
 
 

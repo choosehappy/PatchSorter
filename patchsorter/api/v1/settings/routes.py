@@ -15,4 +15,5 @@ def list_settings(project_id: int) -> List[SettingResponse]:
     with client.get_session() as session:
         store = SettingsStore(session)
         rows = store.get_all(project_id)
-    return [SettingResponse(**r) for r in rows]
+        session.expunge_all()
+    return [SettingResponse.model_validate(r) for r in rows]

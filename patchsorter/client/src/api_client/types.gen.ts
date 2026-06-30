@@ -269,15 +269,31 @@ export type SettingResponse = {
     /**
      * Project Id
      */
-    project_id: number;
+    project_id: number | null;
     /**
-     * Setting Name
+     * Setting Key
      */
-    setting_name: string;
+    setting_key: string;
     /**
      * Setting Value
      */
     setting_value: string;
+    /**
+     * Default Value
+     */
+    default_value: string;
+    /**
+     * Setting Type
+     */
+    setting_type: string;
+    /**
+     * Allowed Values
+     */
+    allowed_values: string | null;
+    /**
+     * Disabled
+     */
+    disabled: boolean;
 };
 
 /**
