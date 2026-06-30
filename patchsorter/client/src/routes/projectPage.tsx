@@ -1,10 +1,12 @@
 import { useParams } from 'react-router-dom'
+import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Container } from 'react-bootstrap'
 import '@slickgrid-universal/common/dist/styles/css/slickgrid-theme-bootstrap.css'
 import MetadataSection from '../components/projectPage/MetadataSection'
 import LabelClassesTable from '../components/projectPage/LabelClassesTable'
 import ImagesTable from '../components/projectPage/ImagesTable'
+import ActionsFooter from '../components/projectPage/ActionsFooter'
 import {
     getProjectProjectsProjectIdGet,
     getProjectStatsProjectsProjectIdStatsGet,
@@ -17,6 +19,8 @@ export default function ProjectPage() {
     const { projectId: projectIdParam } = useParams<{ projectId: string }>()
     const projectId = Number(projectIdParam)
     const queryClient = useQueryClient()
+    const [selectedImageIds, setSelectedImageIds] = useState<Set<number>>(new Set())
+    const [selectedLabelClassIds, setSelectedLabelClassIds] = useState<Set<number>>(new Set())
 
     const { data: project, isLoading: projectLoading } = useQuery({
         queryKey: ['project', projectId],
@@ -40,7 +44,7 @@ export default function ProjectPage() {
     })
 
     return (
-        <Container fluid className="py-3 d-flex flex-column gap-4">
+        <Container fluid className="py-3 d-flex flex-column gap-4" style={{ paddingBottom: 80 }}>
             <MetadataSection
                 project={project}
                 projectLoading={projectLoading}
@@ -54,6 +58,8 @@ export default function ProjectPage() {
                 labelClasses={labelClasses ?? []}
                 isLoading={labelClassesLoading}
                 onMutated={() => queryClient.invalidateQueries({ queryKey: ['labelClasses', projectId] })}
+                selectedIds={selectedLabelClassIds}
+                onSelectionChange={setSelectedLabelClassIds}
             />
             <ImagesTable
                 projectId={projectId}
@@ -61,6 +67,15 @@ export default function ProjectPage() {
                 labelClasses={labelClasses ?? []}
                 isLoading={imagesLoading}
                 onMutated={() => queryClient.invalidateQueries({ queryKey: ['projectImages', projectId] })}
+                selectedIds={selectedImageIds}
+                onSelectionChange={setSelectedImageIds}
+            />
+            <ActionsFooter
+                projectId={projectId}
+                selectedImageIds={selectedImageIds}
+                selectedLabelClassIds={selectedLabelClassIds}
+                onClearImageSelection={() => setSelectedImageIds(new Set())}
+                onClearLabelClassSelection={() => setSelectedLabelClassIds(new Set())}
             />
         </Container>
     )

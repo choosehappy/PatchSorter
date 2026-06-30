@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useEffect } from 'react'
 import { SlickgridReact } from 'slickgrid-react'
 import type { Column, GridOption, OnSelectedRowsChangedEventArgs } from 'slickgrid-react'
 import type { LabelClassResponse } from '../../api_client'
@@ -8,10 +8,12 @@ interface LabelClassesTableProps {
     labelClasses: LabelClassResponse[]
     isLoading: boolean
     onMutated: () => void
+    selectedIds: Set<number>
+    onSelectionChange: (ids: Set<number>) => void
 }
 
-export default function LabelClassesTable({ labelClasses, isLoading }: LabelClassesTableProps) {
-    const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+export default function LabelClassesTable({ labelClasses, isLoading, selectedIds, onSelectionChange }: LabelClassesTableProps) {
+    const gridRef = useRef<any>(null)
 
     const colorFormatter = (_row: number, _cell: number, value: unknown) =>
         `<span style="display:inline-block;width:20px;height:20px;border-radius:3px;background:${value};border:1px solid #ccc;vertical-align:middle"></span> ${value}`
@@ -36,8 +38,14 @@ export default function LabelClassesTable({ labelClasses, isLoading }: LabelClas
 
     const handleSelectedRowsChanged = (e: CustomEvent<{ eventData: unknown; args: OnSelectedRowsChangedEventArgs }>) => {
         const rows = e.detail.args.rows ?? []
-        setSelectedIds(new Set(rows))
+        onSelectionChange(new Set(rows))
     }
+
+    useEffect(() => {
+        if (selectedIds.size === 0 && gridRef.current) {
+            gridRef.current.slickGrid.setSelectedRows([])
+        }
+    }, [selectedIds.size])
 
     const dataset = labelClasses.map(lc => ({
         id: lc.label_class_id,
@@ -57,6 +65,7 @@ export default function LabelClassesTable({ labelClasses, isLoading }: LabelClas
                     columns={columns}
                     options={gridOptions}
                     dataset={isLoading ? [] : dataset}
+                    onReactGridCreated={e => { gridRef.current = e.detail }}
                     onSelectedRowsChanged={handleSelectedRowsChanged}
                 />
             </div>

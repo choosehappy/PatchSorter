@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Navbar, Nav, Container } from 'react-bootstrap';
 import { CaretRightFill, BellFill } from 'react-bootstrap-icons';
 import Badge from 'react-bootstrap/Badge';
@@ -32,6 +32,8 @@ const Navigation = ({ currentProject }: NavigationProps) => {
     const [showNotifications, setShowNotifications] = useState(false);
     const notificationCenter = useNotificationCenter();
     const unread = notificationCenter?.unreadCount ?? 0;
+    const location = useLocation();
+    const isLabeler = currentProject && location.pathname === `/project/${currentProject.id}/labeler`;
 
     return (
         <>
@@ -40,20 +42,13 @@ const Navigation = ({ currentProject }: NavigationProps) => {
                     <Nav>
                         <Navbar.Brand as={Link} to="/">PatchSorter</Navbar.Brand>
                         {currentProject && (
-                            <Item href={`/project/${currentProject.id}/summary`}>
-                                <Nav.Link as={Link} to={`/project/${currentProject.id}/summary`} className="text-white">
+                            <Item href={`/project/${currentProject.id}/`}>
+                                <Nav.Link as={Link} to={`/project/${currentProject.id}/`} className="text-white">
                                     {currentProject.name}
                                 </Nav.Link>
                             </Item>
                         )}
-                        {currentProject && (
-                            <Item href={`/project/${currentProject.id}/project`}>
-                                <Nav.Link as={Link} to={`/project/${currentProject.id}/project`} className="text-white">
-                                    Project
-                                </Nav.Link>
-                            </Item>
-                        )}
-                        {currentProject && (
+                        {currentProject && isLabeler && (
                             <Item href={`/project/${currentProject.id}/labeler`}>
                                 <Nav.Link as={Link} to={`/project/${currentProject.id}/labeler`} className="text-white">
                                     Labeler

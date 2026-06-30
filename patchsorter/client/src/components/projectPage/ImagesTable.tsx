@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useMemo, useEffect } from 'react'
+import { useRef, useCallback, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import { SlickgridReact } from 'slickgrid-react'
@@ -12,12 +12,13 @@ interface ImagesTableProps {
     labelClasses: LabelClassResponse[]
     isLoading: boolean
     onMutated: () => void
+    selectedIds: Set<number>
+    onSelectionChange: (ids: Set<number>) => void
 }
 
-export default function ImagesTable({ projectId, images, labelClasses, isLoading }: ImagesTableProps) {
+export default function ImagesTable({ projectId, images, labelClasses, isLoading, selectedIds, onSelectionChange }: ImagesTableProps) {
     const navigate = useNavigate()
     const gridRef = useRef<SlickgridReactInstance | null>(null)
-    const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
     const imageStatQueries = useQueries({
         queries: images.map(img => ({
@@ -56,11 +57,8 @@ export default function ImagesTable({ projectId, images, labelClasses, isLoading
         const actionsFormatter = (_row: number, _cell: number, _value: unknown, _col: Column, dataContext: { id: number }) => {
             const btn = document.createElement('button')
             btn.className = 'btn btn-primary btn-sm'
-            btn.textContent = 'Open Labeler'
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation()
-                navigate(`/project/${projectId}/labeler?image=${dataContext.id}`)
-            })
+            btn.textContent = 'Open Image Viewer'
+            btn.disabled = true
             return btn
         }
 
@@ -79,7 +77,7 @@ export default function ImagesTable({ projectId, images, labelClasses, isLoading
         if (!gridRef.current) return
         const cols = buildColumns()
         gridRef.current.slickGrid.setColumns(cols)
-    }, [labelClasses, selectedIds.size, buildColumns])
+    }, [labelClasses, buildColumns])
 
     const dataset = useMemo(() => images.map(img => {
         const s = statsByImageId[img.image_id]
@@ -108,13 +106,19 @@ export default function ImagesTable({ projectId, images, labelClasses, isLoading
         gridRef.current = reactGrid
     }, [])
 
+    useEffect(() => {
+        if (selectedIds.size === 0 && gridRef.current) {
+            gridRef.current.slickGrid.setSelectedRows([])
+        }
+    }, [selectedIds.size])
+
     const handleSelectedRowsChanged = useCallback((e: CustomEvent<{ eventData: unknown; args: OnSelectedRowsChangedEventArgs }>) => {
         const rows = e.detail.args.rows ?? []
         if (gridRef.current) {
             const ids = new Set(rows.map(r => (gridRef.current!.slickGrid.getDataItem(r) as { id: number }).id))
-            setSelectedIds(ids)
+            onSelectionChange(ids)
         }
-    }, [])
+    }, [onSelectionChange])
 
     const height = Math.max(200, images.length * 64 + 60)
 
