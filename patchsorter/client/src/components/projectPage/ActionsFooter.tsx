@@ -54,45 +54,71 @@ export default function ActionsFooter({
                             Open Labeler
                         </Button>
 
-                        {hasImages && (
+                        <Button
+                            variant="outline-secondary"
+                            size="sm"
+                            onClick={() => console.log('Create Label Class not implemented yet')}
+                        >
+                            Create Label Class
+                        </Button>
+
+                        <Button
+                            variant="outline-secondary"
+                            size="sm"
+                            onClick={() => console.log('Enter Upload Wizard not implemented yet')}
+                        >
+                            Enter Upload Wizard
+                        </Button>
+
+                        {(hasImages || hasLabelClasses) && (
                             <>
+                                <div
+                                    style={{
+                                        width: '1px',
+                                        height: 24,
+                                        backgroundColor: '#dee2e6',
+                                        margin: '0 4px',
+                                    }}
+                                />
+                                {hasImages && (
+                                    <>
+                                        <Button
+                                            variant="outline-secondary"
+                                            size="sm"
+                                        >
+                                            Export Patches for {selectedImageIds.size} Image{selectedImageIds.size > 1 ? 's' : ''}
+                                        </Button>
+                                        <Button
+                                            variant="outline-danger"
+                                            size="sm"
+                                            onClick={() => setConfirmTarget('images')}
+                                        >
+                                            Delete {selectedImageIds.size} Image{selectedImageIds.size > 1 ? 's' : ''}
+                                        </Button>
+                                    </>
+                                )}
+
+                                {hasLabelClasses && (
+                                    <Button
+                                        variant="outline-danger"
+                                        size="sm"
+                                        onClick={() => setConfirmTarget('labelClasses')}
+                                    >
+                                        Delete {selectedLabelClassIds.size} Label Class{selectedLabelClassIds.size > 1 ? 'es' : ''}
+                                    </Button>
+                                )}
+
                                 <Button
-                                    variant="outline-secondary"
+                                    variant="link"
                                     size="sm"
+                                    onClick={clearAll}
+                                    style={{ textDecoration: 'none' }}
                                 >
-                                    Export Patches for {selectedImageIds.size} Image{selectedImageIds.size > 1 ? 's' : ''}
-                                </Button>
-                                <Button
-                                    variant="outline-danger"
-                                    size="sm"
-                                    onClick={() => setConfirmTarget('images')}
-                                >
-                                    Delete {selectedImageIds.size} Image{selectedImageIds.size > 1 ? 's' : ''}
+                                    Clear selection
                                 </Button>
                             </>
                         )}
-
-                        {hasLabelClasses && (
-                            <Button
-                                variant="outline-danger"
-                                size="sm"
-                                onClick={() => setConfirmTarget('labelClasses')}
-                            >
-                                Delete {selectedLabelClassIds.size} Label Class{selectedLabelClassIds.size > 1 ? 'es' : ''}
-                            </Button>
-                        )}
                     </div>
-
-                    {(hasImages || hasLabelClasses) && (
-                        <Button
-                            variant="link"
-                            size="sm"
-                            onClick={clearAll}
-                            style={{ textDecoration: 'none' }}
-                        >
-                            Clear selection
-                        </Button>
-                    )}
                 </div>
             </div>
 
