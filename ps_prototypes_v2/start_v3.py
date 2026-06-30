@@ -535,7 +535,6 @@ for _ in range(10_000):
                 "loss/semantic_emb_repel", semantic_emb_repel_loss.item(), niter_total
             )
 
-            writer.add_scalar("loss/pred", pred_loss.item(), niter_total)
             writer.add_scalar("loss/pred_supervised", sup_pred_loss.item(), niter_total)
             writer.add_scalar("loss/pred_pseudo", pseudo_pred_loss.item(), niter_total)
             writer.add_scalar("train/labeled_rate", labeled_rate, niter_total)

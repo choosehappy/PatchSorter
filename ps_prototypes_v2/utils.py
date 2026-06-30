@@ -850,7 +850,7 @@ def prediction_loss_pseudo(
         logits[pseudo_mask],
         targets,
         weight=pseudo_class_weights.to(device) if pseudo_class_weights is not None else None,
-        label_smoothing=0.1,
+        label_smoothing=0.2,
     )
     # num_pseudo = torch.bincount(targets, minlength=N_CLASS)
 
