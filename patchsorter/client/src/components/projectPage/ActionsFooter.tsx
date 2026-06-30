@@ -59,7 +59,6 @@ export default function ActionsFooter({
                                 <Button
                                     variant="outline-secondary"
                                     size="sm"
-                                    onClick={() => setConfirmTarget('images')}
                                 >
                                     Export Patches for {selectedImageIds.size} Image{selectedImageIds.size > 1 ? 's' : ''}
                                 </Button>

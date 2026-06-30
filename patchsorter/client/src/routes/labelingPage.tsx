@@ -43,7 +43,7 @@ export default function LabelingPage() {
     const [showPicker, setShowPicker] = useState(false)
     const [pickedLabelClassId, setPickedLabelClassId] = useState<number | null>(null)
     const [gallerySelectAll, setGallerySelectAll] = useState(false)
-    const [showPatches, setShowPatches] = useState(true)
+    const [showPatches, setShowPatches] = useState(false)
 
     useEffect(() => {
         infoProjectsProjectIdInfoGet({ path: { project_id: projectId } })

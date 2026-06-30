@@ -79,6 +79,12 @@ export default function ImagesTable({ projectId, images, labelClasses, isLoading
         gridRef.current.slickGrid.setColumns(cols)
     }, [labelClasses, buildColumns])
 
+    useEffect(() => {
+        if (gridRef.current) {
+            gridRef.current.slickGrid.invalidate()
+        }
+    }, [statsByImageId])
+
     const dataset = useMemo(() => images.map(img => {
         const s = statsByImageId[img.image_id]
         return {
