@@ -9,7 +9,8 @@
       },
       "models": {
         "qwen/qwen3-vl-8b": {},
-        "qwen/qwen3-coder-30b": {}
+        "qwen/qwen3-coder-30b": {},
+        "qwen/qwen3.6-35b-a3b": {}
       }
     }
   }
