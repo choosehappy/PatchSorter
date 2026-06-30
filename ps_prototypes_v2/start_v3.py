@@ -538,6 +538,53 @@ for _ in range(10_000):
             writer.add_scalar("loss/pred_supervised", sup_pred_loss.item(), niter_total)
             writer.add_scalar("loss/pred_pseudo", pseudo_pred_loss.item(), niter_total)
             writer.add_scalar("train/labeled_rate", labeled_rate, niter_total)
+
+            writer.add_scalar(
+                "loss_scaled/coord_consistency",
+                COORD_CONSITENCY_LOSS * coord_consistency_loss.item(),
+                niter_total,
+            )
+            writer.add_scalar(
+                "loss_scaled/coord_contrastive",
+                COORD_CONTRASTIVE_LOSS * coord_contrastive_loss.item(),
+                niter_total,
+            )
+            writer.add_scalar(
+                "loss_scaled/simclr_emb",
+                SIMCLR_EMB_LOSS * simclr_emb_loss.item(),
+                niter_total,
+            )
+            writer.add_scalar(
+                "loss_scaled/max_mean_discrepancy",
+                MAX_MEAN_LOSS * max_mean_discrepancy_loss.item(),
+                niter_total,
+            )
+            writer.add_scalar(
+                "loss_scaled/neighborhood",
+                NEIGHBOR_LAMBDA * neigh_loss.item(),
+                niter_total,
+            )
+            writer.add_scalar(
+                "loss_scaled/semantic_coord",
+                SEMANTIC_COORD_LAMBDA * semantic_coord_loss.item(),
+                niter_total,
+            )
+            writer.add_scalar(
+                "loss_scaled/semantic_emb",
+                SEMANTIC_EMB_LAMBDA * semantic_emb_loss.item(),
+                niter_total,
+            )
+            writer.add_scalar(
+                "loss_scaled/pred_supervised",
+                PRED_SUP_LAMBDA * sup_pred_loss.item(),
+                niter_total,
+            )
+            writer.add_scalar(
+                "loss_scaled/pred_pseudo",
+                PRED_PSEUDO_LAMBDA * pseudo_pred_loss.item(),
+                niter_total,
+            )
+
             # writer.add_scalar(
             #     "train/temporal_margin",
             #     margin if mem_z.shape[0] > 0 else 5.0,
