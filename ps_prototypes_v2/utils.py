@@ -170,6 +170,12 @@ def threaded_vram_prefetcher(loader, buffer_size=10):
 
 
 class LabeledRateTracker:
+    """Track labeled/pseudo-labeled class frequencies with EMA.
+    
+    NOTE: Class weights are computed per-view (not per-patch). If labels are
+    uniform across views within a patch, class counts will be inflated by V.
+    This is intentional for view-level loss weighting.
+    """
     def __init__(self, nclasses: int, momentum: float = 0.99, device: str = "cpu"):
         self.momentum = momentum
         self.nclasses = nclasses
@@ -812,7 +818,14 @@ def prediction_loss_pseudo(
         maj_count, maj_label = vote_counts.max(dim=1)         # [B]
 
         majority_mask = maj_count  > (V // 2)                 # strict majority
-        conf_mask     = (conf_vb.T >= pseudo_thresh).any(dim=1) # [B]
+        
+        # Correctness fix: check confidence specifically for the majority-voted label.
+        # Gather probability of majority label from each view: probs_vb[v, b, maj_label[b]]
+        b_idx = torch.arange(B, device=device)
+        probs_for_majority = probs_vb[:, b_idx, maj_label]  # [V, B] - prob of majority label per view
+        # Accept if ANY view is confident about the majority label
+        conf_mask = (probs_for_majority >= pseudo_thresh).any(dim=0)  # [B]
+        
         high_conf_b   = majority_mask & conf_mask               # [B]
 
     # ── expand to [V*B] in original layout ───────────────────────────
@@ -1207,52 +1220,28 @@ def max_mean_discrepancy(coords, grid_size=GRID_SIZE, n_samples=500):
 
 def simclr_loss(proj_emb, temperature=0.5):
     """
-    proj_emb: [N, D] or [V, B, D]
-    If [N, D], we assume it's already flattened view * batch
+    proj_emb: [V, B, D] multi-view, batch format
+    Uses numerically stable logsumexp for log-softmax computation.
     """
+    if len(proj_emb.shape) != 3:
+        raise ValueError(f"simclr_loss expects [V, B, D] shape, got {proj_emb.shape}")
+    
+    V, B, D = proj_emb.shape
+    emb = F.normalize(proj_emb, dim=-1)
+    emb_flat = emb.view(V * B, D)
 
-    # Handle both shapes - either [N, D] or [V, B, D]
-    if len(proj_emb.shape) == 2:
-        # Assume flat shape [N, D]
-        emb = F.normalize(proj_emb, dim=-1)
-        N, D = proj_emb.shape
-        emb_flat = emb
+    sim = torch.mm(emb_flat, emb_flat.T) / temperature
 
-        # Create labels for positive pairs (same samples across views)
-        # This assumes the input is already flattened from view * batch processing
-        sim = torch.mm(emb_flat, emb_flat.T) / temperature
+    mask_self = torch.eye(V * B, dtype=torch.bool, device=proj_emb.device)
+    labels = torch.arange(B, device=proj_emb.device).repeat(V)
+    mask_pos = (labels.unsqueeze(0) == labels.unsqueeze(1)) & ~mask_self
 
-        mask_self = torch.eye(N, dtype=torch.bool, device=proj_emb.device)
-        labels = torch.arange(N, device=proj_emb.device)
-        mask_pos = (labels.unsqueeze(0) == labels.unsqueeze(1)) & ~mask_self
+    # Numerically stable log-softmax: log(exp(sim_i) / sum_j(exp(sim_j)))
+    # = sim_i - logsumexp(sim, dim=1)
+    log_probs = sim - torch.logsumexp(sim, dim=-1, keepdim=True)
 
-        sim.masked_fill_(mask_self, -9e3)
-
-        exp_sim = torch.exp(sim)
-        log_prob = sim - torch.log(exp_sim.sum(dim=-1, keepdim=True))
-
-        loss = -(log_prob[mask_pos]).mean()
-        return loss
-
-    else:
-        # Handle [V, B, D] shape (original implementation)
-        V, B, D = proj_emb.shape
-        emb = F.normalize(proj_emb, dim=-1)
-        emb_flat = emb.view(V * B, D)
-
-        sim = torch.mm(emb_flat, emb_flat.T) / temperature
-
-        mask_self = torch.eye(V * B, dtype=torch.bool, device=proj_emb.device)
-        labels = torch.arange(B, device=proj_emb.device).repeat(V)
-        mask_pos = (labels.unsqueeze(0) == labels.unsqueeze(1)) & ~mask_self
-
-        sim.masked_fill_(mask_self, -9e3)
-
-        exp_sim = torch.exp(sim)
-        log_prob = sim - torch.log(exp_sim.sum(dim=-1, keepdim=True))
-
-        loss = -(log_prob[mask_pos]).mean()
-        return loss
+    loss = -(log_probs[mask_pos]).mean()
+    return loss
 
 
 
