@@ -138,7 +138,14 @@ def assign_labels_by_polygon(
         )
     return LabelAssignResponse(updated=updated)
 
+"""
+NEEDS REVIEW
 
+This endpoint was intended for "show patches" functionality, mirroring a similar endpoint in PS v1. 
+However, it is not currently used because it's expensive to run a SQL query with a large number (PATCH_NUM_SAMPLES = 200) of predicate BETWEEN conditions.
+Instead, the frontend currently calls the sample_patches_by_point endpoint for each of the 200 points in the grid, 
+which allows for immediate progressive loading of patch images. However, this doubles the number of REST requests (1 request returns patch metadata, and 1 request returns the patch image).
+"""
 @router.get("/projects/{project_id}/sample/by-bbox/patches/", response_model=List[PatchResponse])
 def sample_patches_by_bbox(
     project_id: int,
