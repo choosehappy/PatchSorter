@@ -89,7 +89,7 @@ class SQLiteDataset:
         except Exception:
             return np.frombuffer(blob, dtype=np.uint8)
 
-    def __getitem__(self, index: int) -> tuple[np.ndarray, int, np.ndarray, int]:
+    def __getitem__(self, index: int) -> tuple[np.ndarray, list, int, np.ndarray, int]:
         row_id = index + 1
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -118,7 +118,7 @@ class SQLiteDataset:
                 )
                 return anchor, *views, label, img, index
 
-        return img, label, img, index
+        return img, None, label, img, index
 
     def __len__(self) -> int:
         return self.nitems
@@ -145,6 +145,7 @@ class GTEnrichedDataset(SQLiteDataset):
         self._candidate_ids: np.ndarray = np.empty(self.pool_size, dtype=np.int64)
         self._candidate_labels: np.ndarray = np.empty(self.pool_size, dtype=np.int64)
         self._candidate_scores: np.ndarray = np.empty(self.pool_size, dtype=np.float64)
+        self._candidate_weights: np.ndarray = np.empty(self.pool_size, dtype=np.float64)
         self._candidate_count = 0
         self._load_candidate_pool()
 
@@ -158,22 +159,32 @@ class GTEnrichedDataset(SQLiteDataset):
             )
             rows = cursor.fetchall()
 
-            self._candidate_index = {}
             self._candidate_count = len(rows)
             self._candidate_ids = np.empty(self.pool_size, dtype=np.int64)
             self._candidate_labels = np.empty(self.pool_size, dtype=np.int64)
             self._candidate_scores = np.empty(self.pool_size, dtype=np.float64)
 
-            update_rows = []
-            for idx, (row_id, tmp_label, score) in enumerate(rows):
-                label = int(tmp_label) if tmp_label is not None else -1
-                if score is None:
-                    score = GT_SCORE_INIT
-                    update_rows.append((score, row_id))
-                self._candidate_ids[idx] = int(row_id)
-                self._candidate_labels[idx] = label
-                self._candidate_scores[idx] = float(score)
-                self._candidate_index[int(row_id)] = idx
+            if rows:
+                row_ids, tmp_labels, scores = zip(*rows)
+                row_ids_arr = np.array(row_ids, dtype=np.int64)
+                
+                # Vectorized label handling for None values
+                labels_arr = np.array([int(l) if l is not None else -1 for l in tmp_labels], dtype=np.int64)
+                
+                # Vectorized score handling for None values
+                scores_arr = np.array([float(s) if s is not None else GT_SCORE_INIT for s in scores], dtype=np.float64)
+                
+                # Bulk assignment to pre-allocated arrays
+                self._candidate_ids[:self._candidate_count] = row_ids_arr
+                self._candidate_labels[:self._candidate_count] = labels_arr
+                self._candidate_scores[:self._candidate_count] = scores_arr
+                
+                # Build index mapping and update list efficiently
+                self._candidate_index = {int(rid): idx for idx, rid in enumerate(row_ids)}
+                update_rows = [(float(GT_SCORE_INIT), int(rid)) for rid, s in zip(row_ids, scores) if s is None]
+            else:
+                self._candidate_index = {}
+                update_rows = []
 
             if update_rows:
                 cursor.executemany(
@@ -181,6 +192,13 @@ class GTEnrichedDataset(SQLiteDataset):
                     update_rows,
                 )
                 conn.commit()
+
+            self._candidate_weights = np.ones(self.pool_size, dtype=np.float64)
+            if self._candidate_count > 0:
+                rarity_factors = self._get_rarity_factors()
+                weights = self._candidate_scores[: self._candidate_count] * rarity_factors
+                np.maximum(weights, GT_SCORE_MIN, out=weights)
+                self._candidate_weights[: self._candidate_count] = weights
 
     def refresh(self) -> None:
         """Refresh the candidate pool from SQLite to capture newly labeled items.
@@ -244,59 +262,9 @@ class GTEnrichedDataset(SQLiteDataset):
 
         return factors
 
-    def _compute_candidate_weights(self) -> np.ndarray:
-        weights = self._candidate_scores[: self._candidate_count] * self._get_rarity_factors()
-        np.maximum(weights, GT_SCORE_MIN, out=weights)
-        return weights
-
-    def _insert_candidate(self, row_id: int, label: int, score: float) -> None:
-        idx = self._candidate_count
-        self._candidate_ids[idx] = int(row_id)
-        self._candidate_labels[idx] = label
-        self._candidate_scores[idx] = score
-        self._candidate_index[int(row_id)] = idx
-        self._candidate_count += 1
-
-    def _remove_candidate_at_index(self, idx: int) -> None:
-        row_id = int(self._candidate_ids[idx])
-        last_idx = self._candidate_count - 1
-        if idx != last_idx:
-            swapped_id = int(self._candidate_ids[last_idx])
-            self._candidate_ids[idx] = swapped_id
-            self._candidate_labels[idx] = self._candidate_labels[last_idx]
-            self._candidate_scores[idx] = self._candidate_scores[last_idx]
-            self._candidate_index[swapped_id] = idx
-
-        self._candidate_index.pop(row_id, None)
-        self._candidate_count -= 1
-
-    def _update_candidate(self, idx: int, label: int, score: float) -> None:
-        self._candidate_labels[idx] = label
-        self._candidate_scores[idx] = score
-
-    def _maybe_add_candidate(self, row_id: int, label: int, score: float) -> None:
-        if label < 0:
-            return
-
-        existing_idx = self._candidate_index.get(row_id)
-        if existing_idx is not None:
-            self._update_candidate(existing_idx, label, score)
-            return
-
-        if self._candidate_count < self.pool_size:
-            self._insert_candidate(row_id, label, score)
-            return
-
-        worst_idx = int(np.argmin(self._candidate_scores[: self._candidate_count]))
-        if score <= float(self._candidate_scores[worst_idx]):
-            return
-
-        self._remove_candidate_at_index(worst_idx)
-        self._insert_candidate(row_id, label, score)
-
     def _choose_row(self) -> tuple[int, int, float, int]:
         if self.enrichment_rate > 0 and self._candidate_count > 0 and random.random() < self.enrichment_rate:
-            weights = self._compute_candidate_weights()
+            weights = self._candidate_weights[: self._candidate_count]
             if not np.isfinite(weights).all() or weights.sum() <= 0:
                 idx = random.randint(0, self._candidate_count - 1)
             else:
@@ -331,10 +299,7 @@ class GTEnrichedDataset(SQLiteDataset):
     ) -> None:
         new_score = max(old_score * GT_SCORE_DECAY, GT_SCORE_MIN)
 
-        if old_label < 0 and current_label >= 0:
-            new_score = max(new_score, GT_SCORE_INIT * self._rarity_multiplier(current_label))
-            self._maybe_add_candidate(row_id, current_label, new_score)
-        elif row_idx >= 0:
+        if row_idx >= 0:
             self._candidate_labels[row_idx] = current_label
             self._candidate_scores[row_idx] = new_score
 
@@ -348,10 +313,10 @@ class GTEnrichedDataset(SQLiteDataset):
                 )
                 conn.commit()
 
-    def __getitem__(self, index: int) -> tuple[np.ndarray, int, np.ndarray, int]:
+    def __getitem__(self, index: int) -> tuple[list, int, np.ndarray, int]:
         chosen_id, old_label, old_score, chosen_idx = self._choose_row()
-        img, label, orig, idx = super().__getitem__(chosen_id - 1)
+        *views, label, orig, idx = super().__getitem__(chosen_id - 1)
         self._update_row_score(chosen_id, chosen_idx, old_label, old_score, label)
-        return img, label, orig, idx
+        return views[0], label, orig, idx
 
 

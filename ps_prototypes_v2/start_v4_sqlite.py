@@ -370,6 +370,10 @@ for _ in range(10_000):
             # mem_bank.add_candidates(z_batch.detach(), proj_coords.detach()) #___COMMENTED OUT
             #mem_bank.age_all()
 
+            if niter_total % GT_POOL_UPDATE_INTERVAL== 0:
+                dataset.refresh()
+
+
             if niter_total % LOG_EVERY == 0:
                 log_embedding_histograms(writer, proj_emb, niter_total)
 
