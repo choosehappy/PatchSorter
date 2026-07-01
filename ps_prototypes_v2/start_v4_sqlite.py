@@ -1,5 +1,6 @@
 # %%
 import io
+import random
 import sqlite3
 
 import torch
@@ -39,14 +40,17 @@ class Dataset(object):
         )
 
         self.table_name = "mitosis_patches"
-        self.conn = sqlite3.connect(self.fname)
-        self.cursor = self.conn.cursor()
-        self.cursor.execute(f"SELECT COUNT(*) FROM {self.table_name}")
-        self.nitems = self.cursor.fetchone()[0]
+        self.nitems = self._count_rows()
 
         self.imgs = None
         self.labels = None
         self.nviews = nviews
+
+    def _count_rows(self) -> int:
+        with sqlite3.connect(self.fname) as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT COUNT(*) FROM {self.table_name}")
+            return int(cursor.fetchone()[0])
 
     def _deserialize_blob(self, blob):
         if blob is None:
@@ -59,11 +63,13 @@ class Dataset(object):
             return np.frombuffer(blob, dtype=np.uint8)
 
     def __getitem__(self, index):
-        self.cursor.execute(
-            f"SELECT patch, tmp_label FROM {self.table_name} WHERE id = ?",
-            (index + 1,),
-        )
-        row = self.cursor.fetchone()
+        with sqlite3.connect(self.fname) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"SELECT patch, tmp_label FROM {self.table_name} WHERE id = ?",
+                (index + 1,),
+            )
+            row = cursor.fetchone()
 
         if row is None:
             raise IndexError(index)
@@ -94,10 +100,31 @@ class Dataset(object):
         return self.nitems
 
 
+class GTEnrichedDataset(Dataset):
+    def __init__(self, fname, nviews, transforms=None, enrichment_rate=0.0):
+        super().__init__(fname, nviews, transforms=transforms)
+        self.enrichment_rate = float(enrichment_rate)
+        self.labeled_ids = self._load_labeled_ids()
+
+    def _load_labeled_ids(self):
+        with sqlite3.connect(self.fname) as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT id FROM {self.table_name} WHERE tmp_label >= 0")
+            return [int(row[0]) for row in cursor.fetchall()]
+
+    def __getitem__(self, index):
+        if self.enrichment_rate > 0 and self.labeled_ids and random.random() < self.enrichment_rate:
+            row_id = random.choice(self.labeled_ids)
+        else:
+            row_id = random.randint(1, self.nitems)
+        return super().__getitem__(row_id - 1)
+
+
 # Initialize dataset with proper parameters
-dataset = Dataset(
+dataset = GTEnrichedDataset(
     #"mitosis_ps_labels.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
-    "mitosis_train_patches.db", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
+    "mitosis_train_patches.db", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE),
+    enrichment_rate=GT_ENRICHMENT,
     #"deepMEL_1D1_-_2021-02-10_17.31.50.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
 )
 
