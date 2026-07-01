@@ -21,6 +21,8 @@ from utils_logging import (
 )
 import timm
 from configs import *
+from sqlite_dataset import GTEnrichedDataset
+from score_writer import ScoreWriter
 import atexit
 
 from save_utils import save_models_checkpoint, load_models_checkpoint
@@ -31,101 +33,20 @@ import numpy as np
 
 torch.set_float32_matmul_precision('high')
 
-class Dataset(object):
-    def __init__(self, fname, nviews, transforms=None):
-        self.fname = fname
-
-        self.geom_transform, self.photo_transform = (
-            transforms if transforms else (None, None)
-        )
-
-        self.table_name = "mitosis_patches"
-        self.nitems = self._count_rows()
-
-        self.imgs = None
-        self.labels = None
-        self.nviews = nviews
-
-    def _count_rows(self) -> int:
-        with sqlite3.connect(self.fname) as conn:
-            cursor = conn.cursor()
-            cursor.execute(f"SELECT COUNT(*) FROM {self.table_name}")
-            return int(cursor.fetchone()[0])
-
-    def _deserialize_blob(self, blob):
-        if blob is None:
-            raise ValueError("No data returned from SQLite")
-        try:
-            with io.BytesIO(blob) as buffer:
-                arr = np.load(buffer, allow_pickle=False)
-            return np.asarray(arr)
-        except Exception:
-            return np.frombuffer(blob, dtype=np.uint8)
-
-    def __getitem__(self, index):
-        with sqlite3.connect(self.fname) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                f"SELECT patch, tmp_label FROM {self.table_name} WHERE id = ?",
-                (index + 1,),
-            )
-            row = cursor.fetchone()
-
-        if row is None:
-            raise IndexError(index)
-
-        img_blob, label = row
-        img = self._deserialize_blob(img_blob)
-        label = int(label)
-
-        img_new = img
-
-        if self.geom_transform:
-            geom_out = self.geom_transform(image=img_new)
-            img_geom = geom_out["image"]
-            anchor = ToTensorV2()(image=img_geom)["image"].float()
-
-            if self.photo_transform:
-                views = tuple(
-                    self.photo_transform(image=self.geom_transform(image=img_new)["image"])["image"].float()
-                    for _ in range(self.nviews - 1)
-                )
-                return (anchor, *views, label, img, index)
-
-        else:
-            print("no aug?")
-            return img_new, label, img, index
-
-    def __len__(self):
-        return self.nitems
-
-
-class GTEnrichedDataset(Dataset):
-    def __init__(self, fname, nviews, transforms=None, enrichment_rate=0.0):
-        super().__init__(fname, nviews, transforms=transforms)
-        self.enrichment_rate = float(enrichment_rate)
-        self.labeled_ids = self._load_labeled_ids()
-
-    def _load_labeled_ids(self):
-        with sqlite3.connect(self.fname) as conn:
-            cursor = conn.cursor()
-            cursor.execute(f"SELECT id FROM {self.table_name} WHERE tmp_label >= 0")
-            return [int(row[0]) for row in cursor.fetchall()]
-
-    def __getitem__(self, index):
-        if self.enrichment_rate > 0 and self.labeled_ids and random.random() < self.enrichment_rate:
-            row_id = random.choice(self.labeled_ids)
-        else:
-            row_id = random.randint(1, self.nitems)
-        return super().__getitem__(row_id - 1)
-
-
 # Initialize dataset with proper parameters
+DATA_DB_PATH = "mitosis_train_patches.db"
+
+label_tracker = LabeledRateTracker(N_CLASS, momentum=0.9, device=DEVICE)
+score_writer = ScoreWriter(DATA_DB_PATH)
+atexit.register(score_writer.close)
+
 dataset = GTEnrichedDataset(
-    #"mitosis_ps_labels.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
-    "mitosis_train_patches.db", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE),
+    DATA_DB_PATH,
+    nviews=NVIEWS,
+    transforms=get_transforms(PATCH_SIZE),
     enrichment_rate=GT_ENRICHMENT,
-    #"deepMEL_1D1_-_2021-02-10_17.31.50.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
+    label_tracker=label_tracker,
+    score_writer=score_writer,
 )
 
 
@@ -260,9 +181,6 @@ if LOAD_CHECKPOINT:
         load_models_checkpoint("./model",backbone=backbone, joint_head=joint_head)
     except Exception:
         logger.exception("Loading checkpoint failed")
-
-label_tracker = LabeledRateTracker(N_CLASS, momentum=0.9, device=DEVICE)  # outside loop
-
 
 from datetime import datetime
 writer = init_summary_writer()
