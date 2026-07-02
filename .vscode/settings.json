@@ -1,6 +1,5 @@
 {
     "python.testing.pytestArgs": [
-        "--collect-only",
         "patchsorter/tests/"
     ],
     "python.testing.pytestPath": "/home/ray/anaconda3/bin/pytest",

@@ -14,11 +14,21 @@ import time
 
 log = logging.getLogger(__name__)
 
+# Imported at module level so tests can patch them.
+# ray and ray.util.state are only available when a Ray cluster is running.
+try:
+    import ray
+    from ray.util.state import list_actors
+except ImportError:
+    ray = None  # type: ignore[assignment]
+    list_actors = None  # type: ignore[assignment]
+
 
 def _cleanup_expired_sessions(ttl_seconds: int) -> None:
     """Kill any live UploadSessionActors whose age exceeds *ttl_seconds*."""
-    import ray
-    from ray.util.state import list_actors
+    if ray is None:
+        log.warning("GC: ray not available")
+        return
 
     now_ms = time.time() * 1000
     try:
