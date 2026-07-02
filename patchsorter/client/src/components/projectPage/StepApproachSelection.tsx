@@ -1,0 +1,46 @@
+import { Form } from 'react-bootstrap'
+import type { UploadApproach } from './useUpload'
+
+interface StepApproachSelectionProps {
+    onSelect: (approach: UploadApproach) => void
+}
+
+export default function StepApproachSelection({ onSelect }: StepApproachSelectionProps) {
+    return (
+        <div className="d-flex flex-column gap-2">
+            <label className="approach-description" htmlFor="approach-step-by-step">
+                <Form.Check
+                    type="radio"
+                    id="approach-step-by-step"
+                    name="upload-approach"
+                    onChange={() => onSelect('stepByStep')}
+                    label={
+                        <span>
+                            <strong>Step-by-Step</strong>
+                            <p className="mb-0 mt-1 text-muted" style={{ fontSize: '0.9rem' }}>
+                                Upload scan images, masks, and CSV labels individually, each in a separate step.
+                            </p>
+                        </span>
+                    }
+                />
+            </label>
+            <label className="approach-description" htmlFor="approach-csv-file-list">
+                <Form.Check
+                    type="radio"
+                    id="approach-csv-file-list"
+                    name="upload-approach"
+                    onChange={() => onSelect('csvFileList')}
+                    label={
+                        <span>
+                            <strong>CSV File List</strong>
+                            <p className="mb-0 mt-1 text-muted" style={{ fontSize: '0.9rem' }}>
+                                Upload a single CSV with header row <code>image,mask,csv</code> — each row contains absolute
+                                paths to files on the server.
+                            </p>
+                        </span>
+                    }
+                />
+            </label>
+        </div>
+    )
+}

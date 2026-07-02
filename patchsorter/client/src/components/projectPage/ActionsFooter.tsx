@@ -9,6 +9,7 @@ interface ActionsFooterProps {
     selectedLabelClassIds: Set<number>
     onClearImageSelection: () => void
     onClearLabelClassSelection: () => void
+    onOpenUploadWizard?: () => void
 }
 
 export default function ActionsFooter({
@@ -17,6 +18,7 @@ export default function ActionsFooter({
     selectedLabelClassIds,
     onClearImageSelection,
     onClearLabelClassSelection,
+    onOpenUploadWizard,
 }: ActionsFooterProps) {
     const navigate = useNavigate()
     const [confirmTarget, setConfirmTarget] = useState<'images' | 'labelClasses' | null>(null)
@@ -65,7 +67,7 @@ export default function ActionsFooter({
                         <Button
                             variant="outline-secondary"
                             size="sm"
-                            onClick={() => console.log('Enter Upload Wizard not implemented yet')}
+                            onClick={() => onOpenUploadWizard?.()}
                         >
                             Enter Upload Wizard
                         </Button>

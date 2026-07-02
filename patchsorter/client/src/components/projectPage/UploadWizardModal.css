@@ -1,0 +1,107 @@
+/* ---- Drag-drop zone ------------------------------------------------------ */
+.upload-dropzone {
+    border: 2px dashed #dee2e6;
+    border-radius: 8px;
+    padding: 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background-color 0.2s;
+    display: block;
+    width: 100%;
+}
+.upload-dropzone.drag-over {
+    border-color: #0d6efd;
+    background-color: #f0f4ff;
+}
+.upload-dropzone:hover {
+    border-color: #6c757d;
+}
+
+/* ---- File list items ------------------------------------------------------ */
+.upload-file-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    border-radius: 4px;
+    background: #f8f9fa;
+    margin-bottom: 4px;
+    font-size: 0.85rem;
+}
+.upload-file-item .file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    margin-right: 12px;
+}
+
+/* ---- Step indicator ------------------------------------------------------- */
+.upload-step-segment {
+    cursor: default;
+    transition: color 0.2s;
+    white-space: nowrap;
+}
+.upload-step-segment.current {
+    font-weight: 700;
+    color: #0d6efd;
+}
+.upload-step-segment.done {
+    color: #6c757d;
+}
+.upload-step-segment.upcoming {
+    color: #adb5bd;
+}
+
+/* ---- Review table container ---------------------------------------------- */
+#upload-review-container {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* ---- Approach description cards ------------------------------------------ */
+.approach-description {
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    border: 1px solid #e9ecef;
+    transition: border-color 0.15s;
+    cursor: pointer;
+}
+.approach-description:hover {
+    border-color: #0d6efd;
+}
+
+/* ---- Upload mode toggle ("Upload Files" / "Load Folder") ----------------- */
+.upload-mode-toggle {
+    display: inline-flex;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid #dee2e6;
+    margin-bottom: 16px;
+}
+.upload-mode-toggle .toggle-option {
+    padding: 6px 16px;
+    cursor: pointer;
+    background: #fff;
+    border: none;
+    color: #495057;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    transition: background-color 0.15s, color 0.15s;
+}
+.upload-mode-toggle .toggle-option:not(:last-child) {
+    border-right: 1px solid #dee2e6;
+}
+.upload-mode-toggle .toggle-option.active {
+    background: #0d6efd;
+    color: #fff;
+}
+.upload-mode-toggle .toggle-option:hover:not(.active) {
+    background: #f8f9fa;
+}
+.upload-mode-toggle .toggle-option:focus {
+    outline: 2px solid #0d6efd;
+    outline-offset: -2px;
+}

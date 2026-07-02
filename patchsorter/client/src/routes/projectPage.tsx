@@ -6,6 +6,7 @@ import '@slickgrid-universal/common/dist/styles/css/slickgrid-theme-bootstrap.cs
 import LabelClassesTable from '../components/projectPage/LabelClassesTable'
 import ImagesTable from '../components/projectPage/ImagesTable'
 import ActionsFooter from '../components/projectPage/ActionsFooter'
+import UploadWizardModal from '../components/projectPage/UploadWizardModal'
 import {
     getProjectProjectsProjectIdGet,
     listLabelClassesProjectsProjectIdLabelClassesGet,
@@ -18,6 +19,7 @@ export default function ProjectPage() {
     const queryClient = useQueryClient()
     const [selectedImageIds, setSelectedImageIds] = useState<Set<number>>(new Set())
     const [selectedLabelClassIds, setSelectedLabelClassIds] = useState<Set<number>>(new Set())
+    const [showUploadWizard, setShowUploadWizard] = useState(false)
 
     const { data: project, isLoading: projectLoading } = useQuery({
         queryKey: ['project', projectId],
@@ -69,7 +71,14 @@ export default function ProjectPage() {
                 selectedLabelClassIds={selectedLabelClassIds}
                 onClearImageSelection={() => setSelectedImageIds(new Set())}
                 onClearLabelClassSelection={() => setSelectedLabelClassIds(new Set())}
+                onOpenUploadWizard={() => setShowUploadWizard(true)}
             />
+            {showUploadWizard && (
+                <UploadWizardModal
+                    projectId={projectId}
+                    onClose={() => setShowUploadWizard(false)}
+                />
+            )}
         </Container>
     )
 }

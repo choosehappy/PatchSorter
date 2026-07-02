@@ -5,6 +5,46 @@ export type ClientOptions = {
 };
 
 /**
+ * Body_upload_images
+ */
+export type BodyUploadImages = {
+    /**
+     * Files
+     */
+    files: Array<Blob | File>;
+};
+
+/**
+ * Body_upload_labels
+ */
+export type BodyUploadLabels = {
+    /**
+     * Files
+     */
+    files: Array<Blob | File>;
+};
+
+/**
+ * Body_upload_masks
+ */
+export type BodyUploadMasks = {
+    /**
+     * Files
+     */
+    files: Array<Blob | File>;
+};
+
+/**
+ * Body_validate_upload_csv
+ */
+export type BodyValidateUploadCsv = {
+    /**
+     * Csv File
+     */
+    csv_file: Blob | File;
+};
+
+/**
  * ConfusionMatrixResponse
  */
 export type ConfusionMatrixResponse = {
@@ -133,6 +173,16 @@ export type LabelClassResponse = {
 };
 
 /**
+ * OpenSessionResponse
+ */
+export type OpenSessionResponse = {
+    /**
+     * Session
+     */
+    session: string;
+};
+
+/**
  * PatchResponse
  */
 export type PatchResponse = {
@@ -199,6 +249,48 @@ export type PatchResponse = {
 };
 
 /**
+ * PathItem
+ */
+export type PathItem = {
+    /**
+     * Type
+     */
+    type: string;
+    /**
+     * Filename
+     */
+    filename: string;
+};
+
+/**
+ * ProcessRequest
+ */
+export type ProcessRequest = {
+    /**
+     * Paths
+     */
+    paths: Array<ReviewRow>;
+};
+
+/**
+ * ProcessResponse
+ */
+export type ProcessResponse = {
+    /**
+     * Task Id
+     */
+    task_id: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
  * ProjectResponse
  */
 export type ProjectResponse = {
@@ -259,6 +351,32 @@ export type ProjectStatsResponse = {
 };
 
 /**
+ * ReviewRow
+ */
+export type ReviewRow = {
+    /**
+     * Image
+     */
+    image: string;
+    /**
+     * Mask
+     */
+    mask: string;
+    /**
+     * Csv
+     */
+    csv: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Error
+     */
+    error: string;
+};
+
+/**
  * SettingResponse
  */
 export type SettingResponse = {
@@ -300,6 +418,58 @@ export type SettingResponse = {
  * SumOver
  */
 export type SumOver = 'gt' | 'pred';
+
+/**
+ * UploadFilesResponse
+ */
+export type UploadFilesResponse = {
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
+ * ValidateFoldersRequest
+ */
+export type ValidateFoldersRequest = {
+    /**
+     * Image Folder
+     */
+    image_folder: string;
+    /**
+     * Mask Folder
+     */
+    mask_folder?: string;
+    /**
+     * Label Folder
+     */
+    label_folder?: string;
+};
+
+/**
+ * ValidatePathsRequest
+ */
+export type ValidatePathsRequest = {
+    /**
+     * Paths
+     */
+    paths: Array<PathItem>;
+};
+
+/**
+ * ValidateResponse
+ */
+export type ValidateResponse = {
+    /**
+     * Paths
+     */
+    paths: Array<ReviewRow>;
+    /**
+     * Errors
+     */
+    errors: number;
+};
 
 /**
  * ValidationError
@@ -1179,3 +1349,271 @@ export type ExportLabelsCsvProjectsProjectIdExportLabelsGetResponses = {
      */
     200: unknown;
 };
+
+export type OpenUploadSessionData = {
+    body?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+    };
+    query?: never;
+    url: '/projects/{project_id}/upload/open/';
+};
+
+export type OpenUploadSessionErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OpenUploadSessionError = OpenUploadSessionErrors[keyof OpenUploadSessionErrors];
+
+export type OpenUploadSessionResponses = {
+    /**
+     * Successful Response
+     */
+    200: OpenSessionResponse;
+};
+
+export type OpenUploadSessionResponse = OpenUploadSessionResponses[keyof OpenUploadSessionResponses];
+
+export type UploadImagesData = {
+    body: BodyUploadImages;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/projects/{project_id}/upload/{session_id}/images/';
+};
+
+export type UploadImagesErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UploadImagesError = UploadImagesErrors[keyof UploadImagesErrors];
+
+export type UploadImagesResponses = {
+    /**
+     * Successful Response
+     */
+    200: UploadFilesResponse;
+};
+
+export type UploadImagesResponse = UploadImagesResponses[keyof UploadImagesResponses];
+
+export type UploadMasksData = {
+    body: BodyUploadMasks;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/projects/{project_id}/upload/{session_id}/masks/';
+};
+
+export type UploadMasksErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UploadMasksError = UploadMasksErrors[keyof UploadMasksErrors];
+
+export type UploadMasksResponses = {
+    /**
+     * Successful Response
+     */
+    200: UploadFilesResponse;
+};
+
+export type UploadMasksResponse = UploadMasksResponses[keyof UploadMasksResponses];
+
+export type UploadLabelsData = {
+    body: BodyUploadLabels;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/projects/{project_id}/upload/{session_id}/labels/';
+};
+
+export type UploadLabelsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UploadLabelsError = UploadLabelsErrors[keyof UploadLabelsErrors];
+
+export type UploadLabelsResponses = {
+    /**
+     * Successful Response
+     */
+    200: UploadFilesResponse;
+};
+
+export type UploadLabelsResponse = UploadLabelsResponses[keyof UploadLabelsResponses];
+
+export type ValidateUploadPathsData = {
+    body: ValidatePathsRequest;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/projects/{project_id}/upload/{session_id}/validate/paths/';
+};
+
+export type ValidateUploadPathsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ValidateUploadPathsError = ValidateUploadPathsErrors[keyof ValidateUploadPathsErrors];
+
+export type ValidateUploadPathsResponses = {
+    /**
+     * Successful Response
+     */
+    200: ValidateResponse;
+};
+
+export type ValidateUploadPathsResponse = ValidateUploadPathsResponses[keyof ValidateUploadPathsResponses];
+
+export type ValidateUploadFoldersData = {
+    body: ValidateFoldersRequest;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/projects/{project_id}/upload/{session_id}/validate/folders/';
+};
+
+export type ValidateUploadFoldersErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ValidateUploadFoldersError = ValidateUploadFoldersErrors[keyof ValidateUploadFoldersErrors];
+
+export type ValidateUploadFoldersResponses = {
+    /**
+     * Successful Response
+     */
+    200: ValidateResponse;
+};
+
+export type ValidateUploadFoldersResponse = ValidateUploadFoldersResponses[keyof ValidateUploadFoldersResponses];
+
+export type ValidateUploadCsvData = {
+    body: BodyValidateUploadCsv;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/projects/{project_id}/upload/{session_id}/validate/csv/';
+};
+
+export type ValidateUploadCsvErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ValidateUploadCsvError = ValidateUploadCsvErrors[keyof ValidateUploadCsvErrors];
+
+export type ValidateUploadCsvResponses = {
+    /**
+     * Successful Response
+     */
+    200: ValidateResponse;
+};
+
+export type ValidateUploadCsvResponse = ValidateUploadCsvResponses[keyof ValidateUploadCsvResponses];
+
+export type ProcessUploadData = {
+    body: ProcessRequest;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/projects/{project_id}/upload/{session_id}/process/';
+};
+
+export type ProcessUploadErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ProcessUploadError = ProcessUploadErrors[keyof ProcessUploadErrors];
+
+export type ProcessUploadResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProcessResponse;
+};
+
+export type ProcessUploadResponse = ProcessUploadResponses[keyof ProcessUploadResponses];
