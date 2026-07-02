@@ -27,6 +27,7 @@ dependencies = [
     "timm~=1.0.27",
     "ipywidgets>=8.1.8",
     "ipykernel>=7.3.0",
+    "python-multipart~=0.0.32",
 ]
 dynamic = ["version"]  # ← version comes from setuptools_scm
 
