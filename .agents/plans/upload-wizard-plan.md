@@ -7,7 +7,7 @@ Add a multi-step Upload Wizard as a Bootstrap `<Modal>` on the Project Page. The
 1. **Step-by-Step** — Upload images, masks, and CSV labels in separate steps, then review.
 2. **CSV File List** — Upload a single CSV describing file locations on the server, then review.
 
-The wizard is triggered by the existing "Enter Upload Wizard" button in `ActionsFooter`. The modal displays a dynamic step indicator that updates based on the chosen approach. The final step shows a unified review table built lazily from wizard refs.
+The wizard is triggered by the existing "Enter Upload Wizard" button in `ActionsFooter`. The modal displays a dynamic step indicator that updates based on the chosen approach. When the user reaches the review step, it calls the `/validate/` endpoint and displays the results directly.
 
 **Reference implementation:** The old jQuery-based upload wizard at `patchsorter/static/js/ps-upload.js` (commit `77456834`) provides the complete UX spec. This plan maps its 7-step flow, per-type toggles, and validation logic to React.
 
@@ -19,7 +19,7 @@ The wizard is triggered by the existing "Enter Upload Wizard" button in `Actions
 |------------------|---------|
 | 2.4.3 (Usecase6) | Step-by-step upload flow — select files, confirm details, monitor progress |
 | 2.4.4 (Usecase7) | CSV File List upload — bulk upload via CSV with `filepath` + `geojson_filepath` |
-| `ps-upload.js` (commit 77456834) | Complete 7-step upload wizard with per-type toggles and path validation |
+| `ps-upload.js` (commit 77456834) | Complete 7-step upload wizard with per-type toggles, path validation, session-based uploads |
 
 ---
 
@@ -42,42 +42,49 @@ The wizard is triggered by the existing "Enter Upload Wizard" button in `Actions
 ProjectPage
   state: showUploadWizard: boolean
        │
-       ├─ true  ──► <UploadWizardModal projectId={…} onClose={…} />
+       ├─ true  ──► <UploadWizardModal projectId={…} onClose={…} onSessionOpen={…} />
        │
        └─ false ──► (no modal rendered)
 
 UploadWizardModal
-  refs (useUpload hook):
-    approach: 'stepByStep' | 'csvFileList' | null
-    currentStep: number (0–6)
-    images: File[]
-    masks: File[]
-    csvLabels: File[]
-    csvFile: File | null
-    useDropzone: Record<uploadType, boolean>  // per-type toggle
-    includeMasks: boolean
-    includeCSV: boolean
-    pathsByType: Record<uploadType, string>    // server paths for "Load Folder" mode
-    validatedPaths: ReviewRow[] | null          // result from validate endpoint
+   refs (useUpload hook):
+     approach: 'stepByStep' | 'csvFileList' | null
+     currentStep: number (0–6)
+     session: string | null           // set by open upload session endpoint
+     images: File[]
+     masks: File[]
+     csvLabels: File[]
+     csvFile: File | null
+     useDropzone: Record<uploadType, boolean>  // per-type toggle
+     includeMasks: boolean
+     includeCSV: boolean
+     pathsByType: Record<uploadType, string>    // server paths for "Load Folder" mode
 
-  Step 0: <StepApproachSelection> — radio buttons
-       │
-       ├─ stepByStep  ──► Step 1 → Step 2 → Step 3 → Step 5 (Review)
-       │                    UploadImages  UploadMasks  UploadCSVs
-       │                    (each with toggle: Upload Files / Load Folder)
-       │
-       └─ csvFileList ──► Step 4 → Step 5 (Review)
-                            UploadFileList
+   Step 0: <StepApproachSelection> — radio buttons
+        │
+        ├─ stepByStep  ──► Step 1 → Step 2 → Step 3 → Step 5 (Review)
+        │                    UploadImages  UploadMasks  UploadCSVs
+        │                    (each with toggle: Upload Files / Load Folder)
+        │
+        └─ csvFileList ──► Step 4 → Step 5 (Review)
+                             UploadFileList
 
-  Step 5 (Review): <StepReview>
-    reads validatedPaths from refs
-    renders unified review table (Image, Mask, CSV, Error, Status columns)
-    "Process" button triggers API call
+   Step 5 (Review): <StepReview>
+     calls POST .../validate/ with file data from refs
+     receives ReviewRow[] response
+     renders unified review table (Image, Mask, CSV, Error, Status columns)
+     "Process" button triggers API call
 ```
 
-### Ref-based approach for Review step
+### Review step data flow
 
-The Review step reads directly from wizard refs rather than storing a separate `reviewData` object. This avoids data duplication and ensures the grid always reflects the current wizard state. When the user navigates back and changes files, the grid re-renders automatically.
+The Review step fetches data directly from the `/validate/` endpoint when the user navigates to it. It does **not** use wizard refs for review data. The flow is:
+
+1. User clicks "Next" from the last upload step
+2. Modal calls `POST /api/v1/projects/{project_id}/upload/{session}/validate/` with file paths from refs
+3. Server returns `ReviewRow[]` with status per row
+4. Modal stores results in local state (`reviewData`)
+5. `<StepReview>` renders the table from `reviewData`
 
 ### Upload Types (from `ps-upload.js`)
 
@@ -86,7 +93,6 @@ The Review step reads directly from wizard refs rather than storing a separate `
 | `image` | `image/*` | Scan images (WSI tiles) |
 | `mask` | `image/*` | Mask images (binary/grayscale) |
 | `csv` | `.csv` | Label CSV files |
-| `list` | `.csv` | File list CSV (3 columns) |
 
 ### Per-Type Toggle: "Upload Files" vs "Load Folder"
 
@@ -101,13 +107,18 @@ This is a critical feature from the old wizard that is **missing** from the orig
 
 Masks and CSV uploads are optional. Each has a toggle (`includeMasks`, `includeCSV`) that hides/shows the upload step entirely.
 
+### Session Management via Ray Actor
+
+The upload session is managed by a **Ray actor** that:
+- Uses Python's `tempfile.TemporaryDirectory` to create a temp directory for the session
+- The temp directory lives for the lifetime of the actor and is deleted when the actor dies
+- Session UUID is **server-side generated** (not client-side)
+
+The client calls `POST /api/v1/projects/{project_id}/upload/open/` to create the actor and receive the session UUID. All subsequent endpoints use this session ID as a URL path segment.
+
 ### Path Validation Before Upload
 
 Before reaching the review step, the wizard sends selected paths to a `/validate/` endpoint. The server checks file existence and returns a `ReviewRow[]` with status (ok/error) per row. The review table displays these results.
-
-### Progress Bar
-
-After "Process" is clicked, a multi-step progress bar tracks: images → masks → CSVs → finalize. A polling endpoint (`/progress/`) is polled every 200ms.
 
 ---
 
@@ -143,6 +154,7 @@ interface UploadWizardState {
     // Core state
     approach: React.MutableRefObject<'stepByStep' | 'csvFileList' | null>
     currentStep: React.MutableRefObject<number>  // 0–6
+    session: string | null                        // set by open upload session endpoint
     
     // File refs
     images: React.MutableRefObject<File[]>
@@ -150,8 +162,7 @@ interface UploadWizardState {
     csvLabels: React.MutableRefObject<File[]>
     csvFile: React.MutableRefObject<File | null>
     
-    // Task tracking (returned from /process/, stored in wizard, used for polling)
-    taskId: React.MutableRefObject<string | null>
+    // Server paths (for "Load Folder" mode)
     pathsByType: React.MutableRefObject<Record<string, string>>
     isFolderByType: React.MutableRefObject<Record<string, boolean>>
     
@@ -160,10 +171,8 @@ interface UploadWizardState {
     includeCSV: React.MutableRefObject<boolean>
     useDropzone: React.MutableRefObject<Record<string, boolean>>
     
-    // Post-validation
-    validatedPaths: React.MutableRefObject<ReviewRow[] | null>
-    
     // Actions
+    openSession: () => Promise<void>
     setApproach: (a: 'stepByStep' | 'csvFileList') => void
     nextStep: () => void
     prevStep: (targetStep?: number) => void
@@ -176,6 +185,7 @@ interface UploadWizardState {
 ```
 
 **Key behaviors:**
+- `openSession()` calls `POST /api/v1/projects/{project_id}/upload/open/` to create the Ray actor and stores the returned session ID
 - `reset()` clears all refs and sets `currentStep` to 0
 - `nextStep()` advances `currentStep`, auto-skipping empty optional steps (masks/CSVs)
 - `prevStep(targetStep?)` goes back one step or jumps to a specific step
@@ -323,7 +333,7 @@ A unified review table that displays validation results from the `/validate/` en
 ```typescript
 interface StepReviewProps {
     approach: 'stepByStep' | 'csvFileList' | null
-    validatedPaths: ReviewRow[] | null
+    reviewData: ReviewRow[] | null
     isProcessing: boolean
     onProcess: () => void
     onBack: () => void
@@ -343,9 +353,9 @@ interface StepReviewProps {
 ### Dataset building
 
 ```typescript
-// validatedPaths comes from the /validate/ endpoint response
+// reviewData comes directly from the /validate/ endpoint response
 // Each row has: image, mask, csv, error, status fields
-const dataset = useMemo(() => validatedPaths ?? [], [validatedPaths])
+const dataset = useMemo(() => reviewData ?? [], [reviewData])
 ```
 
 ### Upload button
@@ -354,25 +364,7 @@ A "Process" button below the grid that triggers the `/process/` API call. Shows 
 
 ---
 
-## Step 5: Create `StepComplete.tsx`
-
-**File:** `patchsorter/client/src/components/projectPage/StepComplete.tsx`
-
-Step 6: upload complete screen.
-
-**Props:**
-
-```typescript
-interface StepCompleteProps {
-    onDone: () => void
-}
-```
-
-Shows a success message and a "Close" button that closes the modal.
-
----
-
-## Step 6: Create `UploadWizardModal.tsx`
+## Step 5: Create `UploadWizardModal.tsx`
 
 **File:** `patchsorter/client/src/components/projectPage/UploadWizardModal.tsx`
 
@@ -384,8 +376,11 @@ The modal shell that orchestrates the wizard.
 interface UploadWizardModalProps {
     projectId: number
     onClose: () => void
+    onSessionOpen: (session: string) => void
 }
 ```
+
+**On mount:** call `openSession()` to create the Ray actor and populate `session`.
 
 **Modal structure:**
 
@@ -448,15 +443,12 @@ interface UploadWizardModalProps {
         {currentStep === 5 && (
             <StepReview
                 approach={approach}
-                validatedPaths={validatedPaths}
+                reviewData={reviewData}
                 isProcessing={isProcessing}
                 onProcess={handleProcess}
                 onBack={goBackFromReview}
             />
         )}
-        
-        {/* Step 6: Complete */}
-        {currentStep === 6 && <StepComplete onDone={onClose} />}
     </Modal.Body>
     <Modal.Footer>
         {currentStep > 0 && currentStep < 5 && (
@@ -476,9 +468,6 @@ interface UploadWizardModalProps {
                 <Button variant="secondary" onClick={() => prevStep(4)}>Back</Button>
             </>
         )}
-        {currentStep === 6 && (
-            <Button variant="primary" onClick={onClose}>Close</Button>
-        )}
     </Modal.Footer>
 </Modal>
 ```
@@ -487,8 +476,39 @@ interface UploadWizardModalProps {
 
 ```typescript
 const steps = approach === 'csvFileList'
-    ? ['Upload Method', 'Upload File List', 'Review Data', 'Upload Complete']
-    : ['Upload Method', 'Upload Scan Images', 'Upload Masks', 'Upload CSVs', 'Review Data', 'Upload Complete']
+    ? ['Upload Method', 'Upload File List', 'Review Data']
+    : ['Upload Method', 'Upload Scan Images', 'Upload Masks', 'Upload CSVs', 'Review Data']
+```
+
+**Review data state and validation flow:**
+
+The modal maintains `reviewData` as local state (not a ref). When the user navigates to Step 5 (Review), the modal calls the `/validate/` endpoint:
+
+```typescript
+const [reviewData, setReviewData] = useState<ReviewRow[] | null>(null)
+
+// Called when entering Step 5
+const loadReviewData = async () => {
+    let payload: ValidateRequest
+    if (approach === 'csvFileList') {
+        // Read CSV file content from file ref
+        const csvContent = await readFile(csvFile.current!)
+        payload = { csv_content: csvContent }
+    } else {
+        // Build from server paths or uploaded file names
+        payload = { paths: buildPathsFromRefs() }
+    }
+    const response = await validateProjectsProjectIdUploadSessionValidatePost(projectId, session!, payload)
+    setReviewData(response.paths)
+}
+
+// Called when user clicks "Process" on the review step
+const handleProcess = async () => {
+    setIsProcessing(true)
+    await processProjectsProjectIdUploadSessionProcessPost(projectId, session!, { paths: reviewData! })
+    toast.success('Upload processing started successfully')
+    onClose()
+}
 ```
 
 ---
@@ -508,21 +528,32 @@ const steps = approach === 'csvFileList'
 
 1. Add state: `const [showUploadWizard, setShowUploadWizard] = useState(false)`
 2. Pass `onOpenUploadWizard={() => setShowUploadWizard(true)}` to `ActionsFooter`
-3. Conditionally render `<UploadWizardModal projectId={projectId} onClose={() => setShowUploadWizard(false)} />` when `showUploadWizard` is true
+3. Conditionally render `<UploadWizardModal projectId={projectId} onClose={() => setShowUploadWizard(false)} onSessionOpen={setSession} />` when `showUploadWizard` is true
 
 ---
 
 ## Backend Endpoints Needed
 
-These endpoints do not exist yet. They are required for the Upload Wizard to function.
+These endpoints do not exist yet. They are required for the Upload Wizard to function. The endpoint structure mirrors the old `ps-upload.js` API contract.
 
-### File Storage
+### Session Management
 
-Uploaded files are stored in `tempfile.TemporaryDirectory()` on the server. The temp directory is scoped to the request lifecycle and auto-cleans when the request handler completes (or after processing finishes). No session table or persistent storage is needed.
+A Ray actor manages the upload session. The client calls `POST /api/v1/projects/{project_id}/upload/open/` to create the actor and receive the session UUID. All endpoints below accept it as a URL path segment.
 
-### 1. `POST /api/v1/projects/{project_id}/upload/images/`
+### 0. `POST /api/v1/projects/{project_id}/upload/open/`
 
-Upload image files (multipart/form-data). Files are stored in a temp directory.
+Create upload session (Ray actor). Returns a server-generated UUID.
+
+**Response:**
+```json
+{
+    "session": "uuid-string"
+}
+```
+
+### 1. `POST /api/v1/projects/{project_id}/upload/{session}/images/`
+
+Saves uploaded image files into the actor's temp directory. Calls the Ray actor's `save_images()` method.
 
 **Request:**
 ```
@@ -538,19 +569,39 @@ files: [File, File, ...]
 }
 ```
 
-### 2. `POST /api/v1/projects/{project_id}/upload/masks/`
+### 2. `POST /api/v1/projects/{project_id}/upload/{session}/masks/`
 
-Upload mask files (multipart/form-data). Same request/response as above.
+Saves uploaded mask files into the actor's temp directory. Calls the Ray actor's `save_masks()` method. Same request/response as above.
 
-### 3. `POST /api/v1/projects/{project_id}/upload/csv/`
+### 3. `POST /api/v1/projects/{project_id}/upload/{session}/labels/`
 
-Upload CSV label files (multipart/form-data). Same request/response as above.
+Saves uploaded label files into the actor's temp directory. Calls the Ray actor's `save_labels()` method. Same request/response as above.
 
-### 4. `POST /api/v1/projects/{project_id}/upload/list/`
+### 4. `POST /api/v1/projects/{project_id}/upload/{session}/validate/`
 
-Upload CSV file list. Parses the CSV and returns validation results.
+Validates file paths. Calls the Ray actor's `validate()` method. Accepts **any one** of the following input types (exactly one must be provided):
 
-**Request:**
+**(A) Client-side paths from drag-and-drop uploads:**
+```json
+{
+    "paths": [
+        { "type": "image", "filename": "img1.tif" },
+        { "type": "mask", "filename": "mask1.geojson" },
+        ...
+    ]
+}
+```
+
+**(B) Server folder paths (for "Load Folder" mode):**
+```json
+{
+    "image_folder": "/server/path/to/images/",
+    "mask_folder": "/server/path/to/masks/",
+    "label_folder": "/server/path/to/labels/"
+}
+```
+
+**(C) CSV file with 3 columns (image, mask, label filenames):**
 ```
 Content-Type: multipart/form-data
 
@@ -561,43 +612,16 @@ csv_file: File
 ```json
 {
     "paths": [
-        { "image": "/server/path/to/image1.tif", "mask": "/server/path/to/mask1.tif", "csv": "/server/path/to/labels1.csv", "status": "ok", "error": "" },
-        { "image": "/server/path/to/bad.tif", "mask": "", "csv": "", "status": "error", "error": "File not found" }
-    ],
-    "errors": 1
-}
-```
-
-### 5. `POST /api/v1/projects/{project_id}/upload/validate/`
-
-Validate server-side file paths (for "Load Folder" mode).
-
-**Request:**
-```json
-{
-    "image": "/server/path/to/images/",
-    "mask": "/server/path/to/masks/",
-    "csv": "/server/path/to/csvs/",
-    "image_is_folder": true,
-    "mask_is_folder": true,
-    "csv_is_folder": false
-}
-```
-
-**Response:**
-```json
-{
-    "paths": [
-        { "image": "/server/path/to/images/img1.tif", "mask": "/server/path/to/masks/mask1.tif", "csv": "img1.csv", "status": "ok", "error": "" },
+        { "image": "/server/path/to/images/img1.tif", "mask": "/server/path/to/masks/mask1.geojson", "label": "", "status": "ok", "error": "" },
         ...
     ],
     "errors": 0
 }
 ```
 
-### 6. `POST /api/v1/projects/{project_id}/upload/process/`
+### 5. `POST /api/v1/projects/{project_id}/upload/{session}/process/`
 
-Start server-side processing of validated paths. Returns a `task_id` that the wizard stores and uses for polling.
+Start server-side processing of validated paths. Calls the Ray actor's `process()` method, which dispatches Ray tasks.
 
 **Request:**
 ```json
@@ -607,28 +631,11 @@ Start server-side processing of validated paths. Returns a `task_id` that the wi
 ```
 
 **Response:**
-
-(Showing lines 510-609 of 1325. Use offset 610 to continue.)
 ```json
 {
     "task_id": "abc123",
     "status": "pending",
     "message": "Processing started"
-}
-```
-
-### 7. `GET /api/v1/projects/{project_id}/tasks/{task_id}`
-
-Poll task progress. The `task_id` comes from the `/process/` response and is stored in the wizard.
-
-**Response:**
-```json
-{
-    "task_id": "abc123",
-    "status": "processing",  // "pending" | "processing" | "completed" | "failed"
-    "progress": 0.45,        // 0.0 to 1.0
-    "message": "Processing image 5 of 10",
-    "errors": []
 }
 ```
 
@@ -639,8 +646,8 @@ Poll task progress. The `task_id` comes from the `/process/` response and is sto
 After backend endpoints are implemented:
 
 1. Run `npm run openapi-ts` in `patchsorter/client/`
-2. New types: `ValidateRequest`, `ValidateResponse`, `ProcessRequest`, `ProcessResponse`, `ProgressResponse`, `ReviewRow`
-3. New SDK functions: `uploadImagesProjectsProjectIdUploadImagesPost`, `uploadMasksProjectsProjectIdUploadMasksPost`, `uploadCSVsProjectsProjectIdUploadCsvPost`, `uploadListProjectsProjectIdUploadListPost`, `validateProjectsProjectIdUploadValidatePost`, `processProjectsProjectIdUploadProcessPost`, `getTaskProjectsProjectIdTasksTaskIdGet`
+2. New types: `OpenSessionResponse`, `UploadResponse`, `ValidateRequest`, `ValidateResponse`, `ProcessRequest`, `ProcessResponse`, `ReviewRow`
+3. New SDK functions: `openSessionProjectsProjectIdUploadOpenPost`, `uploadImagesProjectsProjectIdUploadSessionImagesPost`, `uploadMasksProjectsProjectIdUploadSessionMasksPost`, `uploadLabelsProjectsProjectIdUploadSessionLabelsPost`, `validateProjectsProjectIdUploadSessionValidatePost`, `processProjectsProjectIdUploadSessionProcessPost`
 
 ---
 
@@ -718,7 +725,7 @@ After backend endpoints are implemented:
 
 ## Implementation Order
 
-1. **Create `useUpload.ts`** — hook with refs and actions (taskId stored in wizard, not DB)
+1. **Create `useUpload.ts`** — hook with refs, actions, and `openSession()`
 2. **Create `UploadStepIndicator.tsx`** — dynamic step progress bar (supports both step arrays)
 3. **Create `StepApproachSelection.tsx`** — radio button step (step 0)
 4. **Create `StepUploadImages.tsx`** — drag-drop + "Load Folder" toggle
@@ -726,10 +733,9 @@ After backend endpoints are implemented:
 6. **Create `StepUploadCSVs.tsx`** — drag-drop + "Load Folder" toggle
 7. **Create `StepUploadFileList.tsx`** — CSV upload with 3-column validation
 8. **Create `StepReview.tsx`** — review table (displays `/validate/` results)
-9. **Create `StepComplete.tsx`** — upload complete screen
-10. **Create `UploadWizardModal.tsx`** — modal shell orchestrating all steps
-11. **Create `UploadWizardModal.css`** — modal and component styles
-12. **Wire up `ActionsFooter.tsx`** — add `onOpenUploadWizard` prop
+9. **Create `UploadWizardModal.tsx`** — modal shell orchestrating all steps (closes on Process, shows toast)
+10. **Create `UploadWizardModal.css`** — modal and component styles
+11. **Wire up `ActionsFooter.tsx`** — add `onOpenUploadWizard` prop
 13. **Wire up `ProjectPage`** — add `showUploadWizard` state, render modal
 14. **Implement backend endpoints** (separate PR/phase)
 15. **Regenerate TypeScript client** (after backend changes)
@@ -741,7 +747,7 @@ After backend endpoints are implemented:
 
 | File | Action |
 |------|--------|
-| `patchsorter/client/src/components/projectPage/useUpload.ts` | **Create** — wizard state hook with refs and toggles |
+| `patchsorter/client/src/components/projectPage/useUpload.ts` | **Create** — wizard state hook with refs, session, toggles |
 | `patchsorter/client/src/components/projectPage/UploadStepIndicator.tsx` | **Create** — step progress bar (7-step aware) |
 | `patchsorter/client/src/components/projectPage/StepApproachSelection.tsx` | **Create** — radio button step (step 0) |
 | `patchsorter/client/src/components/projectPage/StepUploadImages.tsx` | **Create** — image upload with Upload Files / Load Folder toggle |
@@ -749,8 +755,7 @@ After backend endpoints are implemented:
 | `patchsorter/client/src/components/projectPage/StepUploadCSVs.tsx` | **Create** — CSV upload with toggle |
 | `patchsorter/client/src/components/projectPage/StepUploadFileList.tsx` | **Create** — CSV file list with 3-column validation |
 | `patchsorter/client/src/components/projectPage/StepReview.tsx` | **Create** — review table (Image, Mask, CSV, Error, Status) |
-| `patchsorter/client/src/components/projectPage/StepComplete.tsx` | **Create** — upload complete screen |
-| `patchsorter/client/src/components/projectPage/UploadWizardModal.tsx` | **Create** — modal shell (7-step wizard) |
+| `patchsorter/client/src/components/projectPage/UploadWizardModal.tsx` | **Create** — modal shell (closes on Process, shows toast) |
 | `patchsorter/client/src/components/projectPage/UploadWizardModal.css` | **Create** — modal styling |
 
 ## Files to Modify
@@ -771,561 +776,7 @@ After backend endpoints are implemented:
 
 | File | Action |
 |------|--------|
-| `patchsorter/api/v1/upload/routes.py` | **Create** — upload endpoints (tempfile-based) |
+| `patchsorter/api/v1/upload/routes.py` | **Create** — upload endpoints (Ray actor-based) |
 | `patchsorter/api/v1/upload/models.py` | **Create** — upload request/response models |
-| `patchsorter/api/v1/main.py` | Modify — include upload router |
-
----
-
-## File Layout
-
-```
-patchsorter/client/src/
-  components/
-    projectPage/
-      UploadWizardModal.tsx        ← Modal shell, wizard state, step navigation
-      UploadWizardModal.css        ← Modal styling
-      UploadStepIndicator.tsx      ← Dynamic step progress bar (bolds current step)
-      StepApproachSelection.tsx    ← Step 1: radio buttons
-      StepUploadImages.tsx         ← Step 2a: drag-drop image files
-      StepUploadMasks.tsx          ← Step 2b: drag-drop mask files
-      StepUploadLabels.tsx         ← Step 2c: drag-drop label files
-      StepUploadFileList.tsx       ← Step 2 (CSV): CSV file upload
-      StepReview.tsx               ← Step 5: unified SlickGrid review table
-      useUpload.ts                 ← Wizard state management hook with refs
-```
-
----
-
-## Step 1: Create `useUpload.ts` Hook
-
-**File:** `patchsorter/client/src/components/projectPage/useUpload.ts`
-
-A custom hook returning refs (not state) so that child components can mutate file lists without causing re-renders, and the Review step can read live values.
-
-```typescript
-interface UploadWizardState {
-    approach: React.MutableRefObject<'stepByStep' | 'csvFileList' | null>
-    currentStep: React.MutableRefObject<number>
-    images: React.MutableRefObject<File[]>
-    masks: React.MutableRefObject<File[]>
-    labels: React.MutableRefObject<File[]>
-    csvFile: React.MutableRefObject<File | null>
-    
-    // Actions
-    setApproach: (a: 'stepByStep' | 'csvFileList') => void
-    nextStep: () => void
-    prevStep: () => void
-    addImages: (files: File[]) => void
-    addMasks: (files: File[]) => void
-    addLabels: (files: File[]) => void
-    setCsvFile: (file: File | null) => void
-    reset: () => void
-}
-```
-
-**Key behaviors:**
-- `reset()` clears all refs and sets `currentStep` to 1
-- `nextStep()` advances `currentStep`, auto-advancing if the current step has no files selected (e.g., skipping empty upload steps)
-- `prevStep()` goes back one step
-- File refs are mutable arrays — `addImages` calls `images.current.push(...files)`
-
----
-
-## Step 2: Create `UploadStepIndicator.tsx`
-
-**File:** `patchsorter/client/src/components/projectPage/UploadStepIndicator.tsx`
-
-A horizontal step progress bar that renders step labels as text segments. The current step is **bolded**, previous steps are grayed, and future steps are muted.
-
-**Props:**
-
-```typescript
-interface StepIndicatorProps {
-    steps: string[]  // e.g. ['Choose Approach', 'Upload Images', 'Upload Masks', 'Upload Labels', 'Review']
-    currentStep: number  // 1-indexed
-}
-```
-
-**Rendering logic:**
-
-```tsx
-// Steps: 1. Choose Approach, 2. Upload Images, 3. Upload Masks, 4. Upload Labels, 5. Review
-//         ^bold                              ^normal                        ^normal
-```
-
-Each step segment renders as:
-```
-{stepNumber}. {label}
-```
-
-With conditional styling:
-- `fontWeight: currentStepIndex === segmentIndex ? 'bold' : 'normal'`
-- `color: segmentIndex < currentStepIndex ? '#6c757d' : segmentIndex === currentStepIndex ? '#0d6efd' : '#adb5bd'`
-- Separator: `•` between steps
-
-**Two step arrays:**
-
-| Approach | Steps |
-|----------|-------|
-| Step-by-Step | `['Choose Approach', 'Upload Images', 'Upload Masks', 'Upload Labels', 'Review']` |
-| CSV File List | `['Choose Approach', 'Upload File List', 'Review']` |
-
----
-
-## Step 3: Create `StepApproachSelection.tsx`
-
-**File:** `patchsorter/client/src/components/projectPage/StepApproachSelection.tsx`
-
-Step 1: two radio button options.
-
-**Options:**
-1. **Step by Step** — "Upload images, masks, and labels individually"
-2. **CSV File List** — "Upload a CSV with filepath and geojson_filepath columns"
-
-**Props:**
-
-```typescript
-interface StepApproachSelectionProps {
-    onSelect: (approach: 'stepByStep' | 'csvFileList') => void
-}
-```
-
-**UI:** Bootstrap `Form.Check` radio buttons in a vertical stack. Selection is immediate (no "Next" button needed — the step indicator updates live).
-
----
-
-## Step 4: Create Upload Steps
-
-### `StepUploadImages.tsx`
-
-Drag-drop zone for image files. Accepts common image extensions (`.tif`, `.tiff`, `.png`, `.jpg`, `.jpeg`). Shows file count and total size.
-
-**Props:**
-
-```typescript
-interface StepUploadImagesProps {
-    files: File[]
-    onAddFiles: (files: File[]) => void
-}
-```
-
-**Features:**
-- Drag-and-drop with visual feedback (highlight border)
-- Click-to-browse file input
-- File list preview below the drop zone (name, size)
-- Remove button per file
-
-### `StepUploadMasks.tsx`
-
-Same as `StepUploadImages` but for mask files (masks are typically binary or grayscale images).
-
-### `StepUploadLabels.tsx`
-
-Same as `StepUploadImages` but for label files (GeoJSON or other annotation formats).
-
-### `StepUploadFileList.tsx`
-
-**File:** `patchsorter/client/src/components/projectPage/StepUploadFileList.tsx`
-
-Single CSV file upload zone.
-
-**Props:**
-
-```typescript
-interface StepUploadFileListProps {
-    file: File | null
-    onFile: (file: File | null) => void
-}
-```
-
-**Features:**
-- Drag-drop zone for CSV file
-- Parses CSV on selection (client-side) to validate format
-- Shows preview: row count, first 5 rows as a small table
-- Validates that first two columns are named `filepath` and `geojson_filepath`
-- Shows validation errors if format is incorrect
-
----
-
-## Step 5: Create `StepReview.tsx`
-
-**File:** `patchsorter/client/src/components/projectPage/StepReview.tsx`
-
-A single unified SlickGrid that displays all upload data from wizard refs.
-
-**Props:**
-
-```typescript
-interface StepReviewProps {
-    approach: 'stepByStep' | 'csvFileList' | null
-    images: File[]
-    masks: File[]
-    labels: File[]
-    csvFile: File | null
-    onUpload: () => void
-    isUploading: boolean
-}
-```
-
-### Grid columns (dynamic based on approach)
-
-**Step-by-Step flow:**
-
-| Column | Field | Formatter |
-|--------|-------|-----------|
-| Type | `type` | Text: "Image", "Mask", "Label" |
-| File | `name` | Text |
-| Size | `size` | Formatted bytes (e.g., "1.2 MB") |
-| Status | `status` | Green badge "Ready" |
-
-**CSV File List flow:**
-
-| Column | Field | Formatter |
-|--------|-------|-----------|
-| Row | `rowIndex` | Number (1-indexed) |
-| filepath | `filepath` | Text (truncated with ellipsis) |
-| geojson_filepath | `geojson` | Text (truncated with ellipsis) |
-| Status | `error` | Empty string or red error text |
-
-### Dataset building from refs
-
-```typescript
-// Inside StepReview render
-const dataset = useMemo(() => {
-    if (approach === 'csvFileList') {
-        // Parse csvFile as text, split into rows
-        const rows: ReviewRow[] = []
-        const text = csvFile?.name ? '' : ''  // would use FileReader or cached text
-        // ... parse CSV, build rows
-        return rows
-    }
-    
-    const rows: ReviewRow[] = []
-    for (const f of images) rows.push({ type: 'Image', name: f.name, size: f.size, status: 'ready' })
-    for (const f of masks)  rows.push({ type: 'Mask',  name: f.name, size: f.size, status: 'ready' })
-    for (const f of labels) rows.push({ type: 'Label', name: f.name, size: f.size, status: 'ready' })
-    return rows
-}, [approach, images, masks, labels, csvFile])
-```
-
-### Grid options
-
-```typescript
-const gridOptions: GridOption = {
-    enableAutoResize: true,
-    enableColoredGroups: false,
-    rowHeight: 32,
-    forceFitColumns: true,
-    autoResize: { container: '#upload-review-container' },
-}
-```
-
-### Upload button
-
-A "Upload" button below the grid that triggers the backend API call. Shows a spinner while uploading.
-
----
-
-## Step 6: Create `UploadWizardModal.tsx`
-
-**File:** `patchsorter/client/src/components/projectPage/UploadWizardModal.tsx`
-
-The modal shell that orchestrates the wizard.
-
-**Props:**
-
-```typescript
-interface UploadWizardModalProps {
-    projectId: number
-    onClose: () => void
-}
-```
-
-**Modal structure:**
-
-```tsx
-<Modal show={true} onHide={onClose} size="lg" centered>
-    <Modal.Header closeButton>
-        <Modal.Title>Upload Images</Modal.Title>
-    </Modal.Header>
-    <Modal.Body>
-        <UploadStepIndicator steps={steps} currentStep={currentStep} />
-        
-        {approach === null && <StepApproachSelection onSelect={setApproach} />}
-        
-        {approach === 'stepByStep' && currentStep === 2 && (
-            <StepUploadFiles type="images" files={images} onAddFiles={addImages} />
-        )}
-        {approach === 'stepByStep' && currentStep === 3 && (
-            <StepUploadFiles type="masks" files={masks} onAddFiles={addMasks} />
-        )}
-        {approach === 'stepByStep' && currentStep === 4 && (
-            <StepUploadFiles type="labels" files={labels} onAddFiles={addLabels} />
-        )}
-        
-        {approach === 'csvFileList' && currentStep === 2 && (
-            <StepUploadFileList file={csvFile} onFile={setCsvFile} />
-        )}
-        
-        {currentStep === 5 && (
-            <StepReview
-                approach={approach}
-                images={images}
-                masks={masks}
-                labels={labels}
-                csvFile={csvFile}
-                onUpload={handleUpload}
-                isUploading={isUploading}
-            />
-        )}
-    </Modal.Body>
-    <Modal.Footer>
-        {currentStep > 1 && (
-            <Button variant="secondary" onClick={prevStep}>Back</Button>
-        )}
-        {currentStep < 5 && (
-            <Button variant="primary" onClick={nextStep} disabled={!canProceed}>Next</Button>
-        )}
-        {currentStep === 5 && (
-            <Button variant="primary" onClick={handleUpload} disabled={isUploading}>
-                {isUploading ? 'Uploading...' : 'Upload'}
-            </Button>
-        )}
-        {currentStep === 5 && !isUploading && (
-            <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        )}
-    </Modal.Footer>
-</Modal>
-```
-
-**Step array determination:**
-
-```typescript
-const steps = approach === 'csvFileList'
-    ? ['Choose Approach', 'Upload File List', 'Review']
-    : ['Choose Approach', 'Upload Images', 'Upload Masks', 'Upload Labels', 'Review']
-```
-
----
-
-## Step 7: Wire up `ActionsFooter.tsx`
-
-**File:** `patchsorter/client/src/components/projectPage/ActionsFooter.tsx`
-
-1. Add `onOpenUploadWizard?: () => void` to `ActionsFooterProps`
-2. Replace `console.log('Enter Upload Wizard not implemented yet')` with `onOpenUploadWizard?.()`
-
----
-
-## Step 8: Wire up `ProjectPage`
-
-**File:** `patchsorter/client/src/routes/projectPage.tsx`
-
-1. Add state: `const [showUploadWizard, setShowUploadWizard] = useState(false)`
-2. Pass `onOpenUploadWizard={() => setShowUploadWizard(true)}` to `ActionsFooter`
-3. Conditionally render `<UploadWizardModal>` when `showUploadWizard` is true
-
----
-
-## Backend Endpoints Needed
-
-These endpoints do not exist yet. They are required for the Upload Wizard to function.
-
-### 1. `POST /api/v1/projects/{project_id}/upload/images`
-
-Upload image files (multipart/form-data).
-
-**Request:**
-```
-Content-Type: multipart/form-data
-
-files: [File, File, ...]
-```
-
-**Response:**
-```json
-{
-    "task_id": "abc123",
-    "status": "pending",
-    "message": "Upload task created"
-}
-```
-
-### 2. `POST /api/v1/projects/{project_id}/upload/masks`
-
-Upload mask files (multipart/form-data). Same request/response as above.
-
-### 3. `POST /api/v1/projects/{project_id}/upload/labels`
-
-Upload label files (multipart/form-data). Same request/response as above.
-
-### 4. `POST /api/v1/projects/{project_id}/upload/csv`
-
-Upload CSV file list.
-
-**Request:**
-```
-Content-Type: multipart/form-data
-
-csv_file: File
-```
-
-**Response:**
-```json
-{
-    "task_id": "def456",
-    "status": "pending",
-    "rows": [
-        { "filepath": "path/to/image.tif", "geojson_filepath": "path/to/image.geojson", "status": "ok" },
-        { "filepath": "path/to/bad.tif", "geojson_filepath": "", "status": "error", "error": "File not found" }
-    ],
-    "summary": { "total": 10, "ok": 8, "error": 2 }
-}
-```
-
-### 5. `GET /api/v1/projects/{project_id}/tasks/{task_id}`
-
-Poll task status.
-
-**Response:**
-```json
-{
-    "task_id": "abc123",
-    "status": "processing",  // "pending" | "processing" | "completed" | "failed"
-    "progress": 0.45,        // 0.0 to 1.0
-    "message": "Processing image 5 of 10",
-    "errors": []
-}
-```
-
----
-
-## TypeScript Client Regeneration
-
-After backend endpoints are implemented:
-
-1. Run `npm run openapi-ts` in `patchsorter/client/`
-2. New types: `UploadTaskResponse`, `CsvUploadResponse`, `TaskStatusResponse`
-3. New SDK functions: `uploadImagesProjectsProjectIdUploadImagesPost`, `uploadMasksProjectsProjectIdUploadMasksPost`, `uploadCSVsProjectsProjectIdUploadCsvPost`, `uploadListProjectsProjectIdUploadListPost`, `validateProjectsProjectIdUploadValidatePost`, `processProjectsProjectIdUploadProcessPost`, `getTaskProjectsProjectIdTasksTaskIdGet`
-
----
-
-## CSS Styling
-
-**File:** `patchsorter/client/src/components/projectPage/UploadWizardModal.css`
-
-```css
-/* Drag-drop zone */
-.upload-dropzone {
-    border: 2px dashed #dee2e6;
-    border-radius: 8px;
-    padding: 32px;
-    text-align: center;
-    cursor: pointer;
-    transition: border-color 0.2s, background-color 0.2s;
-}
-.upload-dropzone.drag-over {
-    border-color: #0d6efd;
-    background-color: #f8f9ff;
-}
-.upload-dropzone:hover {
-    border-color: #6c757d;
-}
-
-/* File list */
-.upload-file-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    border-radius: 4px;
-    background: #f8f9fa;
-    margin-bottom: 4px;
-}
-.upload-file-item .file-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-    margin-right: 12px;
-}
-
-/* Step indicator */
-.upload-step-segment {
-    cursor: default;
-    transition: color 0.2s;
-}
-.upload-step-segment.current {
-    font-weight: 700;
-}
-.upload-step-segment.done {
-    color: #6c757d;
-}
-.upload-step-segment.upcoming {
-    color: #adb5bd;
-}
-
-/* Review grid container */
-#upload-review-container {
-    max-height: 400px;
-    overflow-y: auto;
-}
-```
-
----
-
-## Implementation Order
-
-1. **Create `useUpload.ts`** — hook with refs and actions
-2. **Create `UploadStepIndicator.tsx`** — dynamic step progress bar
-3. **Create `StepApproachSelection.tsx`** — radio button step
-4. **Create `StepUploadImages.tsx`**, `StepUploadMasks.tsx`, `StepUploadLabels.tsx` — drag-drop upload steps
-5. **Create `StepUploadFileList.tsx`** — CSV upload step with validation
-6. **Create `StepReview.tsx`** — unified SlickGrid review table
-7. **Create `UploadWizardModal.tsx`** — modal shell orchestrating all steps
-8. **Create `UploadWizardModal.css`** — modal and component styles
-9. **Wire up `ActionsFooter.tsx`** — add `onOpenUploadWizard` prop
-10. **Wire up `ProjectPage`** — add `showUploadWizard` state, render modal
-11. **Implement backend endpoints** (separate PR/phase)
-12. **Regenerate TypeScript client** (after backend changes)
-13. **Test all flows end-to-end**
-
----
-
-## Files to Create
-
-| File | Action |
-|------|--------|
-| `patchsorter/client/src/components/projectPage/useUpload.ts` | **Create** — wizard state hook with refs |
-| `patchsorter/client/src/components/projectPage/UploadStepIndicator.tsx` | **Create** — step progress bar |
-| `patchsorter/client/src/components/projectPage/StepApproachSelection.tsx` | **Create** — radio button step |
-| `patchsorter/client/src/components/projectPage/StepUploadImages.tsx` | **Create** — image file upload |
-| `patchsorter/client/src/components/projectPage/StepUploadMasks.tsx` | **Create** — mask file upload |
-| `patchsorter/client/src/components/projectPage/StepUploadLabels.tsx` | **Create** — label file upload |
-| `patchsorter/client/src/components/projectPage/StepUploadFileList.tsx` | **Create** — CSV upload with validation |
-| `patchsorter/client/src/components/projectPage/StepReview.tsx` | **Create** — unified SlickGrid review |
-| `patchsorter/client/src/components/projectPage/UploadWizardModal.tsx` | **Create** — modal shell |
-| `patchsorter/client/src/components/projectPage/UploadWizardModal.css` | **Create** — modal styling |
-
-## Files to Modify
-
-| File | Action |
-|------|--------|
-| `patchsorter/client/src/components/projectPage/ActionsFooter.tsx` | Add `onOpenUploadWizard` prop; wire button to callback |
-| `patchsorter/client/src/routes/projectPage.tsx` | Add `showUploadWizard` state; render `<UploadWizardModal>` |
-
-## Files to Regenerate (after backend)
-
-| File | Action |
-|------|--------|
-| `patchsorter/client/src/api_client/types.gen.ts` | Regenerate with new upload types |
-| `patchsorter/client/src/api_client/sdk.gen.ts` | Regenerate with new upload functions |
-
-## Backend Files to Create/Modify (future)
-
-| File | Action |
-|------|--------|
-| `patchsorter/api/v1/upload/routes.py` | **Create** — upload endpoints |
-| `patchsorter/api/v1/upload/models.py` | **Create** — upload response models |
+| `patchsorter/api/v1/upload/actor.py` | **Create** — Ray actor class for upload session management |
 | `patchsorter/api/v1/main.py` | Modify — include upload router |
