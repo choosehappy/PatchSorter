@@ -319,7 +319,7 @@ export default function UploadWizardModal({
     // ----- Render ------------------------------------------------------------
 
     return (
-        <Modal show onHide={onClose} size="lg" centered>
+        <Modal show onHide={onClose} size="lg">
             <Modal.Header closeButton>
                 <Modal.Title>{approach ? getStepTitle(approach, currentStep) : 'Upload Method'}</Modal.Title>
             </Modal.Header>
