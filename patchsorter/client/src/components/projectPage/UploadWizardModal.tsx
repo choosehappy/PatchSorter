@@ -11,7 +11,7 @@ import {
     processUpload,
     type ReviewRow,
 } from '../../api_client'
-import { useUpload } from './useUpload'
+import { useUpload, Approach, Step } from './useUpload'
 import UploadStepIndicator from './UploadStepIndicator'
 import StepApproachSelection from './StepApproachSelection'
 import StepUploadImages from './StepUploadImages'
@@ -23,7 +23,7 @@ import StepComplete from './StepComplete'
 import './UploadWizardModal.css'
 
 // ---------------------------------------------------------------------------
-// Constants
+// Step labels (indexed by position within each flow)
 // ---------------------------------------------------------------------------
 
 const STEP_BY_STEP_LABELS = [
@@ -42,27 +42,25 @@ const CSV_FILE_LIST_LABELS = [
     'Upload Complete',
 ]
 
-const STEP_TITLES: Record<number, string> = {
-    0: 'Upload Method',
-    1: 'Upload Scan Images',
-    2: 'Upload Masks',
-    3: 'Upload CSV Labels',
-    4: 'Upload File List',
-    5: 'Review & Validate',
-    6: 'Upload Complete',
+const STEP_BY_STEP_TITLES: Record<number, string> = {
+    [Step.UploadImages]: 'Upload Scan Images',
+    [Step.UploadMasks]: 'Upload Masks',
+    [Step.UploadCSVs]: 'Upload CSV Labels',
+    [Step.Review]: 'Review & Validate',
+    [Step.Complete]: 'Upload Complete',
 }
 
-/** Map global currentStep → position within the approach-specific label array. */
-function getIndicatorStep(
-    step: number,
-    approach: 'stepByStep' | 'csvFileList' | null,
-): number {
-    if (approach === 'csvFileList') {
-        const map: Record<number, number> = { 0: 0, 4: 1, 5: 2, 6: 3 }
-        return map[step] ?? 0
+const CSV_FILE_LIST_TITLES: Record<number, string> = {
+    [Step.UploadFileList]: 'Upload File List',
+    [Step.Review]: 'Review & Validate',
+    [Step.Complete]: 'Upload Complete',
+}
+
+function getStepTitle(approach: Approach, step: Step): string {
+    if (approach === Approach.StepByStep) {
+        return STEP_BY_STEP_TITLES[step] ?? 'Upload'
     }
-    const map: Record<number, number> = { 0: 0, 1: 1, 2: 2, 3: 3, 5: 4, 6: 5 }
-    return map[step] ?? 0
+    return CSV_FILE_LIST_TITLES[step] ?? 'Upload'
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +93,7 @@ export default function UploadWizardModal({
         isFolderByType,
         pathsByType,
         uploadedFileCounts,
+        currentFlow,
         images,
         masks,
         csvLabels,
@@ -128,10 +127,9 @@ export default function UploadWizardModal({
         setIsReviewLoading(true)
         setReviewData(null)
         try {
-            // TODO: replace with generated SDK functions after backend is implemented
             let response: { paths: ReviewRow[] }
 
-            if (approach === 'csvFileList') {
+            if (approach === Approach.CsvFileList) {
                 const res = await validateUploadCsv({
                     path: { project_id: projectId, session_id: session },
                     body: { csv_file: csvFile.current! },
@@ -188,37 +186,34 @@ export default function UploadWizardModal({
         csvFile,
     ])
 
-    // Use a ref to avoid stale closure in the effect below
     const loadReviewDataRef = useRef(loadReviewData)
     useEffect(() => { loadReviewDataRef.current = loadReviewData }, [loadReviewData])
 
-    // Trigger validation automatically when the user reaches the review step
     useEffect(() => {
-        if (currentStep === 5) loadReviewDataRef.current()
+        if (currentStep === Step.Review) loadReviewDataRef.current()
     }, [currentStep])
 
-    // ----- handleNext (uploads files then advances step) -------------------
+    // ----- handleNext --------------------------------------------------------
 
     const handleNext = useCallback(async () => {
         if (!session) { nextStep(); return }
-        // For drag-and-drop upload steps, send files to the server before advancing
         try {
             setIsUploading(true)
-            if (approach === 'stepByStep' && !isFolderByType['image'] && currentStep === 1 && images.current.length > 0) {
+            if (approach === Approach.StepByStep && !isFolderByType['image'] && currentStep === Step.UploadImages && images.current.length > 0) {
                 const res = await uploadImages({
                     path: { project_id: projectId, session_id: session },
                     body: { files: images.current },
                 })
                 if (!res.data) throw new Error('Image upload failed')
             }
-            if (approach === 'stepByStep' && !isFolderByType['mask'] && currentStep === 2 && includeMasks && masks.current.length > 0) {
+            if (approach === Approach.StepByStep && !isFolderByType['mask'] && currentStep === Step.UploadMasks && includeMasks && masks.current.length > 0) {
                 const res = await uploadMasks({
                     path: { project_id: projectId, session_id: session },
                     body: { files: masks.current },
                 })
                 if (!res.data) throw new Error('Mask upload failed')
             }
-            if (approach === 'stepByStep' && !isFolderByType['csv'] && currentStep === 3 && includeCSV && csvLabels.current.length > 0) {
+            if (approach === Approach.StepByStep && !isFolderByType['csv'] && currentStep === Step.UploadCSVs && includeCSV && csvLabels.current.length > 0) {
                 const res = await uploadLabels({
                     path: { project_id: projectId, session_id: session },
                     body: { files: csvLabels.current },
@@ -250,7 +245,7 @@ export default function UploadWizardModal({
                 body: { paths: reviewData },
             })
             if (!res.data) throw new Error('Process failed')
-            nextStep()  // advance to step 6 (Complete)
+            nextStep()
             toast.success('Upload processing started successfully.')
         } catch (err) {
             console.error('Process failed:', err)
@@ -262,41 +257,51 @@ export default function UploadWizardModal({
 
     // ----- Derived UI values -------------------------------------------------
 
-    const steps = approach === 'csvFileList' ? CSV_FILE_LIST_LABELS : STEP_BY_STEP_LABELS
-    const indicatorStep = getIndicatorStep(currentStep, approach)
+    const flowLabels = approach === null
+        ? ['Upload Method']
+        : approach === Approach.CsvFileList
+            ? CSV_FILE_LIST_LABELS
+            : STEP_BY_STEP_LABELS
 
-    /** True when the next click leads to step 5 (Review). */
-    const isLastUploadStep = useMemo(() => {
-        if (approach === 'csvFileList') return currentStep === 4
-        if (includeCSV) return currentStep === 3
-        if (includeMasks) return currentStep === 2
-        return currentStep === 1
-    }, [approach, currentStep, includeMasks, includeCSV])
+    const flowIndex = approach ? currentFlow.indexOf(currentStep) : 0
+    const isLastStep = flowIndex === currentFlow.length - 1
+    const isReviewStep = currentStep === Step.Review
+
+    /** True when the current step is the last upload step (before review). */
+    const isLastUploadStep = isReviewStep && flowIndex === currentFlow.length - 2
 
     /** Whether the Next / Review button should be enabled. */
     const canProceed = useMemo(() => {
-        if (currentStep === 1) {
-            return isFolderByType['image']
-                ? pathsByType['image'].trim().length > 0
-                : uploadedFileCounts['image'] > 0
+        // Step 0: enabled once approach is selected
+        if (currentStep === Step.ApproachSelection) return approach !== null
+
+        if (approach === Approach.StepByStep) {
+            if (currentStep === Step.UploadImages) {
+                return isFolderByType['image']
+                    ? pathsByType['image'].trim().length > 0
+                    : uploadedFileCounts['image'] > 0
+            }
+            if (currentStep === Step.UploadMasks) {
+                if (!includeMasks) return true
+                return isFolderByType['mask']
+                    ? pathsByType['mask'].trim().length > 0
+                    : uploadedFileCounts['mask'] > 0
+            }
+            if (currentStep === Step.UploadCSVs) {
+                if (!includeCSV) return true
+                return isFolderByType['csv']
+                    ? pathsByType['csv'].trim().length > 0
+                    : uploadedFileCounts['csv'] > 0
+            }
         }
-        if (currentStep === 2) {
-            if (!includeMasks) return true
-            return isFolderByType['mask']
-                ? pathsByType['mask'].trim().length > 0
-                : uploadedFileCounts['mask'] > 0
-        }
-        if (currentStep === 3) {
-            if (!includeCSV) return true
-            return isFolderByType['csv']
-                ? pathsByType['csv'].trim().length > 0
-                : uploadedFileCounts['csv'] > 0
-        }
-        if (currentStep === 4) {
-            return csvFile.current !== null
+        if (approach === Approach.CsvFileList) {
+            if (currentStep === Step.UploadFileList) {
+                return csvFile.current !== null
+            }
         }
         return true
     }, [
+        approach,
         currentStep,
         isFolderByType,
         pathsByType,
@@ -316,19 +321,19 @@ export default function UploadWizardModal({
     return (
         <Modal show onHide={onClose} size="lg" centered>
             <Modal.Header closeButton>
-                <Modal.Title>{STEP_TITLES[currentStep] ?? 'Upload'}</Modal.Title>
+                <Modal.Title>{approach ? getStepTitle(approach, currentStep) : 'Upload Method'}</Modal.Title>
             </Modal.Header>
 
             <Modal.Body>
-                <UploadStepIndicator steps={steps} currentStep={indicatorStep} />
+                <UploadStepIndicator steps={flowLabels} currentStep={flowIndex} />
 
                 {/* Step 0: choose approach */}
-                {currentStep === 0 && (
+                {currentStep === Step.ApproachSelection && (
                     <StepApproachSelection onSelect={setApproach} />
                 )}
 
                 {/* Step 1: scan images */}
-                {approach === 'stepByStep' && currentStep === 1 && (
+                {approach === Approach.StepByStep && currentStep === Step.UploadImages && (
                     <StepUploadImages
                         files={images.current}
                         onAddFiles={addImages}
@@ -340,7 +345,7 @@ export default function UploadWizardModal({
                 )}
 
                 {/* Step 2: masks */}
-                {approach === 'stepByStep' && currentStep === 2 && (
+                {approach === Approach.StepByStep && currentStep === Step.UploadMasks && (
                     <StepUploadMasks
                         files={masks.current}
                         onAddFiles={addMasks}
@@ -354,7 +359,7 @@ export default function UploadWizardModal({
                 )}
 
                 {/* Step 3: CSV labels */}
-                {approach === 'stepByStep' && currentStep === 3 && (
+                {approach === Approach.StepByStep && currentStep === Step.UploadCSVs && (
                     <StepUploadCSVs
                         files={csvLabels.current}
                         onAddFiles={addCSVLabels}
@@ -368,7 +373,7 @@ export default function UploadWizardModal({
                 )}
 
                 {/* Step 4: CSV file list */}
-                {approach === 'csvFileList' && currentStep === 4 && (
+                {approach === Approach.CsvFileList && currentStep === Step.UploadFileList && (
                     <StepUploadFileList
                         file={csvFile.current}
                         onFile={setCsvFile}
@@ -376,7 +381,7 @@ export default function UploadWizardModal({
                 )}
 
                 {/* Step 5: review */}
-                {currentStep === 5 && (
+                {currentStep === Step.Review && (
                     <StepReview
                         approach={approach}
                         reviewData={reviewData}
@@ -385,17 +390,19 @@ export default function UploadWizardModal({
                 )}
 
                 {/* Step 6: complete */}
-                {currentStep === 6 && <StepComplete />}
+                {currentStep === Step.Complete && <StepComplete />}
             </Modal.Body>
 
-            {currentStep > 0 && (
+            {currentFlow.length > 0 && (
                 <Modal.Footer>
-                    {/* Steps 1–4: back + next/review */}
-                    {currentStep > 0 && currentStep < 5 && (
+                    {/* Steps before Review: back + next/review */}
+                    {flowIndex < currentFlow.length - 2 && (
                         <>
-                            <Button variant="secondary" onClick={() => prevStep()}>
-                                Back
-                            </Button>
+                            {flowIndex > 0 && (
+                                <Button variant="secondary" onClick={() => prevStep()}>
+                                    Back
+                                </Button>
+                            )}
                             <Button
                                 variant="primary"
                                 onClick={handleNext}
@@ -415,8 +422,8 @@ export default function UploadWizardModal({
                         </>
                     )}
 
-                    {/* Step 5: review — process + back */}
-                    {currentStep === 5 && (
+                    {/* Review: process + back */}
+                    {isReviewStep && (
                         <>
                             <Button
                                 variant="secondary"
@@ -446,8 +453,8 @@ export default function UploadWizardModal({
                         </>
                     )}
 
-                    {/* Step 6: complete — close */}
-                    {currentStep === 6 && (
+                    {/* Complete: close */}
+                    {currentStep === Step.Complete && (
                         <Button variant="primary" onClick={onClose}>
                             Close
                         </Button>

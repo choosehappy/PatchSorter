@@ -1,53 +1,61 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo } from 'react'
 import { toast } from 'react-toastify'
 import { openUploadSession } from '../../api_client'
 export type { ReviewRow } from '../../api_client'
 
-export type UploadApproach = 'stepByStep' | 'csvFileList'
+// ---------------------------------------------------------------------------
+// Enums & flow definitions
+// ---------------------------------------------------------------------------
+
+export enum Step {
+    ApproachSelection = 0,
+    UploadImages = 1,
+    UploadMasks = 2,
+    UploadCSVs = 3,
+    UploadFileList = 4,
+    Review = 5,
+    Complete = 6,
+}
+
+export const STEP_BY_STEP_FLOW = [
+    Step.ApproachSelection,
+    Step.UploadImages,
+    Step.UploadMasks,
+    Step.UploadCSVs,
+    Step.Review,
+    Step.Complete,
+] as const
+
+export const CSV_FILE_LIST_FLOW = [
+    Step.ApproachSelection,
+    Step.UploadFileList,
+    Step.Review,
+    Step.Complete,
+] as const
+
+export enum Approach {
+    StepByStep = 'stepByStep',
+    CsvFileList = 'csvFileList',
+}
+
 export type UploadType = 'image' | 'mask' | 'csv'
 
 // ---------------------------------------------------------------------------
-// Step navigation helpers
+// Flow helpers
 // ---------------------------------------------------------------------------
 
-export function computeNextStep(
-    step: number,
-    approach: UploadApproach | null,
-    includeMasks: boolean,
-    includeCSV: boolean,
-): number {
-    if (approach === 'csvFileList') {
-        const next: Record<number, number> = { 0: 4, 4: 5, 5: 6 }
-        return next[step] ?? step + 1
+function getFlow(approach: Approach, includeMasks: boolean, includeCSV: boolean): readonly Step[] {
+    if (approach === Approach.StepByStep) {
+        let flow = [...STEP_BY_STEP_FLOW]
+        if (!includeMasks) flow = flow.filter(s => s !== Step.UploadMasks)
+        if (!includeCSV) flow = flow.filter(s => s !== Step.UploadCSVs)
+        return flow as typeof STEP_BY_STEP_FLOW
     }
-    // step-by-step
-    if (step === 0) return 1
-    if (step === 1) return includeMasks ? 2 : includeCSV ? 3 : 5
-    if (step === 2) return includeCSV ? 3 : 5
-    if (step === 3) return 5
-    if (step === 5) return 6
-    return step + 1
+    return CSV_FILE_LIST_FLOW
 }
 
-export function computePrevStep(
-    step: number,
-    approach: UploadApproach | null,
-    includeMasks: boolean,
-    includeCSV: boolean,
-): number {
-    if (approach === 'csvFileList') {
-        const prev: Record<number, number> = { 4: 0, 5: 4, 6: 5 }
-        return prev[step] ?? Math.max(0, step - 1)
-    }
-    // step-by-step
-    if (step === 2) return 1
-    if (step === 3) return includeMasks ? 2 : 1
-    if (step === 5) {
-        if (includeCSV) return 3
-        if (includeMasks) return 2
-        return 1
-    }
-    return Math.max(0, step - 1)
+function findIndex(flow: readonly Step[], step: Step): number {
+    return flow.findIndex(s => s === step)
 }
 
 // ---------------------------------------------------------------------------
@@ -55,26 +63,26 @@ export function computePrevStep(
 // ---------------------------------------------------------------------------
 
 export interface UseUploadReturn {
-    // React state (drive re-renders)
-    approach: UploadApproach | null
-    currentStep: number
+    approach: Approach | null
+    currentStep: Step
     session: string | null
     includeMasks: boolean
     includeCSV: boolean
     isFolderByType: Record<UploadType, boolean>
     pathsByType: Record<UploadType, string>
     uploadedFileCounts: Record<UploadType, number>
+    currentFlow: readonly Step[]
 
-    // Refs (mutated without re-renders; read at validation time)
+    // Refs
     images: React.MutableRefObject<File[]>
     masks: React.MutableRefObject<File[]>
     csvLabels: React.MutableRefObject<File[]>
     csvFile: React.MutableRefObject<File | null>
 
     // Actions
-    setApproach: (a: UploadApproach) => Promise<void>
+    setApproach: (a: Approach) => Promise<void>
     nextStep: () => void
-    prevStep: (targetStep?: number) => void
+    prevStep: (targetStep?: Step) => void
     prevReviewStep: () => void
     setIncludeMasks: (v: boolean) => void
     setIncludeCSV: (v: boolean) => void
@@ -92,8 +100,8 @@ export interface UseUploadReturn {
 // ---------------------------------------------------------------------------
 
 export function useUpload(projectId: number): UseUploadReturn {
-    const [approach, setApproachState] = useState<UploadApproach | null>(null)
-    const [currentStep, setCurrentStep] = useState(0)
+    const [approach, setApproachState] = useState<Approach | null>(null)
+    const [currentStep, setCurrentStep] = useState(Step.ApproachSelection)
     const [session, setSession] = useState<string | null>(null)
     const [includeMasks, setIncludeMasks] = useState(true)
     const [includeCSV, setIncludeCSV] = useState(true)
@@ -107,7 +115,6 @@ export function useUpload(projectId: number): UseUploadReturn {
         mask: '',
         csv: '',
     })
-    // Tracks file counts so UI re-renders when files are added (files themselves live in refs)
     const [uploadedFileCounts, setUploadedFileCounts] = useState<Record<UploadType, number>>({
         image: 0,
         mask: 0,
@@ -119,7 +126,6 @@ export function useUpload(projectId: number): UseUploadReturn {
     const csvLabels = useRef<File[]>([])
     const csvFile = useRef<File | null>(null)
 
-    // Mirror refs for reading inside async callbacks without stale closure issues
     const sessionRef = useRef<string | null>(null)
     const approachRef = useRef(approach)
     approachRef.current = approach
@@ -127,6 +133,12 @@ export function useUpload(projectId: number): UseUploadReturn {
     includeMasksRef.current = includeMasks
     const includeCSVRef = useRef(includeCSV)
     includeCSVRef.current = includeCSV
+
+    // Current flow (reactive to includeMasks/includeCSV)
+    const currentFlow = useMemo(
+        () => getFlow(approach ?? Approach.StepByStep, includeMasks, includeCSV),
+        [approach, includeMasks, includeCSV],
+    )
 
     // ----- openSession --------------------------------------------------------
 
@@ -138,45 +150,48 @@ export function useUpload(projectId: number): UseUploadReturn {
         setSession(result.data.session)
     }, [projectId])
 
-    // ----- setApproach --------------------------------------------------------
-    // Immediately advances from step 0 and lazily opens the session.
+    // ----- setApproach (just stores choice — no step advancement) ------------
 
-    const setApproach = useCallback(async (a: UploadApproach) => {
+    const setApproach = useCallback(async (a: Approach) => {
         setApproachState(a)
         try {
             await openSession()
         } catch (err) {
             console.error('Failed to open upload session:', err)
             toast.error('Failed to connect to server. Please try again.')
-            return  // Don't advance if session creation fails
         }
-        setCurrentStep(1)
     }, [openSession])
 
-    // ----- nextStep / prevStep ------------------------------------------------
+    // ----- step navigation (index-based within flow) --------------------------
 
     const nextStep = useCallback(() => {
-        setCurrentStep(prev =>
-            computeNextStep(prev, approachRef.current, includeMasksRef.current, includeCSVRef.current),
-        )
+        setCurrentStep(prev => {
+            const flow = getFlow(approachRef.current ?? Approach.StepByStep, includeMasksRef.current, includeCSVRef.current)
+            const idx = findIndex(flow, prev)
+            if (idx < flow.length - 1) return flow[idx + 1]
+            return prev
+        })
     }, [])
 
-    const prevStep = useCallback((targetStep?: number) => {
+    const prevStep = useCallback((targetStep?: Step) => {
         if (targetStep !== undefined) {
             setCurrentStep(targetStep)
-        } else {
-            setCurrentStep(prev =>
-                computePrevStep(prev, approachRef.current, includeMasksRef.current, includeCSVRef.current),
-            )
+            return
         }
+        setCurrentStep(prev => {
+            const flow = getFlow(approachRef.current ?? Approach.StepByStep, includeMasksRef.current, includeCSVRef.current)
+            const idx = findIndex(flow, prev)
+            if (idx > 0) return flow[idx - 1]
+            return prev
+        })
     }, [])
 
     const prevReviewStep = useCallback(() => {
-        setCurrentStep(() => {
-            if (approachRef.current === 'csvFileList') return 4
-            if (includeCSVRef.current) return 3
-            if (includeMasksRef.current) return 2
-            return 1
+        setCurrentStep(prev => {
+            const flow = getFlow(approachRef.current ?? Approach.StepByStep, includeMasksRef.current, includeCSVRef.current)
+            const reviewIdx = findIndex(flow, Step.Review)
+            const prevIdx = Math.max(0, reviewIdx - 1)
+            return flow[prevIdx]
         })
     }, [])
 
@@ -207,7 +222,6 @@ export function useUpload(projectId: number): UseUploadReturn {
 
     const setCsvFile = useCallback((file: File | null) => {
         csvFile.current = file
-        // Force re-render so canProceed (which reads csvFile.current) recomputes
         setUploadedFileCounts(prev => ({ ...prev }))
     }, [])
 
@@ -215,7 +229,7 @@ export function useUpload(projectId: number): UseUploadReturn {
 
     const reset = useCallback(() => {
         setApproachState(null)
-        setCurrentStep(0)
+        setCurrentStep(Step.ApproachSelection)
         setSession(null)
         setIncludeMasks(true)
         setIncludeCSV(true)
@@ -238,6 +252,7 @@ export function useUpload(projectId: number): UseUploadReturn {
         isFolderByType,
         pathsByType,
         uploadedFileCounts,
+        currentFlow,
         images,
         masks,
         csvLabels,

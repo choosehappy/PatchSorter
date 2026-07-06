@@ -1,14 +1,15 @@
 import { useMemo, useRef, useCallback, useEffect } from 'react'
 import { SlickgridReact } from 'slickgrid-react'
 import type { Column, GridOption, SlickgridReactInstance } from 'slickgrid-react'
-import type { ReviewRow } from './useUpload'
+import type { ReviewRow, Approach } from './useUpload'
 
 interface StepReviewProps {
+    approach: Approach | null
     reviewData: ReviewRow[] | null
     isLoading: boolean
 }
 
-export default function StepReview({ reviewData, isLoading }: StepReviewProps) {
+export default function StepReview({ reviewData, isLoading, approach: _approach }: StepReviewProps) {
     const gridRef = useRef<SlickgridReactInstance | null>(null)
 
     const errorCount = useMemo(() => reviewData?.filter(r => r.status === 'error').length ?? 0, [reviewData])
@@ -29,7 +30,7 @@ export default function StepReview({ reviewData, isLoading }: StepReviewProps) {
             return `<span class="text-danger" style="font-size:0.78rem" title="${e}">${e}</span>`
         }
 
-        const pathFormatter = (field: string) => (_row: number, _cell: number, value: unknown) => {
+        const pathFormatter = (_field: string) => (_row: number, _cell: number, value: unknown) => {
             const v = String(value ?? '')
             if (!v) return '<span class="text-muted">—</span>'
             return `<span class="${truncateStyle}" style="max-width:${maxWidth}px" title="${v}">${v}</span>`
@@ -58,7 +59,7 @@ export default function StepReview({ reviewData, isLoading }: StepReviewProps) {
 
     const gridOptions: GridOption = {
         enableAutoResize: true,
-        enableRowBrowser: true,
+        enableSelection: true,
         rowHeight: 32,
         forceFitColumns: true,
         autoResize: { container: '#upload-review-container' },

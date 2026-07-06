@@ -1,8 +1,8 @@
 import { Form } from 'react-bootstrap'
-import type { UploadApproach } from './useUpload'
+import { Approach } from './useUpload'
 
 interface StepApproachSelectionProps {
-    onSelect: (approach: UploadApproach) => void
+    onSelect: (approach: Approach) => void
 }
 
 export default function StepApproachSelection({ onSelect }: StepApproachSelectionProps) {
@@ -13,7 +13,7 @@ export default function StepApproachSelection({ onSelect }: StepApproachSelectio
                     type="radio"
                     id="approach-step-by-step"
                     name="upload-approach"
-                    onChange={() => onSelect('stepByStep')}
+                    onChange={() => onSelect(Approach.StepByStep)}
                     label={
                         <span>
                             <strong>Step-by-Step</strong>
@@ -29,7 +29,7 @@ export default function StepApproachSelection({ onSelect }: StepApproachSelectio
                     type="radio"
                     id="approach-csv-file-list"
                     name="upload-approach"
-                    onChange={() => onSelect('csvFileList')}
+                    onChange={() => onSelect(Approach.CsvFileList)}
                     label={
                         <span>
                             <strong>CSV File List</strong>
