@@ -44,12 +44,9 @@ export type UploadType = 'image' | 'mask' | 'csv'
 // Flow helpers
 // ---------------------------------------------------------------------------
 
-function getFlow(approach: Approach, includeMasks: boolean, includeCSV: boolean): readonly Step[] {
+function getFlow(approach: Approach): readonly Step[] {
     if (approach === Approach.StepByStep) {
-        let flow = [...STEP_BY_STEP_FLOW]
-        if (!includeMasks) flow = flow.filter(s => s !== Step.UploadMasks)
-        if (!includeCSV) flow = flow.filter(s => s !== Step.UploadCSVs)
-        return flow as typeof STEP_BY_STEP_FLOW
+        return STEP_BY_STEP_FLOW
     }
     return CSV_FILE_LIST_FLOW
 }
@@ -134,10 +131,10 @@ export function useUpload(projectId: number): UseUploadReturn {
     const includeCSVRef = useRef(includeCSV)
     includeCSVRef.current = includeCSV
 
-    // Current flow (reactive to includeMasks/includeCSV)
+    // Current flow (static per approach — toggles only hide components, don't alter flow)
     const currentFlow = useMemo(
-        () => getFlow(approach ?? Approach.StepByStep, includeMasks, includeCSV),
-        [approach, includeMasks, includeCSV],
+        () => getFlow(approach ?? Approach.StepByStep),
+        [approach],
     )
 
     // ----- openSession --------------------------------------------------------
@@ -166,7 +163,7 @@ export function useUpload(projectId: number): UseUploadReturn {
 
     const nextStep = useCallback(() => {
         setCurrentStep(prev => {
-            const flow = getFlow(approachRef.current ?? Approach.StepByStep, includeMasksRef.current, includeCSVRef.current)
+            const flow = getFlow(approachRef.current ?? Approach.StepByStep)
             const idx = findIndex(flow, prev)
             if (idx < flow.length - 1) return flow[idx + 1]
             return prev
@@ -179,7 +176,7 @@ export function useUpload(projectId: number): UseUploadReturn {
             return
         }
         setCurrentStep(prev => {
-            const flow = getFlow(approachRef.current ?? Approach.StepByStep, includeMasksRef.current, includeCSVRef.current)
+            const flow = getFlow(approachRef.current ?? Approach.StepByStep)
             const idx = findIndex(flow, prev)
             if (idx > 0) return flow[idx - 1]
             return prev
@@ -188,7 +185,7 @@ export function useUpload(projectId: number): UseUploadReturn {
 
     const prevReviewStep = useCallback(() => {
         setCurrentStep(prev => {
-            const flow = getFlow(approachRef.current ?? Approach.StepByStep, includeMasksRef.current, includeCSVRef.current)
+            const flow = getFlow(approachRef.current ?? Approach.StepByStep)
             const reviewIdx = findIndex(flow, Step.Review)
             const prevIdx = Math.max(0, reviewIdx - 1)
             return flow[prevIdx]
