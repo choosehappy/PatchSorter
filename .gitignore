@@ -10,6 +10,8 @@ __pycache__/
 *.pyd
 *.log
 *.db
+*.db-wal
+*.db-shm
 prototyping/data/
 node_modules/
 _version.py
@@ -36,3 +38,4 @@ ps_prototypes_v2/*.svg
 ps_prototypes_v2/*.pytable
 ps_prototypes_v2/train_v4.txt
 ps_prototypes_v2/configs.py
+

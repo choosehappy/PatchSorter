@@ -236,22 +236,10 @@ for _ in range(10_000):
 
             # Concatenate, convert to half-precision, and normalize
             views_gpu = [v.to(DEVICE, non_blocking=True) for v in views]
-            #imgs = torch.stack(views_gpu, dim=1).flatten(0, 1) / 255.0  # [B*V, C, H, W]
+            #imgs = torch.stack(views_gpu, dim=1).flatten(0, 1) / 255.0  # [B*V, C, H, W] #NOTE: THIS WAS VERY WRONG, flattened in the wrong direction
             imgs = torch.stack(views_gpu, dim=0).flatten(0, 1) / 255.0  # [B*V, C, H, W]
-
-
-# views_gpu = [torch.full((B, 1, 1, 1), fill_value=v, device=DEVICE) for v in range(V)]
-# imgs = torch.stack(views_gpu, dim=0).flatten(0, 1)
-# recovered = imgs.view(V, B, -1)
-# for v in range(V):
-#     for b in range(B):
-#         assert recovered[v, b].item() == v, f"mismatch at v={v}, b={b}"
-# print("view/batch ordering OK")
-
-
+ 
             del views_gpu
-            #imgs = torch.cat(views, dim=0).to(DEVICE,non_blocking=True) / 255.0  # [B*V, C, H, W]
-
 
             if USE_MASK:
                 # imgs = spatial_mask(imgs)
