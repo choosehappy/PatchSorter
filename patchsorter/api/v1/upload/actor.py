@@ -7,7 +7,7 @@ import tempfile
 import uuid
 from pathlib import Path
 from typing import List
-
+from ray.actor import exit_actor
 import ray
 
 _IMAGE_EXTS = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
@@ -219,16 +219,17 @@ class UploadSessionActor:
         for subdir in ("images", "masks", "patch_csvs"):
             os.makedirs(os.path.join(self._tmpdir.name, subdir), exist_ok=True)
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
 
-    def cleanup(self) -> None:
-        """Delete the temporary directory and all uploaded files."""
+    def __ray_shutdown__(self) -> None:
         try:
+            # Explicitly clean up the temporary directory when the actor is killed. Python gc will also clean it up eventually.
             self._tmpdir.cleanup()
         except Exception:
             pass
+
+    def __ray_terminate__(self) -> None:
+        """Gracefully shut down the actor."""
+        exit_actor()
 
     # ------------------------------------------------------------------
     # File storage
@@ -278,4 +279,4 @@ class UploadSessionActor:
                 "message": f"Processing {len(paths)} entr{'y' if len(paths) == 1 else 'ies'}",
             }
         finally:
-            self.cleanup()
+            exit_actor() # terminate the actor after processing has completed.

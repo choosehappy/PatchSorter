@@ -360,14 +360,3 @@ def test_process_returns_task_id_and_status():
     assert "message" in source
     assert "pending" in source
 
-
-def test_process_calls_cleanup():
-    """process() cleans up the temp directory after completion."""
-    import inspect
-
-    from patchsorter.api.v1.upload.actor import UploadSessionActor
-
-    source = inspect.getsource(UploadSessionActor.process)
-
-    # The process method has a try/finally that calls self.cleanup()
-    assert "cleanup" in source

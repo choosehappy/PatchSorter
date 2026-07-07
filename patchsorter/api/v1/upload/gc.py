@@ -9,8 +9,12 @@ No registry or registration calls are needed — Ray already tracks all live act
 from __future__ import annotations
 
 import logging
+import os
+import shutil
+import tempfile
 import threading
 import time
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +29,7 @@ except ImportError:
 
 
 def _cleanup_expired_sessions(ttl_seconds: int) -> None:
-    """Kill any live UploadSessionActors whose age exceeds *ttl_seconds*."""
+    """Shut down any live UploadSessionActors whose age exceeds *ttl_seconds*."""
     if ray is None:
         log.warning("GC: ray not available")
         return
@@ -42,6 +46,13 @@ def _cleanup_expired_sessions(ttl_seconds: int) -> None:
         log.warning("GC: failed to list actors: %s", exc)
         return
 
+    live_session_ids: set[str] = set()
+    for actor in actors:
+        name = actor.get("name", "")
+        if name and name.startswith("upload_session_"):
+            session_id = name[len("upload_session_"):]
+            live_session_ids.add(session_id)
+
     for actor in actors:
         start_ms = actor.get("start_time_ms") or 0
         age_seconds = (now_ms - start_ms) / 1000
@@ -57,13 +68,38 @@ def _cleanup_expired_sessions(ttl_seconds: int) -> None:
 
         if handle is not None:
             try:
-                ray.get(handle.cleanup.remote(), timeout=10)
+                ray.get(handle.__ray_terminate__.remote(), timeout=10)
             except Exception as exc:
-                log.debug("GC: cleanup() call failed for %s: %s", name, exc)
-            try:
-                ray.kill(handle, no_restart=True)
-            except Exception as exc:
-                log.debug("GC: ray.kill() failed for %s: %s", name, exc)
+                log.debug("GC: __ray_terminate__() call failed for %s: %s", name, exc)
+
+    _cleanup_abandoned_temp_dirs(live_session_ids)
+
+
+def _cleanup_abandoned_temp_dirs(live_session_ids: set[str]) -> None:
+    """Remove temp directories left behind by gone UploadSessionActors."""
+    prefix = "ps_upload_"
+    temp_root = Path(tempfile.gettempdir())
+
+    for entry in temp_root.iterdir():
+        if not entry.is_dir():
+            continue
+        if not entry.name.startswith(prefix):
+            continue
+
+        # Parse session_id from "ps_upload_{session_id}_..."
+        suffix = entry.name[len(prefix):]
+        session_id = suffix.split("_")[0]
+        if not session_id:
+            continue
+
+        if session_id in live_session_ids:
+            continue
+
+        try:
+            shutil.rmtree(entry)
+            log.info("GC: removed abandoned temp dir %s (session=%s)", entry, session_id)
+        except Exception as exc:
+            log.debug("GC: failed to remove temp dir %s: %s", entry, exc)
 
 
 def start_gc_thread(

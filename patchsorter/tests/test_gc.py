@@ -43,12 +43,15 @@ def test_no_expired_actors(mocker):
 
 
 def test_expired_actor_cleaned_up(mocker):
-    """_cleanup_expired_sessions() calls cleanup() and kill() on expired actors."""
+    """_cleanup_expired_sessions() calls cleanup() on expired actors."""
     now_ms = 10_000_000
     old_ms = now_ms - 7200_000  # 2 hours ago
 
     mock_actor = _make_actor_mock(name="test_session", start_time_ms=old_ms)
     mock_handle = mocker.MagicMock()
+    terminate_mock = mocker.MagicMock()
+    terminate_mock.remote.return_value = mocker.MagicMock()
+    object.__setattr__(mock_handle, '__ray_terminate__', terminate_mock)
 
     mocker.patch(
         "patchsorter.api.v1.upload.gc.list_actors",
@@ -58,18 +61,14 @@ def test_expired_actor_cleaned_up(mocker):
         "patchsorter.api.v1.upload.gc.ray.get_actor",
         return_value=mock_handle,
     )
-    mock_kill = mocker.patch(
-        "patchsorter.api.v1.upload.gc.ray.kill",
-    )
 
     _cleanup_expired_sessions(ttl_seconds=3600)
 
-    mock_handle.cleanup.remote.assert_called_once()
-    mock_kill.assert_called_once_with(mock_handle, no_restart=True)
+    mock_handle.__ray_terminate__.remote.assert_called_once()
 
 
 def test_expired_actor_no_name_uses_actor_id(mocker):
-    """_cleanup_expired_sessions() skips actors without a name (no get_actor call, no kill)."""
+    """_cleanup_expired_sessions() skips actors without a name (no get_actor call, no cleanup)."""
     now_ms = 10_000_000
     old_ms = now_ms - 7200_000
 
@@ -88,16 +87,12 @@ def test_expired_actor_no_name_uses_actor_id(mocker):
     mock_get_actor = mocker.patch(
         "patchsorter.api.v1.upload.gc.ray.get_actor",
     )
-    mock_kill = mocker.patch(
-        "patchsorter.api.v1.upload.gc.ray.kill",
-    )
     mocker.patch("patchsorter.api.v1.upload.gc.time.time", return_value=now_ms / 1000)
 
     _cleanup_expired_sessions(ttl_seconds=3600)
 
-    # No name → get_actor never called, no kill
+    # No name → get_actor never called, no cleanup
     mock_get_actor.assert_not_called()
-    mock_kill.assert_not_called()
 
 
 def test_list_actors_error_logged(mocker, caplog):
@@ -128,24 +123,22 @@ def test_get_actor_fails_gracefully(mocker):
         "patchsorter.api.v1.upload.gc.ray.get_actor",
         side_effect=RuntimeError("not found"),
     )
-    mock_kill = mocker.patch(
-        "patchsorter.api.v1.upload.gc.ray.kill",
-    )
 
     _cleanup_expired_sessions(ttl_seconds=3600)
 
-    # get_actor raised → handle=None → actor skipped (no kill)
-    mock_kill.assert_not_called()
+    # get_actor raised → handle=None → actor skipped (no cleanup)
 
 
 def test_cleanup_call_fails_logged(mocker, caplog):
-    """_cleanup_expired_sessions() logs debug when cleanup() fails."""
+    """_cleanup_expired_sessions() logs debug when __ray_terminate__() fails."""
     now_ms = 1_000_000
     old_ms = now_ms - 7200_000
 
     mock_actor = _make_actor_mock(name="test_session", start_time_ms=old_ms)
     mock_handle = mocker.MagicMock()
-    mock_handle.cleanup.remote.side_effect = RuntimeError("cleanup failed")
+    terminate_mock = mocker.MagicMock()
+    terminate_mock.remote.side_effect = RuntimeError("cleanup failed")
+    object.__setattr__(mock_handle, '__ray_terminate__', terminate_mock)
 
     mocker.patch(
         "patchsorter.api.v1.upload.gc.list_actors",
@@ -155,40 +148,12 @@ def test_cleanup_call_fails_logged(mocker, caplog):
         "patchsorter.api.v1.upload.gc.ray.get_actor",
         return_value=mock_handle,
     )
-    mocker.patch("patchsorter.api.v1.upload.gc.ray.kill", return_value=None)
 
     with caplog.at_level(logging.DEBUG):
         _cleanup_expired_sessions(ttl_seconds=3600)
 
-    assert any("cleanup() call failed" in record.message for record in caplog.records)
+    assert any("__ray_terminate__() call failed" in record.message for record in caplog.records)
 
-
-def test_kill_fails_logged(mocker, caplog):
-    """_cleanup_expired_sessions() logs debug when kill() fails."""
-    now_ms = 1_000_000
-    old_ms = now_ms - 7200_000
-
-    mock_actor = _make_actor_mock(name="test_session", start_time_ms=old_ms)
-    mock_handle = mocker.MagicMock()
-
-    mocker.patch(
-        "patchsorter.api.v1.upload.gc.list_actors",
-        return_value=[mock_actor],
-    )
-    mocker.patch(
-        "patchsorter.api.v1.upload.gc.ray.get_actor",
-        return_value=mock_handle,
-    )
-    mock_handle.cleanup.remote.return_value = None
-    mocker.patch(
-        "patchsorter.api.v1.upload.gc.ray.kill",
-        side_effect=RuntimeError("kill failed"),
-    )
-
-    with caplog.at_level(logging.DEBUG):
-        _cleanup_expired_sessions(ttl_seconds=3600)
-
-    assert any("ray.kill() failed" in record.message for record in caplog.records)
 
 
 def test_ttl_boundary_skips(mocker):
@@ -221,6 +186,9 @@ def test_ttl_boundary_kills_over(mocker):
 
     mock_actor = _make_actor_mock(name="test_session", start_time_ms=just_over_ms)
     mock_handle = mocker.MagicMock()
+    terminate_mock = mocker.MagicMock()
+    terminate_mock.remote.return_value = mocker.MagicMock()
+    object.__setattr__(mock_handle, '__ray_terminate__', terminate_mock)
 
     mocker.patch(
         "patchsorter.api.v1.upload.gc.list_actors",
@@ -233,7 +201,7 @@ def test_ttl_boundary_kills_over(mocker):
 
     _cleanup_expired_sessions(ttl_seconds=3600)
 
-    mock_handle.cleanup.remote.assert_called_once()
+    terminate_mock.remote.assert_called_once()
 
 
 def test_multiple_actors_only_expired_cleaned(mocker):
