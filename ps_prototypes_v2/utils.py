@@ -1334,3 +1334,104 @@ def prediction_loss_pseudo_sce(
 
     #return pseudo_loss, num_pseudo
     return pseudo_loss, agreed, high_conf
+
+
+
+
+def prediction_loss_pseudo_sce_adaptive(
+    logits,          # [V*B, C]
+    labels,          # [V*B]  — labeled ≥ 0, unlabeled = -1
+    adaptive_thresh,
+    pseudo_class_weights=None,
+    views_per_patch=None,
+):
+    device  = logits.device
+    V, B, C = int(views_per_patch), logits.shape[0] // int(views_per_patch), logits.shape[1]
+
+    # ── per-view probs ────────────────────────────────────────────────
+    with torch.no_grad():
+        probs_vb  = F.softmax(logits.view(V, B, C), dim=2)   # [V, B, C]
+        conf_vb, pred_vb = probs_vb.max(dim=2)               # [V, B]
+
+    # ── majority vote across views ────────────────────────────────────
+    with torch.no_grad():
+        one_hot       = F.one_hot(pred_vb.T, N_CLASS)          # [B, V, C]
+        vote_counts   = one_hot.sum(dim=1)                    # [B, C]
+        maj_count, maj_label = vote_counts.max(dim=1)         # [B]
+
+        majority_mask = maj_count  > (V // 2)                 # strict majority
+        
+        # Correctness fix: check confidence specifically for the majority-voted label.
+        # Gather probability of majority label from each view: probs_vb[v, b, maj_label[b]]
+        b_idx = torch.arange(B, device=device)
+        probs_for_majority = probs_vb[:, b_idx, maj_label]  # [V, B] - prob of majority label per view
+        # Accept if ANY view is confident about the majority label
+
+        # Representative confidence for each sample
+        majority_conf = probs_for_majority.max(dim=0).values   # [B]
+
+        adaptive_thresh.update(
+            majority_conf[majority_mask].detach(),
+            maj_label[majority_mask].detach(),
+        )
+
+        conf_mask = adaptive_thresh.high_conf_mask(
+            majority_conf,
+            maj_label,
+        )
+
+        high_conf_b   = majority_mask & conf_mask               # [B]
+
+    # ── expand to [V*B] in original layout ───────────────────────────
+    # layout is [V, B] → flat order is v0_b0 v0_b1 ... v1_b0 v1_b1 ...
+    high_conf = high_conf_b.unsqueeze(0).expand(V, B).reshape(-1)    # [V*B]
+    agreed    = maj_label.unsqueeze(0).expand(V, B).reshape(-1)      # [V*B]
+
+    # only apply pseudo-labels to unlabeled points
+    unlabeled_mask = (labels < 0)
+    pseudo_mask    = high_conf & unlabeled_mask                         # [V*B]
+
+    # ── pseudo loss ───────────────────────────────────────────────────
+    if not pseudo_mask.any():
+        return (torch.zeros((), device=device),agreed,high_conf)
+
+    targets = agreed[pseudo_mask]
+    pseudo_loss = sce_loss(logits[pseudo_mask], targets, num_classes=N_CLASS, class_weights=pseudo_class_weights.to(device) if pseudo_class_weights is not None else None)
+
+    #return pseudo_loss, num_pseudo
+    return pseudo_loss, agreed, high_conf
+
+class AdaptiveThreshold:
+    def __init__(self, num_classes, base_thresh=0.95, ema_decay=0.99, device='cuda'):
+        self.num_classes = num_classes
+        self.base_thresh = base_thresh
+        self.ema_decay = ema_decay
+
+        self.class_confidence_ema = torch.full(
+            (num_classes,),
+            base_thresh,
+            device=device,
+        )
+        
+
+    @torch.no_grad()
+    def update(self, probs, preds):
+        for c in range(self.num_classes):
+            mask = preds == c
+            if mask.any():
+                batch_mean_conf = probs[mask].mean()
+                self.class_confidence_ema[c] = (
+                    self.ema_decay * self.class_confidence_ema[c]
+                    + (1 - self.ema_decay) * batch_mean_conf
+                )
+
+    def get_thresholds(self):
+        # normalize by the strongest class so the best class sits at ~base_thresh
+        max_conf = self.class_confidence_ema.max().clamp(min=1e-6)
+        return self.base_thresh * (self.class_confidence_ema / max_conf)
+
+    def high_conf_mask(self, probs, preds):
+        thresholds = self.get_thresholds()  # [num_classes]
+        print(f"Adaptive thresholds: {thresholds.cpu().numpy()}")
+        per_sample_thresh = thresholds[preds]  # [N]
+        return probs >= per_sample_thresh

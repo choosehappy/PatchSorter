@@ -72,6 +72,6 @@ SWAV_SINKHORN_ITERS = 3
 SWAV_EPS = 0.05
 
 
-LOAD_CHECKPOINT = True
+LOAD_CHECKPOINT = False
 TORCH_PROFILE = False # Enable torch profiler (record CPU/CUDA traces to runs/torch_prof)
 LOG_EMBEDDINGS_TOSQL = True # Log embeddings to tensorboard
