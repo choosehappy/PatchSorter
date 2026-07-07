@@ -78,3 +78,16 @@ def log_training_scalars(
             )
 
     writer.add_scalar("loss/num_pseudo/total", total_pseudo, niter_total)
+
+
+def log_confusion_matrix(writer, confusion, step, prefix="confusion"):
+    """
+    confusion: [num_classes, num_classes] tensor, rows=true label, cols=predicted label
+    writer: torch.utils.tensorboard.SummaryWriter
+    step: global step / epoch to log against
+    """
+    num_classes = confusion.shape[0]
+    for true_c in range(num_classes):
+        for pred_c in range(num_classes):
+            value = confusion[true_c, pred_c].item()
+            writer.add_scalar(f"{prefix}/conf_{true_c}_{pred_c}", value, step)

@@ -775,6 +775,7 @@ def bin_losses_vectorized(coords, target_count=10, sigma=1.0, radius=3):
 def prediction_loss_sup(
     logits,
     labels,
+    num_classes,
     class_weights=None,
 ):
     device = logits.device
@@ -782,21 +783,35 @@ def prediction_loss_sup(
 
     # supervised loss
     sup_loss = torch.tensor(0.0, device=device)
+    accuracy = torch.tensor(0.0, device=device)
+    confusion = torch.tensor(0.0, device=device)
     if labeled_mask.any():
+        labeled_logits = logits[labeled_mask]
+        labeled_labels = labels[labeled_mask].long()
+        
         if class_weights is not None:
             class_weights = class_weights.to(device)
             sup_loss = F.cross_entropy(
-                logits[labeled_mask],
-                labels[labeled_mask].long(),
+                labeled_logits,
+                labeled_labels,
                 weight=class_weights,
                 label_smoothing=0.1,
             )
         else:
             sup_loss = F.cross_entropy(
-                logits[labeled_mask], labels[labeled_mask].long(), label_smoothing=0.1
+                labeled_logits, labeled_labels, label_smoothing=0.1
             )
 
-    return sup_loss
+        preds = labeled_logits.argmax(dim=-1)
+        accuracy = (preds == labeled_labels).float().mean()
+
+        # single vectorized confusion matrix, no python loop
+        idx = labeled_labels * num_classes + preds
+        confusion = torch.bincount(idx, minlength=num_classes * num_classes).reshape(
+            num_classes, num_classes
+        )
+
+    return sup_loss, accuracy, confusion
 
 
 

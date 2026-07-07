@@ -16,6 +16,7 @@ from utils_logging import (
     enqueue_embeddings_to_db,
     init_db_writer,
     init_summary_writer,
+    log_confusion_matrix,
     log_embedding_histograms,
     log_training_scalars,
 )
@@ -235,7 +236,19 @@ for _ in range(10_000):
 
             # Concatenate, convert to half-precision, and normalize
             views_gpu = [v.to(DEVICE, non_blocking=True) for v in views]
-            imgs = torch.stack(views_gpu, dim=1).flatten(0, 1) / 255.0  # [B*V, C, H, W]
+            #imgs = torch.stack(views_gpu, dim=1).flatten(0, 1) / 255.0  # [B*V, C, H, W]
+            imgs = torch.stack(views_gpu, dim=0).flatten(0, 1) / 255.0  # [B*V, C, H, W]
+
+
+# views_gpu = [torch.full((B, 1, 1, 1), fill_value=v, device=DEVICE) for v in range(V)]
+# imgs = torch.stack(views_gpu, dim=0).flatten(0, 1)
+# recovered = imgs.view(V, B, -1)
+# for v in range(V):
+#     for b in range(B):
+#         assert recovered[v, b].item() == v, f"mismatch at v={v}, b={b}"
+# print("view/batch ordering OK")
+
+
             del views_gpu
             #imgs = torch.cat(views, dim=0).to(DEVICE,non_blocking=True) / 255.0  # [B*V, C, H, W]
 
@@ -320,7 +333,7 @@ for _ in range(10_000):
 
             class_weights = label_tracker.get_class_weights()
 
-            sup_pred_loss = prediction_loss_sup(pred_logits,labels,class_weights=class_weights)
+            sup_pred_loss, sup_accuracy , confusion= prediction_loss_sup(pred_logits,labels,num_classes=N_CLASS,class_weights=class_weights)
 
             pseudo_pred_loss, pred_labels, high_conf = prediction_loss_pseudo(pred_logits,labels,pseudo_class_weights=None,pseudo_thresh=PSEUDO_THRESH,views_per_patch=NVIEWS)  # i don't think we want psudo class weights
             
@@ -462,7 +475,8 @@ for _ in range(10_000):
                 "loss/semantic_emb_attract": semantic_emb_attr_loss.item(),
                 "loss/semantic_emb_repel": semantic_emb_repel_loss.item(),
                 "loss/pred_supervised": sup_pred_loss.item(),
-                "loss/pred_pseudo": pseudo_pred_loss.item(),
+                "loss/sup_accuracy": sup_accuracy.item(),
+                "loss/pred_pseudo": pseudo_pred_loss.item()
             }
 
             scaled_loss_values = {
@@ -487,9 +501,8 @@ for _ in range(10_000):
             )
 
 
-
-
-
+            log_confusion_matrix(writer, confusion, niter_total)
+    
             niter_total += 1
             if torch_profiler:
                 torch_profiler.step()
