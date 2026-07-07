@@ -82,13 +82,12 @@ def _make_files(tmp_path):
 def test_validate_paths_all_exist(tmp_path):
     """_validate_paths() returns ok when all files exist."""
     _make_files(tmp_path)
-    paths = [
-        {"type": "image", "filename": "img1.tif"},
-        {"type": "image", "filename": "img2.tif"},
-        {"type": "mask", "filename": "img1.geojson"},
-        {"type": "csv", "filename": "img1.csv"},
-    ]
-    result = _validate_paths(str(tmp_path), paths)
+    result = _validate_paths(
+        str(tmp_path),
+        image_names=["img1.tif", "img2.tif"],
+        mask_names=["img1.geojson"],
+        label_names=["img1.csv"],
+    )
 
     assert result["errors"] == 0
     assert result["paths"][0]["status"] == "ok"
@@ -97,8 +96,12 @@ def test_validate_paths_all_exist(tmp_path):
 
 def test_validate_paths_image_missing(tmp_path):
     """_validate_paths() reports error when an image file does not exist."""
-    paths = [{"type": "image", "filename": "missing.tif"}]
-    result = _validate_paths(str(tmp_path), paths)
+    result = _validate_paths(
+        str(tmp_path),
+        image_names=["missing.tif"],
+        mask_names=[],
+        label_names=[],
+    )
 
     assert result["errors"] == 1
     assert "Image not found: missing.tif" in result["paths"][0]["error"]
@@ -107,11 +110,12 @@ def test_validate_paths_image_missing(tmp_path):
 def test_validate_paths_mask_missing(tmp_path):
     """_validate_paths() reports error when a mask file does not exist."""
     _make_files(tmp_path)
-    paths = [
-        {"type": "image", "filename": "img1.tif"},
-        {"type": "mask", "filename": "missing.geojson"},
-    ]
-    result = _validate_paths(str(tmp_path), paths)
+    result = _validate_paths(
+        str(tmp_path),
+        image_names=["img1.tif"],
+        mask_names=["missing.geojson"],
+        label_names=[],
+    )
 
     assert result["errors"] == 1
     assert "Mask not found: missing.geojson" in result["paths"][0]["error"]
@@ -120,11 +124,12 @@ def test_validate_paths_mask_missing(tmp_path):
 def test_validate_paths_label_missing(tmp_path):
     """_validate_paths() reports error when a label file does not exist."""
     _make_files(tmp_path)
-    paths = [
-        {"type": "image", "filename": "img1.tif"},
-        {"type": "csv", "filename": "missing.csv"},
-    ]
-    result = _validate_paths(str(tmp_path), paths)
+    result = _validate_paths(
+        str(tmp_path),
+        image_names=["img1.tif"],
+        mask_names=[],
+        label_names=["missing.csv"],
+    )
 
     assert result["errors"] == 1
     assert "Label not found: missing.csv" in result["paths"][0]["error"]
@@ -132,8 +137,12 @@ def test_validate_paths_label_missing(tmp_path):
 
 def test_validate_paths_no_image_paths(tmp_path):
     """_validate_paths() returns error when no image entries are provided."""
-    paths = [{"type": "mask", "filename": "x.geojson"}]
-    result = _validate_paths(str(tmp_path), paths)
+    result = _validate_paths(
+        str(tmp_path),
+        image_names=[],
+        mask_names=["x.geojson"],
+        label_names=[],
+    )
 
     assert result["errors"] == 1
     assert "No image paths provided" in result["paths"][0]["error"]
@@ -142,12 +151,12 @@ def test_validate_paths_no_image_paths(tmp_path):
 def test_validate_paths_unequal_lists_excess_images(tmp_path):
     """_validate_paths() handles more images than masks — excess images get empty mask."""
     _make_files(tmp_path)
-    paths = [
-        {"type": "image", "filename": "img1.tif"},
-        {"type": "image", "filename": "img2.tif"},
-        {"type": "mask", "filename": "img1.geojson"},
-    ]
-    result = _validate_paths(str(tmp_path), paths)
+    result = _validate_paths(
+        str(tmp_path),
+        image_names=["img1.tif", "img2.tif"],
+        mask_names=["img1.geojson"],
+        label_names=[],
+    )
 
     assert result["errors"] == 0
     # second image should have empty mask

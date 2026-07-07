@@ -13,13 +13,10 @@ class UploadFilesResponse(BaseModel):
     message: str
 
 
-class PathItem(BaseModel):
-    type: str  # 'image' | 'mask' | 'csv'
-    filename: str
-
-
 class ValidatePathsRequest(BaseModel):
-    paths: List[PathItem]
+    image_paths: List[str] = []
+    mask_paths: List[str] = []
+    label_paths: List[str] = []
 
 
 class ValidateFoldersRequest(BaseModel):

@@ -28,19 +28,11 @@ def _save_files(tmpdir: str, subdir: str, filenames: List[str], contents: List[b
     return f"Uploaded {len(filenames)} {subdir.rstrip('s')}(s)"
 
 
-def _validate_paths(tmpdir: str, paths: list[dict]) -> dict:
-    """Validate uploaded filenames against the session temp directory.
-
-    ``paths`` is a list of ``{type, filename}`` dicts (PathItem).
-    Files are paired by positional index within each type group.
-    """
+def _validate_paths(tmpdir: str, image_names: List[str], mask_names: List[str], label_names: List[str]) -> dict:
+    """Validate uploaded filenames against the session temp directory."""
     images_dir = os.path.join(tmpdir, "images")
     masks_dir = os.path.join(tmpdir, "masks")
     labels_dir = os.path.join(tmpdir, "labels")
-
-    image_names = [p["filename"] for p in paths if p["type"] == "image"]
-    mask_names = [p["filename"] for p in paths if p["type"] == "mask"]
-    label_names = [p["filename"] for p in paths if p["type"] == "csv"]
 
     rows: list[dict] = []
     for i, img_name in enumerate(image_names):
@@ -254,8 +246,8 @@ class UploadSessionActor:
     # Validation
     # ------------------------------------------------------------------
 
-    def validate_paths(self, paths: list[dict]) -> dict:
-        return _validate_paths(self._tmpdir.name, paths)
+    def validate_paths(self, image_names: List[str], mask_names: List[str], label_names: List[str]) -> dict:
+        return _validate_paths(self._tmpdir.name, image_names, mask_names, label_names)
 
     def validate_folders(
         self,

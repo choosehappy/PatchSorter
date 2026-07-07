@@ -126,7 +126,11 @@ def validate_upload_paths(
 ) -> ValidateResponse:
     actor = _get_actor(session_id)
     result: dict = ray.get(
-        actor.validate_paths.remote([p.model_dump() for p in request.paths])
+        actor.validate_paths.remote(
+            request.image_paths,
+            request.mask_paths,
+            request.label_paths,
+        )
     )
     return ValidateResponse(**result)
 

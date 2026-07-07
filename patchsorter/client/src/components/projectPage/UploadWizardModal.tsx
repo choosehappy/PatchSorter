@@ -148,18 +148,13 @@ export default function UploadWizardModal({
                 if (!res.data) throw new Error('Validate folders failed')
                 response = res.data
             } else {
-                const paths = [
-                    ...images.current.map(f => ({ type: 'image' as const, filename: f.name })),
-                    ...(includeMasks
-                        ? masks.current.map(f => ({ type: 'mask' as const, filename: f.name }))
-                        : []),
-                    ...(includeCSV
-                        ? csvLabels.current.map(f => ({ type: 'csv' as const, filename: f.name }))
-                        : []),
-                ]
                 const res = await validateUploadPaths({
                     path: { project_id: projectId, session_id: session },
-                    body: { paths },
+                    body: {
+                        image_paths: images.current.map(f => f.name),
+                        mask_paths: includeMasks ? masks.current.map(f => f.name) : [],
+                        label_paths: includeCSV ? csvLabels.current.map(f => f.name) : [],
+                    },
                 })
                 if (!res.data) throw new Error('Validate paths failed')
                 response = res.data
@@ -319,7 +314,7 @@ export default function UploadWizardModal({
     // ----- Render ------------------------------------------------------------
 
     return (
-        <Modal show onHide={onClose} size="lg">
+        <Modal show onHide={onClose} size="xl">
             <Modal.Header closeButton>
                 <Modal.Title>{approach ? getStepTitle(approach, currentStep) : 'Upload Method'}</Modal.Title>
             </Modal.Header>

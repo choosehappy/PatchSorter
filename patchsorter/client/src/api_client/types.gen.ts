@@ -249,20 +249,6 @@ export type PatchResponse = {
 };
 
 /**
- * PathItem
- */
-export type PathItem = {
-    /**
-     * Type
-     */
-    type: string;
-    /**
-     * Filename
-     */
-    filename: string;
-};
-
-/**
  * ProcessRequest
  */
 export type ProcessRequest = {
@@ -452,9 +438,17 @@ export type ValidateFoldersRequest = {
  */
 export type ValidatePathsRequest = {
     /**
-     * Paths
+     * Image Paths
      */
-    paths: Array<PathItem>;
+    image_paths?: Array<string>;
+    /**
+     * Mask Paths
+     */
+    mask_paths?: Array<string>;
+    /**
+     * Label Paths
+     */
+    label_paths?: Array<string>;
 };
 
 /**
