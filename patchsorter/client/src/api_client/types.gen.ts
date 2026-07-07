@@ -15,16 +15,6 @@ export type BodyUploadImages = {
 };
 
 /**
- * Body_upload_labels
- */
-export type BodyUploadLabels = {
-    /**
-     * Files
-     */
-    files: Array<Blob | File>;
-};
-
-/**
  * Body_upload_masks
  */
 export type BodyUploadMasks = {
@@ -35,9 +25,19 @@ export type BodyUploadMasks = {
 };
 
 /**
- * Body_validate_upload_csv
+ * Body_upload_patch_csv
  */
-export type BodyValidateUploadCsv = {
+export type BodyUploadPatchCsv = {
+    /**
+     * Files
+     */
+    files: Array<Blob | File>;
+};
+
+/**
+ * Body_validate_upload_image_csv
+ */
+export type BodyValidateUploadImageCsv = {
     /**
      * Csv File
      */
@@ -428,9 +428,9 @@ export type ValidateFoldersRequest = {
      */
     mask_folder?: string;
     /**
-     * Label Folder
+     * Patch Csv Folder
      */
-    label_folder?: string;
+    patch_csv_folder?: string;
 };
 
 /**
@@ -446,9 +446,9 @@ export type ValidatePathsRequest = {
      */
     mask_paths?: Array<string>;
     /**
-     * Label Paths
+     * Patch Csv Paths
      */
-    label_paths?: Array<string>;
+    patch_csv_paths?: Array<string>;
 };
 
 /**
@@ -1442,8 +1442,8 @@ export type UploadMasksResponses = {
 
 export type UploadMasksResponse = UploadMasksResponses[keyof UploadMasksResponses];
 
-export type UploadLabelsData = {
-    body: BodyUploadLabels;
+export type UploadPatchCsvData = {
+    body: BodyUploadPatchCsv;
     path: {
         /**
          * Project Id
@@ -1455,26 +1455,26 @@ export type UploadLabelsData = {
         session_id: string;
     };
     query?: never;
-    url: '/projects/{project_id}/upload/{session_id}/labels/';
+    url: '/projects/{project_id}/upload/{session_id}/patch_csv/';
 };
 
-export type UploadLabelsErrors = {
+export type UploadPatchCsvErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type UploadLabelsError = UploadLabelsErrors[keyof UploadLabelsErrors];
+export type UploadPatchCsvError = UploadPatchCsvErrors[keyof UploadPatchCsvErrors];
 
-export type UploadLabelsResponses = {
+export type UploadPatchCsvResponses = {
     /**
      * Successful Response
      */
     200: UploadFilesResponse;
 };
 
-export type UploadLabelsResponse = UploadLabelsResponses[keyof UploadLabelsResponses];
+export type UploadPatchCsvResponse = UploadPatchCsvResponses[keyof UploadPatchCsvResponses];
 
 export type ValidateUploadPathsData = {
     body: ValidatePathsRequest;
@@ -1544,8 +1544,8 @@ export type ValidateUploadFoldersResponses = {
 
 export type ValidateUploadFoldersResponse = ValidateUploadFoldersResponses[keyof ValidateUploadFoldersResponses];
 
-export type ValidateUploadCsvData = {
-    body: BodyValidateUploadCsv;
+export type ValidateUploadImageCsvData = {
+    body: BodyValidateUploadImageCsv;
     path: {
         /**
          * Project Id
@@ -1557,26 +1557,26 @@ export type ValidateUploadCsvData = {
         session_id: string;
     };
     query?: never;
-    url: '/projects/{project_id}/upload/{session_id}/validate/csv/';
+    url: '/projects/{project_id}/upload/{session_id}/validate/image-csv/';
 };
 
-export type ValidateUploadCsvErrors = {
+export type ValidateUploadImageCsvErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type ValidateUploadCsvError = ValidateUploadCsvErrors[keyof ValidateUploadCsvErrors];
+export type ValidateUploadImageCsvError = ValidateUploadImageCsvErrors[keyof ValidateUploadImageCsvErrors];
 
-export type ValidateUploadCsvResponses = {
+export type ValidateUploadImageCsvResponses = {
     /**
      * Successful Response
      */
     200: ValidateResponse;
 };
 
-export type ValidateUploadCsvResponse = ValidateUploadCsvResponses[keyof ValidateUploadCsvResponses];
+export type ValidateUploadImageCsvResponse = ValidateUploadImageCsvResponses[keyof ValidateUploadImageCsvResponses];
 
 export type ProcessUploadData = {
     body: ProcessRequest;

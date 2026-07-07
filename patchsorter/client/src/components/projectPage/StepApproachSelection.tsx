@@ -18,7 +18,7 @@ export default function StepApproachSelection({ onSelect }: StepApproachSelectio
                         <span>
                             <strong>Step-by-Step</strong>
                             <p className="mb-0 mt-1 text-muted" style={{ fontSize: '0.9rem' }}>
-                                Upload scan images, masks, and CSV labels individually, each in a separate step.
+                                Upload scan images, masks, and patch CSV (patch_uuid, gt_label, centroid_x, centroid_y) individually, each in a separate step.
                             </p>
                         </span>
                     }
@@ -34,8 +34,8 @@ export default function StepApproachSelection({ onSelect }: StepApproachSelectio
                         <span>
                             <strong>CSV File List</strong>
                             <p className="mb-0 mt-1 text-muted" style={{ fontSize: '0.9rem' }}>
-                                Upload a single CSV with header row <code>image,mask,csv</code> — each row contains absolute
-                                paths to files on the server.
+                                Upload a single CSV with header row <code>image,mask,patch_csv</code> — each row contains absolute
+                                paths to files on the server. The patch_csv column references CSV files with columns: patch_uuid (optional), gt_label (optional), centroid_x (optional), centroid_y (optional).
                             </p>
                         </span>
                     }

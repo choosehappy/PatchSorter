@@ -93,11 +93,11 @@ def upload_masks(
 
 
 @router.post(
-    "/projects/{project_id}/upload/{session_id}/labels/",
+    "/projects/{project_id}/upload/{session_id}/patch_csv/",
     response_model=UploadFilesResponse,
-    operation_id="upload_labels",
+    operation_id="upload_patch_csv",
 )
-def upload_labels(
+def upload_patch_csv(
     project_id: int,
     session_id: str,
     files: List[UploadFile],
@@ -105,7 +105,7 @@ def upload_labels(
     actor = _get_actor(session_id)
     filenames = [f.filename or "" for f in files]
     contents = [f.file.read() for f in files]
-    message: str = ray.get(actor.save_labels.remote(filenames, contents))
+    message: str = ray.get(actor.save_patch_csvs.remote(filenames, contents))
     return UploadFilesResponse(message=message)
 
 
@@ -129,7 +129,7 @@ def validate_upload_paths(
         actor.validate_paths.remote(
             request.image_paths,
             request.mask_paths,
-            request.label_paths,
+            request.patch_csv_paths,
         )
     )
     return ValidateResponse(**result)
@@ -150,25 +150,25 @@ def validate_upload_folders(
         actor.validate_folders.remote(
             request.image_folder,
             request.mask_folder,
-            request.label_folder,
+            request.patch_csv_folder,
         )
     )
     return ValidateResponse(**result)
 
 
 @router.post(
-    "/projects/{project_id}/upload/{session_id}/validate/csv/",
+    "/projects/{project_id}/upload/{session_id}/validate/image-csv/",
     response_model=ValidateResponse,
-    operation_id="validate_upload_csv",
+    operation_id="validate_upload_image_csv",
 )
-def validate_upload_csv(
+def validate_upload_image_csv(
     project_id: int,
     session_id: str,
     csv_file: UploadFile,
 ) -> ValidateResponse:
     actor = _get_actor(session_id)
     content = csv_file.file.read()
-    result: dict = ray.get(actor.validate_csv.remote(content))
+    result: dict = ray.get(actor.validate_image_csv.remote(content))
     return ValidateResponse(**result)
 
 

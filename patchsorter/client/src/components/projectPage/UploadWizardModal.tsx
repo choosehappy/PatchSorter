@@ -4,10 +4,10 @@ import { toast } from 'react-toastify'
 import {
     uploadImages,
     uploadMasks,
-    uploadLabels,
+    uploadPatchCsv,
     validateUploadPaths,
     validateUploadFolders,
-    validateUploadCsv,
+    validateUploadImageCsv,
     processUpload,
     type ReviewRow,
 } from '../../api_client'
@@ -16,7 +16,7 @@ import UploadStepIndicator from './UploadStepIndicator'
 import StepApproachSelection from './StepApproachSelection'
 import StepUploadImages from './StepUploadImages'
 import StepUploadMasks from './StepUploadMasks'
-import StepUploadCSVs from './StepUploadCSVs'
+import StepUploadPatchCsv from './StepUploadPatchCsv'
 import StepUploadFileList from './StepUploadFileList'
 import StepReview from './StepReview'
 import StepComplete from './StepComplete'
@@ -30,7 +30,7 @@ const STEP_BY_STEP_LABELS = [
     'Upload Method',
     'Upload Scan Images',
     'Upload Masks',
-    'Upload CSV Labels',
+    'Upload Patch CSV',
     'Review Data',
     'Upload Complete',
 ]
@@ -45,7 +45,7 @@ const CSV_FILE_LIST_LABELS = [
 const STEP_BY_STEP_TITLES: Record<number, string> = {
     [Step.UploadImages]: 'Upload Scan Images',
     [Step.UploadMasks]: 'Upload Masks',
-    [Step.UploadCSVs]: 'Upload CSV Labels',
+    [Step.UploadPatchCsv]: 'Upload Patch CSV',
     [Step.Review]: 'Review & Validate',
     [Step.Complete]: 'Upload Complete',
 }
@@ -88,15 +88,15 @@ export default function UploadWizardModal({
         session,
         includeMasks,
         setIncludeMasks,
-        includeCSV,
-        setIncludeCSV,
+        includePatchCsv,
+        setIncludePatchCsv,
         isFolderByType,
         pathsByType,
         uploadedFileCounts,
         currentFlow,
         images,
         masks,
-        csvLabels,
+        patchCsvFiles,
         csvFile,
         setApproach,
         nextStep,
@@ -106,7 +106,7 @@ export default function UploadWizardModal({
         updatePath,
         addImages,
         addMasks,
-        addCSVLabels,
+        addPatchCsvs,
         setCsvFile,
     } = useUpload(projectId)
 
@@ -130,7 +130,7 @@ export default function UploadWizardModal({
             let response: { paths: ReviewRow[] }
 
             if (approach === Approach.CsvFileList) {
-                const res = await validateUploadCsv({
+                const res = await validateUploadImageCsv({
                     path: { project_id: projectId, session_id: session },
                     body: { csv_file: csvFile.current! },
                 })
@@ -142,7 +142,7 @@ export default function UploadWizardModal({
                     body: {
                         image_folder: pathsByType['image'],
                         mask_folder: pathsByType['mask'],
-                        label_folder: pathsByType['csv'],
+                        patch_csv_folder: pathsByType['patch_csv'],
                     },
                 })
                 if (!res.data) throw new Error('Validate folders failed')
@@ -153,7 +153,7 @@ export default function UploadWizardModal({
                     body: {
                         image_paths: images.current.map(f => f.name),
                         mask_paths: includeMasks ? masks.current.map(f => f.name) : [],
-                        label_paths: includeCSV ? csvLabels.current.map(f => f.name) : [],
+                        patch_csv_paths: includePatchCsv ? patchCsvFiles.current.map(f => f.name) : [],
                     },
                 })
                 if (!res.data) throw new Error('Validate paths failed')
@@ -174,10 +174,10 @@ export default function UploadWizardModal({
         isFolderByType,
         pathsByType,
         includeMasks,
-        includeCSV,
+        includePatchCsv,
         images,
         masks,
-        csvLabels,
+        patchCsvFiles,
         csvFile,
     ])
 
@@ -208,12 +208,12 @@ export default function UploadWizardModal({
                 })
                 if (!res.data) throw new Error('Mask upload failed')
             }
-            if (approach === Approach.StepByStep && !isFolderByType['csv'] && currentStep === Step.UploadCSVs && includeCSV && csvLabels.current.length > 0) {
-                const res = await uploadLabels({
+            if (approach === Approach.StepByStep && !isFolderByType['patch_csv'] && currentStep === Step.UploadPatchCsv && includePatchCsv && patchCsvFiles.current.length > 0) {
+                const res = await uploadPatchCsv({
                     path: { project_id: projectId, session_id: session },
-                    body: { files: csvLabels.current },
+                    body: { files: patchCsvFiles.current },
                 })
-                if (!res.data) throw new Error('Label upload failed')
+                if (!res.data) throw new Error('Patch CSV upload failed')
             }
         } catch (err) {
             console.error('File upload failed:', err)
@@ -225,8 +225,8 @@ export default function UploadWizardModal({
         nextStep()
     }, [
         session, approach, currentStep, projectId,
-        isFolderByType, includeMasks, includeCSV,
-        images, masks, csvLabels, nextStep,
+        isFolderByType, includeMasks, includePatchCsv,
+        images, masks, patchCsvFiles, nextStep,
     ])
 
     // ----- Process -----------------------------------------------------------
@@ -282,11 +282,11 @@ export default function UploadWizardModal({
                     ? pathsByType['mask'].trim().length > 0
                     : uploadedFileCounts['mask'] > 0
             }
-            if (currentStep === Step.UploadCSVs) {
-                if (!includeCSV) return true
-                return isFolderByType['csv']
-                    ? pathsByType['csv'].trim().length > 0
-                    : uploadedFileCounts['csv'] > 0
+            if (currentStep === Step.UploadPatchCsv) {
+                if (!includePatchCsv) return true
+                return isFolderByType['patch_csv']
+                    ? pathsByType['patch_csv'].trim().length > 0
+                    : uploadedFileCounts['patch_csv'] > 0
             }
         }
         if (approach === Approach.CsvFileList) {
@@ -302,7 +302,7 @@ export default function UploadWizardModal({
         pathsByType,
         uploadedFileCounts,
         includeMasks,
-        includeCSV,
+        includePatchCsv,
         csvFile,
     ])
 
@@ -353,17 +353,17 @@ export default function UploadWizardModal({
                     />
                 )}
 
-                {/* Step 3: CSV labels */}
-                {approach === Approach.StepByStep && currentStep === Step.UploadCSVs && (
-                    <StepUploadCSVs
-                        files={csvLabels.current}
-                        onAddFiles={addCSVLabels}
-                        isFolder={isFolderByType['csv']}
-                        onToggleFolder={v => setIsFolderForType('csv', v)}
-                        serverPath={pathsByType['csv']}
-                        onServerPathChange={p => updatePath('csv', p)}
-                        includeCSV={includeCSV}
-                        onToggleInclude={setIncludeCSV}
+                {/* Step 3: Patch CSV */}
+                {approach === Approach.StepByStep && currentStep === Step.UploadPatchCsv && (
+                    <StepUploadPatchCsv
+                        files={patchCsvFiles.current}
+                        onAddFiles={addPatchCsvs}
+                        isFolder={isFolderByType['patch_csv']}
+                        onToggleFolder={v => setIsFolderForType('patch_csv', v)}
+                        serverPath={pathsByType['patch_csv']}
+                        onServerPathChange={p => updatePath('patch_csv', p)}
+                        includePatchCsv={includePatchCsv}
+                        onToggleInclude={setIncludePatchCsv}
                     />
                 )}
 

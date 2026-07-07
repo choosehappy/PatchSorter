@@ -19,12 +19,12 @@ function parseFileListCSV(text: string): CSVParseResult {
         return { valid: false, rowCount: 0, previewRows: [], error: 'CSV file is empty.' }
     }
     const headerCols = lines[0].split(',').map(h => h.trim().toLowerCase())
-    if (headerCols.length < 3 || headerCols[0] !== 'image' || headerCols[1] !== 'mask' || headerCols[2] !== 'label') {
+    if (headerCols.length < 3 || headerCols[0] !== 'image' || headerCols[1] !== 'mask' || headerCols[2] !== 'patch_csv') {
         return {
             valid: false,
             rowCount: 0,
             previewRows: [],
-            error: `Invalid header. Expected "image,mask,label" but found "${lines[0]}".`,
+            error: `Invalid header. Expected "image,mask,patch_csv" but found "${lines[0]}".`,
         }
     }
     const dataLines = lines.slice(1)
@@ -71,9 +71,9 @@ export default function StepUploadFileList({ file, onFile }: StepUploadFileListP
     return (
         <div>
             <p className="text-muted mb-3" style={{ fontSize: '0.9rem' }}>
-                Upload a CSV file with a header row <code>image,mask,label</code>. Each subsequent row should
-                contain absolute server paths for the scan image, mask file (optional), and label CSV
-                (optional). Leave a column empty if not applicable.
+                Upload a CSV file with a header row <code>image,mask,patch_csv</code>. Each subsequent row should
+                contain absolute server paths for the scan image, mask file (optional), and patch CSV
+                (optional). The patch CSV files store: patch_uuid (optional, relates CSV rows to GeoJSON features), gt_label (optional, stores the patch's ground truth label), centroid_x (optional, stores the patch's x coordinate within the image), centroid_y (optional, stores the patch's y coordinate). Leave a column empty if not applicable.
             </p>
 
             {!file ? (
@@ -131,7 +131,7 @@ export default function StepUploadFileList({ file, onFile }: StepUploadFileListP
                                         <tr>
                                             <th>image</th>
                                             <th>mask</th>
-                                            <th>label</th>
+                                            <th>patch_csv</th>
                                         </tr>
                                     </thead>
                                     <tbody>

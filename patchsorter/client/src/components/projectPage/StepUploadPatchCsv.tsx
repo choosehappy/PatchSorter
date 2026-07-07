@@ -1,27 +1,27 @@
 import { useState } from 'react'
 import { Form } from 'react-bootstrap'
 
-interface StepUploadCSVsProps {
+interface StepUploadPatchCsvProps {
     files: File[]
     onAddFiles: (files: File[]) => void
     isFolder: boolean
     onToggleFolder: (isFolder: boolean) => void
     serverPath: string
     onServerPathChange: (path: string) => void
-    includeCSV: boolean
+    includePatchCsv: boolean
     onToggleInclude: (include: boolean) => void
 }
 
-export default function StepUploadCSVs({
+export default function StepUploadPatchCsv({
     files,
     onAddFiles,
     isFolder,
     onToggleFolder,
     serverPath,
     onServerPathChange,
-    includeCSV,
+    includePatchCsv,
     onToggleInclude,
-}: StepUploadCSVsProps) {
+}: StepUploadPatchCsvProps) {
     const [dragOver, setDragOver] = useState(false)
 
     const handleDrop = (e: React.DragEvent) => {
@@ -41,15 +41,15 @@ export default function StepUploadCSVs({
         <div>
             <Form.Check
                 type="switch"
-                id="include-csv-toggle"
-                label="Include CSV labels"
-                checked={includeCSV}
+                id="include-patch-csv-toggle"
+                label="Include patch CSV"
+                checked={includePatchCsv}
                 onChange={e => onToggleInclude(e.target.checked)}
                 className="mb-3"
             />
 
-            {!includeCSV ? (
-                <p className="text-muted fst-italic">CSV label upload skipped — no labels will be associated with imported images.</p>
+            {!includePatchCsv ? (
+                <p className="text-muted fst-italic">Patch CSV upload skipped — no patch ground truth labels will be associated with imported images.</p>
             ) : (
                 <>
                     <div className="upload-mode-toggle">
@@ -79,7 +79,7 @@ export default function StepUploadCSVs({
                             >
                                 <div>
                                     <div className="mb-2" style={{ fontSize: '2rem' }}>📋</div>
-                                    <div>Drag &amp; drop CSV label files here, or <strong>click to browse</strong></div>
+                                    <div>Drag &amp; drop patch CSV files here, or <strong>click to browse</strong></div>
                                     <div className="text-muted mt-1" style={{ fontSize: '0.8rem' }}>
                                         Accepts: .csv only
                                     </div>
@@ -112,15 +112,15 @@ export default function StepUploadCSVs({
                         </>
                     ) : (
                         <Form.Group>
-                            <Form.Label>Server directory path for CSV label files</Form.Label>
+                            <Form.Label>Server directory path for patch CSV files</Form.Label>
                             <Form.Control
                                 type="text"
-                                placeholder="/absolute/path/to/labels/"
+                                placeholder="/absolute/path/to/patch_csv/"
                                 value={serverPath}
                                 onChange={e => onServerPathChange(e.target.value)}
                             />
                             <Form.Text className="text-muted">
-                                Absolute path to a directory on the server containing .csv label files.
+                                Absolute path to a directory on the server containing .csv files with columns: patch_uuid (optional, relates CSV rows to GeoJSON features), gt_label (optional, stores the patch's ground truth label), centroid_x (optional, stores the patch's x coordinate within the image), centroid_y (optional, stores the patch's y coordinate).
                             </Form.Text>
                         </Form.Group>
                     )}

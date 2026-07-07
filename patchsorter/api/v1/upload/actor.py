@@ -28,34 +28,34 @@ def _save_files(tmpdir: str, subdir: str, filenames: List[str], contents: List[b
     return f"Uploaded {len(filenames)} {subdir.rstrip('s')}(s)"
 
 
-def _validate_paths(tmpdir: str, image_names: List[str], mask_names: List[str], label_names: List[str]) -> dict:
+def _validate_paths(tmpdir: str, image_names: List[str], mask_names: List[str], patch_csv_names: List[str]) -> dict:
     """Validate uploaded filenames against the session temp directory."""
     images_dir = os.path.join(tmpdir, "images")
     masks_dir = os.path.join(tmpdir, "masks")
-    labels_dir = os.path.join(tmpdir, "labels")
+    patch_csvs_dir = os.path.join(tmpdir, "patch_csvs")
 
     rows: list[dict] = []
     for i, img_name in enumerate(image_names):
         mask_name = mask_names[i] if i < len(mask_names) else ""
-        label_name = label_names[i] if i < len(label_names) else ""
+        patch_csv_name = patch_csv_names[i] if i < len(patch_csv_names) else ""
 
         img_path = os.path.join(images_dir, img_name)
         mask_path = os.path.join(masks_dir, mask_name) if mask_name else ""
-        label_path = os.path.join(labels_dir, label_name) if label_name else ""
+        patch_csv_path = os.path.join(patch_csvs_dir, patch_csv_name) if patch_csv_name else ""
 
         errors: list[str] = []
         if not os.path.exists(img_path):
             errors.append(f"Image not found: {img_name}")
         if mask_name and not os.path.exists(mask_path):
             errors.append(f"Mask not found: {mask_name}")
-        if label_name and not os.path.exists(label_path):
-            errors.append(f"Label not found: {label_name}")
+        if patch_csv_name and not os.path.exists(patch_csv_path):
+            errors.append(f"Patch CSV not found: {patch_csv_name}")
 
         rows.append(
             dict(
                 image=img_path,
                 mask=mask_path,
-                csv=label_path,
+                csv=patch_csv_path,
                 status="error" if errors else "ok",
                 error="; ".join(errors),
             )
@@ -73,12 +73,12 @@ def _validate_folders(
     tmpdir: str,
     image_folder: str,
     mask_folder: str = "",
-    label_folder: str = "",
+    patch_csv_folder: str = "",
 ) -> dict:
-    """Enumerate server-side image folder and match masks/labels by filename stem."""
+    """Enumerate server-side image folder and match masks/patch_csvs by filename stem."""
     img_dir = Path(image_folder) if image_folder else None
     mask_dir = Path(mask_folder) if mask_folder else None
-    label_dir = Path(label_folder) if label_folder else None
+    patch_csv_dir = Path(patch_csv_folder) if patch_csv_folder else None
 
     if img_dir is None or not img_dir.is_dir():
         return {
@@ -108,7 +108,7 @@ def _validate_folders(
             "errors": 1,
         }
 
-    if label_dir and not label_dir.is_dir():
+    if patch_csv_dir and not patch_csv_dir.is_dir():
         return {
             "paths": [
                 dict(
@@ -116,12 +116,13 @@ def _validate_folders(
                     mask="",
                     csv="",
                     status="error",
-                    error=f"Label folder not found or not a directory: {label_folder}",
+                    error=f"Patch CSV folder not found or not a directory: {patch_csv_folder}",
                 )
             ],
             "errors": 1,
         }
 
+    # upper case extensions are allowed
     image_files = sorted(
         f for f in img_dir.iterdir() if f.suffix.lower() in _IMAGE_EXTS
     )
@@ -130,23 +131,23 @@ def _validate_folders(
     for img_file in image_files:
         stem = img_file.stem
         mask_path = ""
-        label_path = ""
+        patch_csv_path = ""
 
         if mask_dir and mask_dir.is_dir():
             candidate = mask_dir / f"{stem}.geojson"
             if candidate.exists():
                 mask_path = str(candidate)
 
-        if label_dir and label_dir.is_dir():
-            candidate = label_dir / f"{stem}.csv"
+        if patch_csv_dir and patch_csv_dir.is_dir():
+            candidate = patch_csv_dir / f"{stem}.csv"
             if candidate.exists():
-                label_path = str(candidate)
+                patch_csv_path = str(candidate)
 
         rows.append(
             dict(
                 image=str(img_file),
                 mask=mask_path,
-                csv=label_path,
+                csv=patch_csv_path,
                 status="ok",
                 error="",
             )
@@ -166,8 +167,8 @@ def _validate_folders(
     return {"paths": rows, "errors": sum(1 for r in rows if r["status"] == "error")}
 
 
-def _validate_csv(csv_content: bytes) -> dict:
-    """Parse a CSV file list and validate that each path exists on the server."""
+def _validate_image_csv(csv_content: bytes) -> dict:
+    """Parse an image manifest CSV and validate that each path exists on the server."""
     text = csv_content.decode("utf-8-sig")  # handle BOM
     reader = csv.DictReader(io.StringIO(text))
 
@@ -175,21 +176,21 @@ def _validate_csv(csv_content: bytes) -> dict:
     for row in reader:
         img = (row.get("image") or "").strip()
         mask = (row.get("mask") or "").strip()
-        label = (row.get("label") or "").strip()
+        patch_csv = (row.get("patch_csv") or "").strip()
 
         errors: list[str] = []
         if img and not os.path.exists(img):
             errors.append(f"Image not found: {img}")
         if mask and not os.path.exists(mask):
             errors.append(f"Mask not found: {mask}")
-        if label and not os.path.exists(label):
-            errors.append(f"Label not found: {label}")
+        if patch_csv and not os.path.exists(patch_csv):
+            errors.append(f"Patch CSV not found: {patch_csv}")
 
         rows.append(
             dict(
                 image=img,
                 mask=mask,
-                csv=label,
+                csv=patch_csv,
                 status="error" if errors else "ok",
                 error="; ".join(errors),
             )
@@ -215,7 +216,7 @@ class UploadSessionActor:
         self._project_id = project_id
         self._session_id = session_id
         self._tmpdir = tempfile.TemporaryDirectory(prefix=f"ps_upload_{session_id}_")
-        for subdir in ("images", "masks", "labels"):
+        for subdir in ("images", "masks", "patch_csvs"):
             os.makedirs(os.path.join(self._tmpdir.name, subdir), exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -239,26 +240,26 @@ class UploadSessionActor:
     def save_masks(self, filenames: List[str], contents: List[bytes]) -> str:
         return _save_files(self._tmpdir.name, "masks", filenames, contents)
 
-    def save_labels(self, filenames: List[str], contents: List[bytes]) -> str:
-        return _save_files(self._tmpdir.name, "labels", filenames, contents)
+    def save_patch_csvs(self, filenames: List[str], contents: List[bytes]) -> str:
+        return _save_files(self._tmpdir.name, "patch_csvs", filenames, contents)
 
     # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------
 
-    def validate_paths(self, image_names: List[str], mask_names: List[str], label_names: List[str]) -> dict:
-        return _validate_paths(self._tmpdir.name, image_names, mask_names, label_names)
+    def validate_paths(self, image_names: List[str], mask_names: List[str], patch_csv_names: List[str]) -> dict:
+        return _validate_paths(self._tmpdir.name, image_names, mask_names, patch_csv_names)
 
     def validate_folders(
         self,
         image_folder: str,
         mask_folder: str = "",
-        label_folder: str = "",
+        patch_csv_folder: str = "",
     ) -> dict:
-        return _validate_folders(self._tmpdir.name, image_folder, mask_folder, label_folder)
+        return _validate_folders(self._tmpdir.name, image_folder, mask_folder, patch_csv_folder)
 
-    def validate_csv(self, csv_content: bytes) -> dict:
-        return _validate_csv(csv_content)
+    def validate_image_csv(self, csv_content: bytes) -> dict:
+        return _validate_image_csv(csv_content)
 
     # ------------------------------------------------------------------
     # Processing

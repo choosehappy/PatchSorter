@@ -11,7 +11,7 @@ export enum Step {
     ApproachSelection = 0,
     UploadImages = 1,
     UploadMasks = 2,
-    UploadCSVs = 3,
+    UploadPatchCsv = 3,
     UploadFileList = 4,
     Review = 5,
     Complete = 6,
@@ -21,7 +21,7 @@ export const STEP_BY_STEP_FLOW = [
     Step.ApproachSelection,
     Step.UploadImages,
     Step.UploadMasks,
-    Step.UploadCSVs,
+    Step.UploadPatchCsv,
     Step.Review,
     Step.Complete,
 ] as const
@@ -38,7 +38,7 @@ export enum Approach {
     CsvFileList = 'csvFileList',
 }
 
-export type UploadType = 'image' | 'mask' | 'csv'
+export type UploadType = 'image' | 'mask' | 'patch_csv'
 
 // ---------------------------------------------------------------------------
 // Flow helpers
@@ -64,7 +64,7 @@ export interface UseUploadReturn {
     currentStep: Step
     session: string | null
     includeMasks: boolean
-    includeCSV: boolean
+    includePatchCsv: boolean
     isFolderByType: Record<UploadType, boolean>
     pathsByType: Record<UploadType, string>
     uploadedFileCounts: Record<UploadType, number>
@@ -73,7 +73,7 @@ export interface UseUploadReturn {
     // Refs
     images: React.MutableRefObject<File[]>
     masks: React.MutableRefObject<File[]>
-    csvLabels: React.MutableRefObject<File[]>
+    patchCsvFiles: React.MutableRefObject<File[]>
     csvFile: React.MutableRefObject<File | null>
 
     // Actions
@@ -82,12 +82,12 @@ export interface UseUploadReturn {
     prevStep: (targetStep?: Step) => void
     prevReviewStep: () => void
     setIncludeMasks: (v: boolean) => void
-    setIncludeCSV: (v: boolean) => void
+    setIncludePatchCsv: (v: boolean) => void
     setIsFolderForType: (type: UploadType, value: boolean) => void
     updatePath: (type: UploadType, path: string) => void
     addImages: (files: File[]) => void
     addMasks: (files: File[]) => void
-    addCSVLabels: (files: File[]) => void
+    addPatchCsvs: (files: File[]) => void
     setCsvFile: (file: File | null) => void
     reset: () => void
 }
@@ -101,26 +101,26 @@ export function useUpload(projectId: number): UseUploadReturn {
     const [currentStep, setCurrentStep] = useState(Step.ApproachSelection)
     const [session, setSession] = useState<string | null>(null)
     const [includeMasks, setIncludeMasks] = useState(true)
-    const [includeCSV, setIncludeCSV] = useState(true)
+    const [includePatchCsv, setIncludePatchCsv] = useState(true)
     const [isFolderByType, setIsFolderByType] = useState<Record<UploadType, boolean>>({
         image: false,
         mask: false,
-        csv: false,
+        patch_csv: false,
     })
     const [pathsByType, setPathsByType] = useState<Record<UploadType, string>>({
         image: '',
         mask: '',
-        csv: '',
+        patch_csv: '',
     })
     const [uploadedFileCounts, setUploadedFileCounts] = useState<Record<UploadType, number>>({
         image: 0,
         mask: 0,
-        csv: 0,
+        patch_csv: 0,
     })
 
     const images = useRef<File[]>([])
     const masks = useRef<File[]>([])
-    const csvLabels = useRef<File[]>([])
+    const patchCsvFiles = useRef<File[]>([])
     const csvFile = useRef<File | null>(null)
 
     const sessionRef = useRef<string | null>(null)
@@ -128,8 +128,8 @@ export function useUpload(projectId: number): UseUploadReturn {
     approachRef.current = approach
     const includeMasksRef = useRef(includeMasks)
     includeMasksRef.current = includeMasks
-    const includeCSVRef = useRef(includeCSV)
-    includeCSVRef.current = includeCSV
+    const includePatchCsvRef = useRef(includePatchCsv)
+    includePatchCsvRef.current = includePatchCsv
 
     // Current flow (static per approach — toggles only hide components, don't alter flow)
     const currentFlow = useMemo(
@@ -212,9 +212,9 @@ export function useUpload(projectId: number): UseUploadReturn {
         setUploadedFileCounts(prev => ({ ...prev, mask: masks.current.length }))
     }, [])
 
-    const addCSVLabels = useCallback((files: File[]) => {
-        csvLabels.current.push(...files)
-        setUploadedFileCounts(prev => ({ ...prev, csv: csvLabels.current.length }))
+    const addPatchCsvs = useCallback((files: File[]) => {
+        patchCsvFiles.current.push(...files)
+        setUploadedFileCounts(prev => ({ ...prev, patch_csv: patchCsvFiles.current.length }))
     }, [])
 
     const setCsvFile = useCallback((file: File | null) => {
@@ -229,13 +229,13 @@ export function useUpload(projectId: number): UseUploadReturn {
         setCurrentStep(Step.ApproachSelection)
         setSession(null)
         setIncludeMasks(true)
-        setIncludeCSV(true)
-        setIsFolderByType({ image: false, mask: false, csv: false })
-        setPathsByType({ image: '', mask: '', csv: '' })
-        setUploadedFileCounts({ image: 0, mask: 0, csv: 0 })
+        setIncludePatchCsv(true)
+        setIsFolderByType({ image: false, mask: false, patch_csv: false })
+        setPathsByType({ image: '', mask: '', patch_csv: '' })
+        setUploadedFileCounts({ image: 0, mask: 0, patch_csv: 0 })
         images.current = []
         masks.current = []
-        csvLabels.current = []
+        patchCsvFiles.current = []
         csvFile.current = null
         sessionRef.current = null
     }, [])
@@ -245,26 +245,26 @@ export function useUpload(projectId: number): UseUploadReturn {
         currentStep,
         session,
         includeMasks,
-        includeCSV,
+        includePatchCsv,
         isFolderByType,
         pathsByType,
         uploadedFileCounts,
         currentFlow,
         images,
         masks,
-        csvLabels,
+        patchCsvFiles,
         csvFile,
         setApproach,
         nextStep,
         prevStep,
         prevReviewStep,
         setIncludeMasks,
-        setIncludeCSV,
+        setIncludePatchCsv,
         setIsFolderForType,
         updatePath,
         addImages,
         addMasks,
-        addCSVLabels,
+        addPatchCsvs,
         setCsvFile,
         reset,
     }

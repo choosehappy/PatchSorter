@@ -4,7 +4,7 @@
 
 Add a multi-step Upload Wizard as a Bootstrap `<Modal>` on the Project Page. The wizard supports two upload approaches:
 
-1. **Step-by-Step** — Upload images, masks, and CSV labels in separate steps, then review.
+1. **Step-by-Step** — Upload images, masks, and patch CSV (patch_uuid, gt_label, centroid_x, centroid_y) in separate steps, then review.
 2. **CSV File List** — Upload a single CSV describing file locations on the server, then review.
 
 The wizard is triggered by the existing "Enter Upload Wizard" button in `ActionsFooter`. The modal displays a dynamic step indicator that updates based on the chosen approach. When the user reaches the review step, it calls the `/validate/` endpoint and displays the results directly.
@@ -145,7 +145,7 @@ patchsorter/client/src/
       StepApproachSelection.tsx    ← Step 0: radio buttons (step-by-step vs file list)
       StepUploadImages.tsx         ← Step 1: drag-drop or server path for images
       StepUploadMasks.tsx          ← Step 2: drag-drop or server path for masks
-      StepUploadCSVs.tsx           ← Step 3: drag-drop or server path for CSV labels
+      StepUploadPatchCsv.tsx           ← Step 3: drag-drop or server path for patch CSV
       StepUploadFileList.tsx       ← Step 4: CSV file list upload
       StepReview.tsx               ← Step 5: unified review table
       StepComplete.tsx             ← Step 6: upload complete screen
@@ -259,8 +259,8 @@ For the CSV approach, `nextStep()` from step 0 jumps directly to step 4 (skippin
 Step 0: two radio button options.
 
 **Options:**
-1. **Step-by-step** — "Upload images, masks, and labels individually"
-2. **File List** — "Upload a CSV with 3 columns: image filename, mask filename, csv filename (absolute paths on the server)"
+1. **Step-by-step** — "Upload images, masks, and patch CSV (patch_uuid, gt_label, centroid_x, centroid_y) individually"
+2. **File List** — "Upload a CSV with 3 columns: image filename, mask filename, patch_csv filename (absolute paths on the server)"
 
 **Props:**
 
@@ -308,8 +308,8 @@ Same structure as `StepUploadImages` but for GeoJSON annotation mask files.
 
 ### `StepUploadCSVs.tsx`
 
-Same as `StepUploadImages` but for CSV label files.
-- **Optional toggle**: "Upload CSVs" can be disabled entirely (hides the step)
+Same as `StepUploadImages` but for patch CSV files.
+- **Optional toggle**: "Upload Patch CSV" can be disabled entirely (hides the step)
 
 ### `StepUploadFileList.tsx`
 
@@ -509,7 +509,7 @@ const loadReviewData = async () => {
         response = await validateFoldersProjectsProjectIdUploadSessionValidateFoldersPost(projectId, session!, {
             image_folder: pathsByType.current['image'],
             mask_folder: pathsByType.current['mask'],
-            label_folder: pathsByType.current['csv'],
+            patch_csv_folder: pathsByType.current['patch_csv'],
         })
     } else {
         // Drag-and-drop mode: send filenames from uploaded files
@@ -591,9 +591,9 @@ files: [File, File, ...]
 
 Saves uploaded mask files into the actor's temp directory. Calls the Ray actor's `save_masks()` method. Same request/response as above.
 
-### 3. `POST /api/v1/projects/{project_id}/upload/{session}/labels/`
+### 3. `POST /api/v1/projects/{project_id}/upload/{session}/patch_csv/`
 
-Saves uploaded label files into the actor's temp directory. Calls the Ray actor's `save_labels()` method. Same request/response as above.
+Saves uploaded patch CSV files into the actor's temp directory. Calls the Ray actor's `save_patch_csvs()` method. Same request/response as above.
 
 ### 4a. `POST /api/v1/projects/{project_id}/upload/{session}/validate/paths/`
 
@@ -619,13 +619,13 @@ Validates paths from server-side folder inputs ("Load Folder" mode). Calls the R
 {
     "image_folder": "/server/path/to/images/",
     "mask_folder": "/server/path/to/masks/",
-    "label_folder": "/server/path/to/labels/"
+    "patch_csv_folder": "/server/path/to/patch_csv/"
 }
 ```
 
-### 4c. `POST /api/v1/projects/{project_id}/upload/{session}/validate/csv/`
+### 4c. `POST /api/v1/projects/{project_id}/upload/{session}/validate/patch_csv/`
 
-Validates a CSV file list (CSV approach). Accepts `multipart/form-data`. Calls the Ray actor's `validate_csv()` method. The CSV **must** include a header row `image,mask,csv`.
+Validates a patch CSV file list (CSV approach). Accepts `multipart/form-data`. Calls the Ray actor's `validate_patch_csv()` method. The CSV **must** include a header row `image,mask,patch_csv`.
 
 **Request:**
 ```
@@ -638,7 +638,7 @@ csv_file: File
 ```json
 {
     "paths": [
-        { "image": "/server/path/to/images/img1.tif", "mask": "/server/path/to/masks/mask1.geojson", "label": "", "status": "ok", "error": "" },
+        { "image": "/server/path/to/images/img1.tif", "mask": "/server/path/to/masks/mask1.geojson", "csv": "", "status": "ok", "error": "" },
         ...
     ],
     "errors": 0

@@ -16,13 +16,13 @@ class UploadFilesResponse(BaseModel):
 class ValidatePathsRequest(BaseModel):
     image_paths: List[str] = []
     mask_paths: List[str] = []
-    label_paths: List[str] = []
+    patch_csv_paths: List[str] = []
 
 
 class ValidateFoldersRequest(BaseModel):
     image_folder: str
     mask_folder: str = ""
-    label_folder: str = ""
+    patch_csv_folder: str = ""
 
 
 class ReviewRow(BaseModel):
