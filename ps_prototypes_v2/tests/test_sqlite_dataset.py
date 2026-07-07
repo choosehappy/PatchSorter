@@ -74,37 +74,37 @@ def test_gt_enriched_dataset_uses_bounded_pool(tmp_path):
     assert top_scores == [10.0, 9.0, 8.0]
 
 
-def test_gt_enriched_dataset_uses_label_tracker_rarity(tmp_path):
-    db_path = tmp_path / "patches_label.db"
+# def test_gt_enriched_dataset_uses_label_tracker_rarity(tmp_path):
+#     db_path = tmp_path / "patches_label.db"
 
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "CREATE TABLE mitosis_patches(id INTEGER PRIMARY KEY, patch BLOB, tmp_label INTEGER, score REAL)"
-        )
-        for idx in range(5):
-            patch = _serialize_patch(np.full((60, 60, 3), idx, dtype=np.uint8))
-            conn.execute(
-                "INSERT INTO mitosis_patches (patch, tmp_label, score) VALUES (?, ?, ?)",
-                (patch, idx % 2, float(5 - idx)),
-            )
-        conn.commit()
+#     with sqlite3.connect(db_path) as conn:
+#         conn.execute(
+#             "CREATE TABLE mitosis_patches(id INTEGER PRIMARY KEY, patch BLOB, tmp_label INTEGER, score REAL)"
+#         )
+#         for idx in range(5):
+#             patch = _serialize_patch(np.full((60, 60, 3), idx, dtype=np.uint8))
+#             conn.execute(
+#                 "INSERT INTO mitosis_patches (patch, tmp_label, score) VALUES (?, ?, ?)",
+#                 (patch, idx % 2, float(5 - idx)),
+#             )
+#         conn.commit()
 
-    tracker = LabeledRateTracker(nclasses=2)
-    tracker.update(torch.tensor([0, 0, 1], dtype=torch.int64))
+#     tracker = LabeledRateTracker(nclasses=2)
+#     tracker.update(torch.tensor([0, 0, 1], dtype=torch.int64))
 
-    dataset = GTEnrichedDataset(
-        str(db_path),
-        nviews=1,
-        transforms=None,
-        enrichment_rate=1.0,
-        pool_size=2,
-        label_tracker=tracker,
-    )
+#     dataset = GTEnrichedDataset(
+#         str(db_path),
+#         nviews=1,
+#         transforms=None,
+#         enrichment_rate=1.0,
+#         pool_size=2,
+#         label_tracker=tracker,
+#     )
 
-    rarity_map = dataset._get_rarity_map()
-    assert rarity_map is not None
-    assert set(rarity_map.keys()) == {0, 1}
-    assert rarity_map[1] > rarity_map[0]
+#     rarity_map = dataset._get_rarity_map()
+#     assert rarity_map is not None
+#     assert set(rarity_map.keys()) == {0, 1}
+#     assert rarity_map[1] > rarity_map[0]
 
 
 def test_score_writer_batches_and_flushes(tmp_path):

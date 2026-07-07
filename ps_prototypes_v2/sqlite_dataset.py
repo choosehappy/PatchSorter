@@ -100,7 +100,7 @@ class SQLiteDataset:
             row = cursor.fetchone()
 
         if row is None:
-            raise IndexError(index)
+            raise IndexError(index) #TODO: I think this needs to be beter handled - if this failes does the system come crashing down?
 
         img_blob, tmp_label = row
         img = self._deserialize_blob(img_blob)
@@ -160,9 +160,6 @@ class GTEnrichedDataset(SQLiteDataset):
             rows = cursor.fetchall()
 
             self._candidate_count = len(rows)
-            self._candidate_ids = np.empty(self.pool_size, dtype=np.int64)
-            self._candidate_labels = np.empty(self.pool_size, dtype=np.int64)
-            self._candidate_scores = np.empty(self.pool_size, dtype=np.float64)
 
             if rows:
                 row_ids, tmp_labels, scores = zip(*rows)
@@ -193,7 +190,6 @@ class GTEnrichedDataset(SQLiteDataset):
                 )
                 conn.commit()
 
-            self._candidate_weights = np.ones(self.pool_size, dtype=np.float64)
             if self._candidate_count > 0:
                 rarity_factors = self._get_rarity_factors()
                 weights = self._candidate_scores[: self._candidate_count] * rarity_factors
@@ -210,23 +206,23 @@ class GTEnrichedDataset(SQLiteDataset):
         """
         self._load_candidate_pool()
 
-    def _get_rarity_map(self) -> dict[int, float] | None:
-        tracker = getattr(self, "label_tracker", None)
-        if tracker is None:
-            return None
+    # def _get_rarity_map(self) -> dict[int, float] | None:
+    #     tracker = getattr(self, "label_tracker", None)
+    #     if tracker is None:
+    #         return None
 
-        weights = getattr(tracker, "class_weights", None)
-        if weights is None:
-            return None
+    #     weights = getattr(tracker, "class_weights", None)
+    #     if weights is None:
+    #         return None
 
-        freqs = weights.detach().cpu().numpy().astype(np.float64)
-        if freqs.size == 0 or freqs.sum() == 0:
-            return None
+    #     freqs = weights.detach().cpu().numpy().astype(np.float64)
+    #     if freqs.size == 0 or freqs.sum() == 0:
+    #         return None
 
-        freqs = np.maximum(freqs, 1e-8)
-        inv_freqs = 1.0 / freqs
-        inv_norm = inv_freqs / np.mean(inv_freqs)
-        return {int(i): float(inv_norm[i]) for i in range(inv_norm.shape[0])}
+    #     freqs = np.maximum(freqs, 1e-8)
+    #     inv_freqs = 1.0 / freqs
+    #     inv_norm = inv_freqs / np.mean(inv_freqs)
+    #     return {int(i): float(inv_norm[i]) for i in range(inv_norm.shape[0])}
 
     def _get_rarity_factors(self) -> np.ndarray:
         if self._candidate_count == 0:
@@ -313,10 +309,10 @@ class GTEnrichedDataset(SQLiteDataset):
                 )
                 conn.commit()
 
-    def __getitem__(self, index: int) -> tuple[list, int, np.ndarray, int]:
+    def __getitem__(self, index: int) -> tuple[np.ndarray, list, int, np.ndarray, int]:
         chosen_id, old_label, old_score, chosen_idx = self._choose_row()
-        *views, label, orig, idx = super().__getitem__(chosen_id - 1)
+        anchor,*views, label, orig, idx = super().__getitem__(chosen_id - 1)
         self._update_row_score(chosen_id, chosen_idx, old_label, old_score, label)
-        return views[0], label, orig, idx
+        return anchor,*views, label, orig, idx  
 
 
