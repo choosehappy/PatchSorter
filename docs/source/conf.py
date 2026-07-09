@@ -61,6 +61,5 @@ html_css_files = [
 ]
 
 autodoc_mock_imports = [
-    "torch", "ray", "numpy", "pandas", "pillow",
-    "sqlalchemy", "psycopg", "tensorboardx", "pyarrow"
+    "torch", "ray", "pandas", "pillow", "psycopg", "tensorboardx", "pyarrow"
 ]
