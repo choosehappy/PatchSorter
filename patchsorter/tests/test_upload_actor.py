@@ -1,362 +1,620 @@
-"""Tests for the UploadSessionActor core logic.
+"""Tests for _validate_mixed — the unified validation function.
 
-The actor's methods delegate to module-level functions that accept
-a ``tmpdir`` parameter. Tests call these functions directly with
-pytest's ``tmp_path`` fixture — no Ray runtime required.
+Covers folder mode, file-drop mode (session temp dir only), mixed mode
+(file-drop images + server mask/CSV), and edge cases.
 """
 
 import os
 import tempfile
-from unittest.mock import MagicMock
 
 import pytest
 
-from patchsorter.api.v1.upload.actor import (
-    _save_files,
-    _validate_folders,
-    _validate_paths,
-    _validate_image_csv,
-)
+from patchsorter.api.v1.upload.actor import _validate_mixed
 
 
 # ------------------------------------------------------------------
-# _save_files
+# Helpers
 # ------------------------------------------------------------------
 
 
-def test_save_files_creates_subdir_and_writes(tmp_path):
-    """_save_files() creates subdir and writes file contents."""
-    result = _save_files(str(tmp_path), "images", ["a.tif", "b.tif"], [b"1", b"2"])
-
-    assert "Uploaded 2 image(s)" == result
-    assert os.path.isfile(os.path.join(str(tmp_path), "images", "a.tif"))
-    assert os.path.isfile(os.path.join(str(tmp_path), "images", "b.tif"))
-    assert open(os.path.join(str(tmp_path), "images", "a.tif"), "rb").read() == b"1"
-
-
-def test_save_files_strips_paths(tmp_path):
-    """_save_files() strips directory paths from filenames."""
-    result = _save_files(str(tmp_path), "images", ["subdir/c.tif"], [b"3"])
-
-    assert os.path.isfile(os.path.join(str(tmp_path), "images", "c.tif"))
+def _create_session_dirs(tmp_path):
+    """Create session temp dir structure with images subdirectory."""
+    tmpdir = tmp_path / "session"
+    (tmpdir / "images").mkdir(parents=True)
+    (tmpdir / "masks").mkdir(parents=True)
+    (tmpdir / "patch_csvs").mkdir(parents=True)
+    return tmpdir
 
 
-def test_save_files_empty(tmp_path):
-    """_save_files([]) returns a zero count message."""
-    result = _save_files(str(tmp_path), "images", [], [])
-
-    assert "Uploaded 0 image(s)" == result
+def _write_image(tmpdir, name):
+    (tmpdir / "images" / name).write_text("")
 
 
-def test_save_masks(tmp_path):
-    """_save_files() with 'masks' subdir writes to masks."""
-    _save_files(str(tmp_path), "masks", ["m.geojson"], [b"m"])
-    assert os.path.isfile(os.path.join(str(tmp_path), "masks", "m.geojson"))
+def _write_mask(tmpdir, stem):
+    (tmpdir / "masks" / f"{stem}.geojson").write_text("")
 
 
-def test_save_patch_csvs(tmp_path):
-    """_save_files() with 'patch_csvs' subdir writes to patch_csvs."""
-    _save_files(str(tmp_path), "patch_csvs", ["l.csv"], [b"l"])
-    assert os.path.isfile(os.path.join(str(tmp_path), "patch_csvs", "l.csv"))
+def _write_csv(tmpdir, stem):
+    (tmpdir / "patch_csvs" / f"{stem}.csv").write_text("")
+
+
+def _write_server_file(folder, name):
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / name).write_text("")
 
 
 # ------------------------------------------------------------------
-# _validate_paths
+# Folder mode — only server folders, no uploaded files
 # ------------------------------------------------------------------
 
 
-def _make_files(tmp_path):
-    """Create image, mask, and patch_csv files in tmp_path subdirectories."""
-    for subdir in ("images", "masks", "patch_csvs"):
-        os.makedirs(os.path.join(str(tmp_path), subdir), exist_ok=True)
-    for name in ("img1.tif", "img2.tif"):
-        with open(os.path.join(str(tmp_path), "images", name), "w") as f:
-            f.write("")
-    with open(os.path.join(str(tmp_path), "masks", "img1.geojson"), "w") as f:
-        f.write("")
-    with open(os.path.join(str(tmp_path), "patch_csvs", "img1.csv"), "w") as f:
-        f.write("")
-    return tmp_path
+def test_folder_mode_all_labels(tmp_path):
+    """All images have matching mask and CSV."""
+    session = _create_session_dirs(tmp_path)
+    server_img = tmp_path / "server_imgs"
+    server_mask = tmp_path / "server_masks"
+    server_csv = tmp_path / "server_csvs"
 
+    for name in ("slide1.tif", "slide2.tif"):
+        _write_server_file(server_img, name)
 
-def test_validate_paths_all_exist(tmp_path):
-    """_validate_paths() returns ok when all files exist."""
-    _make_files(tmp_path)
-    result = _validate_paths(
-        str(tmp_path),
-        image_names=["img1.tif", "img2.tif"],
-        mask_names=["img1.geojson"],
-        patch_csv_names=["img1.csv"],
-    )
+    _write_server_file(server_mask, "slide1.geojson")
+    _write_server_file(server_mask, "slide2.geojson")
+    _write_server_file(server_csv, "slide1.csv")
+    _write_server_file(server_csv, "slide2.csv")
 
-    assert result["errors"] == 0
-    assert result["paths"][0]["status"] == "ok"
-    assert result["paths"][0]["image"] == os.path.join(str(tmp_path), "images", "img1.tif")
-
-
-def test_validate_paths_image_missing(tmp_path):
-    """_validate_paths() reports error when an image file does not exist."""
-    result = _validate_paths(
-        str(tmp_path),
-        image_names=["missing.tif"],
-        mask_names=[],
-        patch_csv_names=[],
-    )
-
-    assert result["errors"] == 1
-    assert "Image not found: missing.tif" in result["paths"][0]["error"]
-
-
-def test_validate_paths_mask_missing(tmp_path):
-    """_validate_paths() reports error when a mask file does not exist."""
-    _make_files(tmp_path)
-    result = _validate_paths(
-        str(tmp_path),
-        image_names=["img1.tif"],
-        mask_names=["missing.geojson"],
-        patch_csv_names=[],
-    )
-
-    assert result["errors"] == 1
-    assert "Mask not found: missing.geojson" in result["paths"][0]["error"]
-
-
-def test_validate_paths_patch_csv_missing(tmp_path):
-    """_validate_paths() reports error when a patch_csv file does not exist."""
-    _make_files(tmp_path)
-    result = _validate_paths(
-        str(tmp_path),
-        image_names=["img1.tif"],
-        mask_names=[],
-        patch_csv_names=["missing.csv"],
-    )
-
-    assert result["errors"] == 1
-    assert "Patch CSV not found: missing.csv" in result["paths"][0]["error"]
-
-
-def test_validate_paths_no_image_paths(tmp_path):
-    """_validate_paths() returns error when no image entries are provided."""
-    result = _validate_paths(
-        str(tmp_path),
-        image_names=[],
-        mask_names=["x.geojson"],
-        patch_csv_names=[],
-    )
-
-    assert result["errors"] == 1
-    assert "No image paths provided" in result["paths"][0]["error"]
-
-
-def test_validate_paths_unequal_lists_excess_images(tmp_path):
-    """_validate_paths() handles more images than masks — excess images get empty mask."""
-    _make_files(tmp_path)
-    result = _validate_paths(
-        str(tmp_path),
-        image_names=["img1.tif", "img2.tif"],
-        mask_names=["img1.geojson"],
-        patch_csv_names=[],
-    )
-
-    assert result["errors"] == 0
-    # second image should have empty mask
-    assert result["paths"][1]["mask"] == ""
-
-
-# ------------------------------------------------------------------
-# _validate_folders
-# ------------------------------------------------------------------
-
-
-def _make_folder_test_dirs(tmp_path):
-    """Create image/mask/patch_csv folders with matching files."""
-    for folder in ("images", "masks", "patch_csvs"):
-        d = tmp_path / folder
-        d.mkdir(exist_ok=True)
-        (d / "slide1.tif").write_text("")
-        (d / "slide2.tif").write_text("")
-    (tmp_path / "masks" / "slide1.geojson").write_text("")
-    (tmp_path / "patch_csvs" / "slide1.csv").write_text("")
-    return tmp_path
-
-
-def test_validate_folders_valid(tmp_path):
-    """_validate_folders() returns ok rows for all images in the folder."""
-    base = _make_folder_test_dirs(tmp_path)
-    result = _validate_folders(
-        str(base),
-        image_folder=str(base / "images"),
-        mask_folder=str(base / "masks"),
-        patch_csv_folder=str(base / "patch_csvs"),
+    result = _validate_mixed(
+        str(session),
+        image_folder=str(server_img),
+        mask_folder=str(server_mask),
+        patch_csv_folder=str(server_csv),
     )
 
     assert result["errors"] == 0
     assert len(result["paths"]) == 2
+    slide1 = next(r for r in result["paths"] if "slide1" in r["image"])
+    slide2 = next(r for r in result["paths"] if "slide2" in r["image"])
+    assert slide1["mask"] != ""
+    assert slide1["csv"] != ""
+    assert slide2["mask"] != ""
+    assert slide2["csv"] != ""
 
 
-def test_validate_folders_missing_image_folder(tmp_path):
-    """_validate_folders() returns error for a non-existent image folder."""
-    result = _validate_folders(str(tmp_path), image_folder="/nonexistent")
+def test_folder_mode_only_mask(tmp_path):
+    """Only mask folder provided — CSV rows should be empty."""
+    session = _create_session_dirs(tmp_path)
+    server_img = tmp_path / "server_imgs"
+    server_mask = tmp_path / "server_masks"
 
-    assert result["errors"] == 1
-    assert "Image folder not found" in result["paths"][0]["error"]
+    _write_server_file(server_img, "img1.tif")
+    _write_server_file(server_mask, "img1.geojson")
 
-
-def test_validate_folders_missing_mask_folder(tmp_path):
-    """_validate_folders() returns error for a non-existent mask folder."""
-    base = _make_folder_test_dirs(tmp_path)
-    result = _validate_folders(
-        str(base),
-        image_folder=str(base / "images"),
-        mask_folder="/nonexistent/masks",
-        patch_csv_folder=str(base / "patch_csvs"),
+    result = _validate_mixed(
+        str(session),
+        image_folder=str(server_img),
+        mask_folder=str(server_mask),
     )
-
-    assert result["errors"] == 1
-    assert "Mask folder not found" in result["paths"][0]["error"]
-
-
-def test_validate_folders_missing_patch_csv_folder(tmp_path):
-    """_validate_folders() returns error for a non-existent patch_csv folder."""
-    base = _make_folder_test_dirs(tmp_path)
-    result = _validate_folders(
-        str(base),
-        image_folder=str(base / "images"),
-        mask_folder=str(base / "masks"),
-        patch_csv_folder="/nonexistent/patch_csvs",
-    )
-
-    assert result["errors"] == 1
-    assert "Patch CSV folder not found" in result["paths"][0]["error"]
-
-
-def test_validate_folders_stem_matching(tmp_path):
-    """_validate_folders() matches masks/patch_csvs by image filename stem."""
-    base = _make_folder_test_dirs(tmp_path)
-    result = _validate_folders(
-        str(base),
-        image_folder=str(base / "images"),
-        mask_folder=str(base / "masks"),
-        patch_csv_folder=str(base / "patch_csvs"),
-    )
-
-    # slide1 should have mask and patch_csv; slide2 should not
-    slide1_row = next(r for r in result["paths"] if "slide1" in r["image"])
-    slide2_row = next(r for r in result["paths"] if "slide2" in r["image"])
-
-    assert slide1_row["mask"] != ""
-    assert slide1_row["csv"] != ""
-    assert slide2_row["mask"] == ""
-    assert slide2_row["csv"] == ""
-
-
-def test_validate_folders_empty_image_folder(tmp_path):
-    """_validate_folders() returns error when the image folder contains no images."""
-    img_dir = tmp_path / "empty_images"
-    img_dir.mkdir(exist_ok=True)
-    (img_dir / "readme.txt").write_text("")
-
-    result = _validate_folders(str(tmp_path), image_folder=str(img_dir))
-
-    assert result["errors"] == 1
-    assert "No image files found" in result["paths"][0]["error"]
-
-
-def test_validate_folders_only_mask_and_patch_csv_folders(tmp_path):
-    """_validate_folders() returns error when only mask/patch_csv folders are given."""
-    result = _validate_folders(
-        str(tmp_path),
-        image_folder="",
-        mask_folder=str(tmp_path),
-        patch_csv_folder=str(tmp_path),
-    )
-
-    assert result["errors"] == 1
-
-
-# ------------------------------------------------------------------
-# _validate_image_csv
-# ------------------------------------------------------------------
-
-
-def test_validate_image_csv_valid(tmp_path):
-    """_validate_image_csv() returns ok for CSV rows with existing server paths."""
-    # Create real files on disk that the CSV will reference
-    d = tmp_path / "server"
-    d.mkdir(exist_ok=True)
-    (d / "img1.tif").write_text("")
-    (d / "mask1.geojson").write_text("")
-    (d / "patch_csv1.csv").write_text("")
-
-    csv_content = "image,mask,patch_csv\n" f"{d}/img1.tif,{d}/mask1.geojson,{d}/patch_csv1.csv\n"
-
-    result = _validate_image_csv(csv_content.encode())
 
     assert result["errors"] == 0
     assert result["paths"][0]["status"] == "ok"
+    assert result["paths"][0]["mask"] != ""
+    assert result["paths"][0]["csv"] == ""
 
 
-def test_validate_image_csv_missing_paths(tmp_path):
-    """_validate_image_csv() reports errors for CSV rows with non-existent server paths."""
-    csv_content = "image,mask,patch_csv\n/nonexistent/img.tif,/nonexistent/mask.geojson,/nonexistent/patch_csv.csv\n"
+def test_folder_mode_only_csv(tmp_path):
+    """Only patch_csv folder provided — mask rows should be empty."""
+    session = _create_session_dirs(tmp_path)
+    server_img = tmp_path / "server_imgs"
+    server_csv = tmp_path / "server_csvs"
 
-    result = _validate_image_csv(csv_content.encode())
+    _write_server_file(server_img, "img1.tif")
+    _write_server_file(server_csv, "img1.csv")
+
+    result = _validate_mixed(
+        str(session),
+        image_folder=str(server_img),
+        patch_csv_folder=str(server_csv),
+    )
+
+    assert result["errors"] == 0
+    assert result["paths"][0]["status"] == "ok"
+    assert result["paths"][0]["mask"] == ""
+    assert result["paths"][0]["csv"] != ""
+
+
+def test_folder_mode_neither_label(tmp_path):
+    """No mask or CSV folders — all rows should error."""
+    session = _create_session_dirs(tmp_path)
+    server_img = tmp_path / "server_imgs"
+
+    _write_server_file(server_img, "img1.tif")
+
+    result = _validate_mixed(
+        str(session),
+        image_folder=str(server_img),
+    )
 
     assert result["errors"] == 1
-    assert result["paths"][0]["status"] == "error"
+    assert "No mask or patch CSV found" in result["paths"][0]["error"]
 
 
-def test_validate_image_csv_empty(tmp_path):
-    """_validate_image_csv() returns error when the CSV has no data rows."""
-    csv_content = "image,mask,patch_csv\n"
+def test_folder_mode_empty_image_folder(tmp_path):
+    """Empty image folder returns error."""
+    session = _create_session_dirs(tmp_path)
+    empty_img = tmp_path / "empty_imgs"
+    empty_img.mkdir()
 
-    result = _validate_image_csv(csv_content.encode())
-
-    assert result["errors"] == 1
-    assert "no data rows" in result["paths"][0]["error"]
-
-
-def test_validate_image_csv_partial_paths(tmp_path):
-    """_validate_image_csv() only checks paths that are non-empty."""
-    csv_content = "image,mask,patch_csv\n/nonexistent/img.tif,,\n"
-
-    result = _validate_image_csv(csv_content.encode())
+    result = _validate_mixed(
+        str(session),
+        image_folder=str(empty_img),
+    )
 
     assert result["errors"] == 1
-    # Only the image path is checked; empty mask/patch_csv are skipped
-    assert "Image not found" in result["paths"][0]["error"]
+    assert "No images found" in result["paths"][0]["error"]
 
 
-def test_validate_image_csv_bom_handling(tmp_path):
-    """_validate_image_csv() handles UTF-8 BOM in CSV header."""
-    csv_content = "\ufeffimage,mask,patch_csv\n/test/img.tif,,\n"
+def test_folder_mode_missing_image_folder(tmp_path):
+    """Non-existent image folder returns error."""
+    session = _create_session_dirs(tmp_path)
 
-    # Should not raise; BOM is stripped by utf-8-sig
-    result = _validate_image_csv(csv_content.encode())
+    result = _validate_mixed(
+        str(session),
+        image_folder="/nonexistent/path",
+    )
 
-    assert result["paths"][0]["image"] == "/test/img.tif"
+    assert result["errors"] == 1
+    assert "No images found" in result["paths"][0]["error"]
+
+
+def test_folder_mode_multiple_images_partial_labels(tmp_path):
+    """Multiple images with partial mask/CSV coverage."""
+    session = _create_session_dirs(tmp_path)
+    server_img = tmp_path / "server_imgs"
+    server_mask = tmp_path / "server_masks"
+    server_csv = tmp_path / "server_csvs"
+
+    for name in ("a.tif", "b.tif", "c.tif"):
+        _write_server_file(server_img, name)
+
+    _write_server_file(server_mask, "a.geojson")
+    _write_server_file(server_csv, "b.csv")
+
+    result = _validate_mixed(
+        str(session),
+        image_folder=str(server_img),
+        mask_folder=str(server_mask),
+        patch_csv_folder=str(server_csv),
+    )
+
+    assert result["errors"] == 1  # only c.tif has no labels
+    assert len(result["paths"]) == 3
+    a_row = next(r for r in result["paths"] if "a.tif" in r["image"])
+    b_row = next(r for r in result["paths"] if "b.tif" in r["image"])
+    c_row = next(r for r in result["paths"] if "c.tif" in r["image"])
+    assert a_row["mask"] != "" and a_row["csv"] == ""
+    assert b_row["mask"] == "" and b_row["csv"] != ""
+    assert c_row["mask"] == "" and c_row["csv"] == ""
+
+
+def test_folder_mode_stem_matching_case_insensitive(tmp_path):
+    """Mask/CSV matching is case-insensitive on extension."""
+    session = _create_session_dirs(tmp_path)
+    server_img = tmp_path / "server_imgs"
+    server_mask = tmp_path / "server_masks"
+
+    _write_server_file(server_img, "img1.TIF")  # uppercase extension
+    _write_server_file(server_mask, "img1.GEOJSON")  # uppercase extension
+
+    result = _validate_mixed(
+        str(session),
+        image_folder=str(server_img),
+        mask_folder=str(server_mask),
+    )
+
+    assert result["errors"] == 0
+    assert result["paths"][0]["status"] == "ok"
+    assert result["paths"][0]["mask"] != ""
 
 
 # ------------------------------------------------------------------
-# process (actor method) — stub; just tests the return shape
+# File-drop mode — only session temp dir, no server folders
 # ------------------------------------------------------------------
 
 
-def test_process_returns_task_id_and_status():
-    """process() returns a dict with task_id, status, and message."""
-    import uuid as _uuid
+def test_file_drop_all_labels(tmp_path):
+    """All labels uploaded to session temp dir."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+    _write_image(session, "img2.tif")
+    _write_mask(session, "img1")
+    _write_mask(session, "img2")
+    _write_csv(session, "img1")
+    _write_csv(session, "img2")
 
-    # process() is a method on the actor class; we test the logic directly
-    # by importing the function that implements it
-    from patchsorter.api.v1.upload.actor import UploadSessionActor
+    result = _validate_mixed(str(session))
 
-    # The process method returns a dict with these keys
-    # We can't call it without Ray, so test the shape via the source
-    import inspect
-    source = inspect.getsource(UploadSessionActor.process)
+    assert result["errors"] == 0
+    assert len(result["paths"]) == 2
+    img1 = next(r for r in result["paths"] if "img1" in r["image"])
+    img2 = next(r for r in result["paths"] if "img2" in r["image"])
+    assert img1["mask"] != ""
+    assert img1["csv"] != ""
+    assert img2["mask"] != ""
+    assert img2["csv"] != ""
 
-    assert "task_id" in source
-    assert "status" in source
-    assert "message" in source
-    assert "pending" in source
 
+def test_file_drop_only_mask(tmp_path):
+    """Only mask uploaded — CSV rows should be empty."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+    _write_mask(session, "img1")
+
+    result = _validate_mixed(str(session))
+
+    assert result["errors"] == 0
+    assert result["paths"][0]["status"] == "ok"
+    assert result["paths"][0]["mask"] != ""
+    assert result["paths"][0]["csv"] == ""
+
+
+def test_file_drop_only_csv(tmp_path):
+    """Only patch CSV uploaded — mask rows should be empty."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+    _write_csv(session, "img1")
+
+    result = _validate_mixed(str(session))
+
+    assert result["errors"] == 0
+    assert result["paths"][0]["status"] == "ok"
+    assert result["paths"][0]["mask"] == ""
+    assert result["paths"][0]["csv"] != ""
+
+
+def test_file_drop_neither_label(tmp_path):
+    """No labels uploaded — all rows should error."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+
+    result = _validate_mixed(str(session))
+
+    assert result["errors"] == 1
+    assert "No mask or patch CSV found" in result["paths"][0]["error"]
+
+
+def test_file_drop_no_images(tmp_path):
+    """No images in session temp dir — returns error."""
+    session = _create_session_dirs(tmp_path)
+    _write_mask(session, "img1")
+    _write_csv(session, "img1")
+
+    result = _validate_mixed(str(session))
+
+    assert result["errors"] == 1
+    assert "No images found" in result["paths"][0]["error"]
+
+
+def test_file_drop_unequal_lists(tmp_path):
+    """Uploaded more masks than images — extra masks are ignored."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+    _write_image(session, "img2.tif")
+    _write_mask(session, "img1")
+    _write_mask(session, "img3")  # no matching image
+
+    result = _validate_mixed(str(session))
+
+    assert result["errors"] == 1  # img2 has no labels
+    assert len(result["paths"]) == 2  # only 2 images
+
+
+# ------------------------------------------------------------------
+# Mixed mode — file-drop images + server mask/CSV
+# ------------------------------------------------------------------
+
+
+def test_mixed_file_drop_images_server_mask(tmp_path):
+    """Images uploaded, mask on server — both should be matched."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+    _write_image(session, "img2.tif")
+
+    server_mask = tmp_path / "server_masks"
+    _write_server_file(server_mask, "img1.geojson")
+
+    result = _validate_mixed(
+        str(session),
+        mask_folder=str(server_mask),
+    )
+
+    assert result["errors"] == 1  # img2 has no labels
+    img1 = next(r for r in result["paths"] if "img1" in r["image"])
+    img2 = next(r for r in result["paths"] if "img2" in r["image"])
+    assert img1["mask"] != ""
+    assert img2["mask"] == ""
+
+
+def test_mixed_file_drop_images_server_csv(tmp_path):
+    """Images uploaded, CSV on server — both should be matched."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+    _write_image(session, "img2.tif")
+
+    server_csv = tmp_path / "server_csvs"
+    _write_server_file(server_csv, "img2.csv")
+
+    result = _validate_mixed(
+        str(session),
+        patch_csv_folder=str(server_csv),
+    )
+
+    assert result["errors"] == 1  # img1 has no labels
+    img1 = next(r for r in result["paths"] if "img1" in r["image"])
+    img2 = next(r for r in result["paths"] if "img2" in r["image"])
+    assert img1["csv"] == ""
+    assert img2["csv"] != ""
+
+
+def test_mixed_file_drop_images_both_server_labels(tmp_path):
+    """Images uploaded, mask+CSV on server — all matched."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+    _write_image(session, "img2.tif")
+
+    server_mask = tmp_path / "server_masks"
+    server_csv = tmp_path / "server_csvs"
+    _write_server_file(server_mask, "img1.geojson")
+    _write_server_file(server_csv, "img2.csv")
+
+    result = _validate_mixed(
+        str(session),
+        mask_folder=str(server_mask),
+        patch_csv_folder=str(server_csv),
+    )
+
+    assert result["errors"] == 0
+    img1 = next(r for r in result["paths"] if "img1" in r["image"])
+    img2 = next(r for r in result["paths"] if "img2" in r["image"])
+    assert img1["mask"] != "" and img1["csv"] == ""
+    assert img2["mask"] == "" and img2["csv"] != ""
+
+
+def test_mixed_server_images_file_drop_masks(tmp_path):
+    """Images on server, masks uploaded — both should be matched."""
+    session = _create_session_dirs(tmp_path)
+    server_img = tmp_path / "server_imgs"
+    _write_server_file(server_img, "img1.tif")
+    _write_server_file(server_img, "img2.tif")
+
+    _write_mask(session, "img1")
+    _write_mask(session, "img2")
+
+    result = _validate_mixed(
+        str(session),
+        image_folder=str(server_img),
+    )
+
+    assert result["errors"] == 0
+    img1 = next(r for r in result["paths"] if "img1" in r["image"])
+    img2 = next(r for r in result["paths"] if "img2" in r["image"])
+    assert img1["mask"] != ""
+    assert img2["mask"] != ""
+
+
+def test_mixed_partial_server_match(tmp_path):
+    """Some images have server labels, others have uploaded labels."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+    _write_image(session, "img2.tif")
+
+    server_mask = tmp_path / "server_masks"
+    server_csv = tmp_path / "server_csvs"
+    _write_server_file(server_mask, "img1.geojson")
+    _write_server_file(server_csv, "img2.csv")
+
+    result = _validate_mixed(
+        str(session),
+        mask_folder=str(server_mask),
+        patch_csv_folder=str(server_csv),
+    )
+
+    assert result["errors"] == 0
+    img1 = next(r for r in result["paths"] if "img1" in r["image"])
+    img2 = next(r for r in result["paths"] if "img2" in r["image"])
+    assert img1["mask"] != "" and img1["csv"] == ""
+    assert img2["mask"] == "" and img2["csv"] != ""
+
+
+# ------------------------------------------------------------------
+# Edge cases
+# ------------------------------------------------------------------
+
+
+def test_empty_all_inputs(tmp_path):
+    """No images, no folders — returns error."""
+    session = _create_session_dirs(tmp_path)
+
+    result = _validate_mixed(str(session))
+
+    assert result["errors"] == 1
+    assert "No images found" in result["paths"][0]["error"]
+
+
+def test_whitespace_filenames(tmp_path):
+    """Whitespace in filenames is preserved (not stripped)."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "  img1  .tif")
+    _write_mask(session, "  img1  ")
+
+    result = _validate_mixed(str(session))
+
+    assert result["errors"] == 0
+    assert result["paths"][0]["status"] == "ok"
+    assert result["paths"][0]["mask"] != ""
+
+
+def test_duplicate_stems_server_overwrites(tmp_path):
+    """When same stem exists in both server and temp dir, server path wins."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+    _write_mask(session, "img1")
+
+    server_img = tmp_path / "server_imgs"
+    _write_server_file(server_img, "img1.tif")
+    _write_server_file(server_img / "..", "img1.geojson")  # dummy to make path work
+
+    server_mask = tmp_path / "server_masks"
+    _write_server_file(server_mask, "img1.geojson")
+
+    result = _validate_mixed(
+        str(session),
+        image_folder=str(server_img),
+        mask_folder=str(server_mask),
+    )
+
+    assert result["errors"] == 0
+    img1 = result["paths"][0]
+    assert "server_imgs" in img1["image"]
+    assert "server_masks" in img1["mask"]
+
+
+def test_no_mask_no_csv_folder(tmp_path):
+    """Both mask and CSV folders missing but both have uploaded labels."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+    _write_mask(session, "img1")
+    _write_csv(session, "img1")
+
+    result = _validate_mixed(str(session))
+
+    assert result["errors"] == 0
+    assert result["paths"][0]["mask"] != ""
+    assert result["paths"][0]["csv"] != ""
+
+
+def test_only_mask_folder_no_csv_folder(tmp_path):
+    """Only mask folder provided, no CSV folder — mask found, csv empty."""
+    session = _create_session_dirs(tmp_path)
+    server_img = tmp_path / "server_imgs"
+    server_mask = tmp_path / "server_masks"
+
+    _write_server_file(server_img, "img1.tif")
+    _write_server_file(server_mask, "img1.geojson")
+
+    result = _validate_mixed(
+        str(session),
+        image_folder=str(server_img),
+        mask_folder=str(server_mask),
+    )
+
+    assert result["errors"] == 0
+    assert result["paths"][0]["mask"] != ""
+    assert result["paths"][0]["csv"] == ""
+
+
+def test_only_csv_folder_no_mask_folder(tmp_path):
+    """Only CSV folder provided, no mask folder — CSV found, mask empty."""
+    session = _create_session_dirs(tmp_path)
+    server_img = tmp_path / "server_imgs"
+    server_csv = tmp_path / "server_csvs"
+
+    _write_server_file(server_img, "img1.tif")
+    _write_server_file(server_csv, "img1.csv")
+
+    result = _validate_mixed(
+        str(session),
+        image_folder=str(server_img),
+        patch_csv_folder=str(server_csv),
+    )
+
+    assert result["errors"] == 0
+    assert result["paths"][0]["mask"] == ""
+    assert result["paths"][0]["csv"] != ""
+
+
+def test_both_folders_empty(tmp_path):
+    """Both folders exist but are empty — no images found."""
+    session = _create_session_dirs(tmp_path)
+    empty_img = tmp_path / "empty_img"
+    empty_mask = tmp_path / "empty_mask"
+    empty_csv = tmp_path / "empty_csv"
+    empty_img.mkdir()
+    empty_mask.mkdir()
+    empty_csv.mkdir()
+
+    result = _validate_mixed(
+        str(session),
+        image_folder=str(empty_img),
+        mask_folder=str(empty_mask),
+        patch_csv_folder=str(empty_csv),
+    )
+
+    assert result["errors"] == 1
+    assert "No images found" in result["paths"][0]["error"]
+
+
+def test_mixed_both_sources_same_stem(tmp_path):
+    """Same stem in both temp dir and server — server path should win for that type."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+    _write_mask(session, "img1")
+
+    server_img = tmp_path / "server_imgs"
+    server_mask = tmp_path / "server_masks"
+    _write_server_file(server_img, "img1.tif")
+    _write_server_file(server_mask, "img1.geojson")
+
+    result = _validate_mixed(
+        str(session),
+        image_folder=str(server_img),
+        mask_folder=str(server_mask),
+    )
+
+    assert result["errors"] == 0
+    img1 = result["paths"][0]
+    assert "server_imgs" in img1["image"]
+    assert "server_masks" in img1["mask"]
+
+
+def test_nonexistent_mask_folder_ignored(tmp_path):
+    """Non-existent mask folder is silently ignored (not an error)."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+    _write_mask(session, "img1")
+
+    result = _validate_mixed(
+        str(session),
+        mask_folder="/nonexistent/mask/folder",
+    )
+
+    assert result["errors"] == 0
+    assert result["paths"][0]["mask"] != ""
+
+
+def test_nonexistent_csv_folder_ignored(tmp_path):
+    """Non-existent CSV folder is silently ignored (not an error)."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+    _write_csv(session, "img1")
+
+    result = _validate_mixed(
+        str(session),
+        patch_csv_folder="/nonexistent/csv/folder",
+    )
+
+    assert result["errors"] == 0
+    assert result["paths"][0]["csv"] != ""
+
+
+def test_many_images_sorted(tmp_path):
+    """Many images should be sorted alphabetically by stem."""
+    session = _create_session_dirs(tmp_path)
+    for name in ["z.tif", "a.tif", "m.tif"]:
+        _write_image(session, name)
+
+    result = _validate_mixed(str(session))
+
+    assert result["errors"] == 3  # no labels for any image
+    assert len(result["paths"]) == 3
+    stems = [r["image"].split("/")[-1].replace(".tif", "") for r in result["paths"]]
+    assert stems == sorted(stems)

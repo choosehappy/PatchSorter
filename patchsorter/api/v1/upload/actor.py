@@ -28,141 +28,98 @@ def _save_files(tmpdir: str, subdir: str, filenames: List[str], contents: List[b
     return f"Uploaded {len(filenames)} {subdir.rstrip('s')}(s)"
 
 
-def _validate_paths(tmpdir: str, image_names: List[str], mask_names: List[str], patch_csv_names: List[str]) -> dict:
-    """Validate uploaded filenames against the session temp directory."""
-    images_dir = os.path.join(tmpdir, "images")
-    masks_dir = os.path.join(tmpdir, "masks")
-    patch_csvs_dir = os.path.join(tmpdir, "patch_csvs")
-
-    rows: list[dict] = []
-    for i, img_name in enumerate(image_names):
-        mask_name = mask_names[i] if i < len(mask_names) else ""
-        patch_csv_name = patch_csv_names[i] if i < len(patch_csv_names) else ""
-
-        img_path = os.path.join(images_dir, img_name)
-        mask_path = os.path.join(masks_dir, mask_name) if mask_name else ""
-        patch_csv_path = os.path.join(patch_csvs_dir, patch_csv_name) if patch_csv_name else ""
-
-        errors: list[str] = []
-        if not os.path.exists(img_path):
-            errors.append(f"Image not found: {img_name}")
-        if mask_name and not os.path.exists(mask_path):
-            errors.append(f"Mask not found: {mask_name}")
-        if patch_csv_name and not os.path.exists(patch_csv_path):
-            errors.append(f"Patch CSV not found: {patch_csv_name}")
-
-        rows.append(
-            dict(
-                image=img_path,
-                mask=mask_path,
-                csv=patch_csv_path,
-                status="error" if errors else "ok",
-                error="; ".join(errors),
-            )
-        )
-
-    if not rows:
-        rows.append(
-            dict(image="", mask="", csv="", status="error", error="No image paths provided")
-        )
-
-    return {"paths": rows, "errors": sum(1 for r in rows if r["status"] == "error")}
-
-
-def _validate_folders(
+def _validate_mixed(
     tmpdir: str,
-    image_folder: str,
+    image_folder: str = "",
     mask_folder: str = "",
     patch_csv_folder: str = "",
 ) -> dict:
-    """Enumerate server-side image folder and match masks/patch_csvs by filename stem."""
-    img_dir = Path(image_folder) if image_folder else None
-    mask_dir = Path(mask_folder) if mask_folder else None
-    patch_csv_dir = Path(patch_csv_folder) if patch_csv_folder else None
+    """Glob all available files from the session temp dir and optional server folders, then match masks/patch_csvs by image filename stem.
 
-    if img_dir is None or not img_dir.is_dir():
+    A row is valid if at least one of mask or CSV is found for the image.
+    """
+    images_dir = Path(tmpdir) / "images"
+    masks_dir = Path(tmpdir) / "masks"
+    patch_csvs_dir = Path(tmpdir) / "patch_csvs"
+
+    # Gather image stems from all sources
+    image_stems: dict[str, Path] = {}  # stem -> image filepath
+
+    # From session temp dir (file-drop mode)
+    if images_dir.is_dir():
+        for f in images_dir.iterdir():
+            if f.suffix.lower() in _IMAGE_EXTS:
+                image_stems[f.stem] = f
+
+    # From server-side image folder (folder mode)
+    if image_folder:
+        img_dir = Path(image_folder)
+        if img_dir.is_dir():
+            for f in img_dir.iterdir():
+                if f.suffix.lower() in _IMAGE_EXTS:
+                    image_stems[f.stem] = f
+
+    if not image_stems:
         return {
             "paths": [
-                dict(
-                    image="",
-                    mask="",
-                    csv="",
-                    status="error",
-                    error=f"Image folder not found or not a directory: {image_folder}",
-                )
+                dict(image="", mask="", csv="", status="error",
+                     error="No images found in session temp dir or image_folder"),
             ],
             "errors": 1,
         }
 
-    if mask_dir and not mask_dir.is_dir():
-        return {
-            "paths": [
-                dict(
-                    image="",
-                    mask="",
-                    csv="",
-                    status="error",
-                    error=f"Mask folder not found or not a directory: {mask_folder}",
-                )
-            ],
-            "errors": 1,
-        }
+    # Gather masks from all sources
+    mask_by_stem: dict[str, Path] = {}
+    if masks_dir.is_dir():
+        for f in masks_dir.iterdir():
+            if f.suffix.lower() == ".geojson":
+                mask_by_stem[f.stem] = f
+    if mask_folder:
+        mf = Path(mask_folder)
+        if mf.is_dir():
+            for f in mf.iterdir():
+                if f.suffix.lower() == ".geojson":
+                    mask_by_stem[f.stem] = f
 
-    if patch_csv_dir and not patch_csv_dir.is_dir():
-        return {
-            "paths": [
-                dict(
-                    image="",
-                    mask="",
-                    csv="",
-                    status="error",
-                    error=f"Patch CSV folder not found or not a directory: {patch_csv_folder}",
-                )
-            ],
-            "errors": 1,
-        }
-
-    # upper case extensions are allowed
-    image_files = sorted(
-        f for f in img_dir.iterdir() if f.suffix.lower() in _IMAGE_EXTS
-    )
+    # Gather patch_csvs from all sources
+    csv_by_stem: dict[str, Path] = {}
+    if patch_csvs_dir.is_dir():
+        for f in patch_csvs_dir.iterdir():
+            if f.suffix.lower() == ".csv":
+                csv_by_stem[f.stem] = f
+    if patch_csv_folder:
+        pf = Path(patch_csv_folder)
+        if pf.is_dir():
+            for f in pf.iterdir():
+                if f.suffix.lower() == ".csv":
+                    csv_by_stem[f.stem] = f
 
     rows: list[dict] = []
-    for img_file in image_files:
-        stem = img_file.stem
-        mask_path = ""
-        patch_csv_path = ""
+    for stem in sorted(image_stems.keys()):
+        img_path = image_stems[stem]
+        mask_path = str(mask_by_stem[stem]) if stem in mask_by_stem else ""
+        csv_path = str(csv_by_stem[stem]) if stem in csv_by_stem else ""
 
-        if mask_dir and mask_dir.is_dir():
-            candidate = mask_dir / f"{stem}.geojson"
-            if candidate.exists():
-                mask_path = str(candidate)
-
-        if patch_csv_dir and patch_csv_dir.is_dir():
-            candidate = patch_csv_dir / f"{stem}.csv"
-            if candidate.exists():
-                patch_csv_path = str(candidate)
-
-        rows.append(
-            dict(
-                image=str(img_file),
-                mask=mask_path,
-                csv=patch_csv_path,
-                status="ok",
-                error="",
+        if not mask_path and not csv_path:
+            rows.append(
+                dict(
+                    image=str(img_path),
+                    mask=mask_path,
+                    csv=csv_path,
+                    status="error",
+                    error=f"No mask or patch CSV found for {img_path.name}",
+                )
             )
-        )
-
-    if not rows:
-        rows.append(
-            dict(
-                image="",
-                mask="",
-                csv="",
-                status="error",
-                error=f"No image files found in: {image_folder}",
+        else:
+            rows.append(
+                dict(
+                    image=str(img_path),
+                    mask=mask_path,
+                    csv=csv_path,
+                    status="ok",
+                    error="",
+                )
             )
-        )
 
     return {"paths": rows, "errors": sum(1 for r in rows if r["status"] == "error")}
 
@@ -227,9 +184,6 @@ class UploadSessionActor:
         except Exception:
             pass
 
-    def __ray_terminate__(self) -> None:
-        """Gracefully shut down the actor."""
-        exit_actor()
 
     # ------------------------------------------------------------------
     # File storage
@@ -248,16 +202,16 @@ class UploadSessionActor:
     # Validation
     # ------------------------------------------------------------------
 
-    def validate_paths(self, image_names: List[str], mask_names: List[str], patch_csv_names: List[str]) -> dict:
-        return _validate_paths(self._tmpdir.name, image_names, mask_names, patch_csv_names)
-
-    def validate_folders(
+    def validate_mixed(
         self,
-        image_folder: str,
+        image_folder: str = "",
         mask_folder: str = "",
         patch_csv_folder: str = "",
     ) -> dict:
-        return _validate_folders(self._tmpdir.name, image_folder, mask_folder, patch_csv_folder)
+        return _validate_mixed(
+            self._tmpdir.name,
+            image_folder, mask_folder, patch_csv_folder,
+        )
 
     def validate_image_csv(self, csv_content: bytes) -> dict:
         return _validate_image_csv(csv_content)

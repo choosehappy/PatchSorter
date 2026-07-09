@@ -13,8 +13,7 @@ from .models import (
     ProcessResponse,
     ReviewRow,
     UploadFilesResponse,
-    ValidateFoldersRequest,
-    ValidatePathsRequest,
+    ValidateRequest,
     ValidateResponse,
 )
 
@@ -115,39 +114,18 @@ def upload_patch_csv(
 
 
 @router.post(
-    "/projects/{project_id}/upload/{session_id}/validate/paths/",
+    "/projects/{project_id}/upload/{session_id}/validate/",
     response_model=ValidateResponse,
-    operation_id="validate_upload_paths",
+    operation_id="validate_upload",
 )
-def validate_upload_paths(
+def validate_upload(
     project_id: int,
     session_id: str,
-    request: ValidatePathsRequest,
+    request: ValidateRequest,
 ) -> ValidateResponse:
     actor = _get_actor(session_id)
     result: dict = ray.get(
-        actor.validate_paths.remote(
-            request.image_paths,
-            request.mask_paths,
-            request.patch_csv_paths,
-        )
-    )
-    return ValidateResponse(**result)
-
-
-@router.post(
-    "/projects/{project_id}/upload/{session_id}/validate/folders/",
-    response_model=ValidateResponse,
-    operation_id="validate_upload_folders",
-)
-def validate_upload_folders(
-    project_id: int,
-    session_id: str,
-    request: ValidateFoldersRequest,
-) -> ValidateResponse:
-    actor = _get_actor(session_id)
-    result: dict = ray.get(
-        actor.validate_folders.remote(
+        actor.validate_mixed.remote(
             request.image_folder,
             request.mask_folder,
             request.patch_csv_folder,

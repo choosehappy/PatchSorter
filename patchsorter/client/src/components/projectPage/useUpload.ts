@@ -65,6 +65,8 @@ export interface UseUploadReturn {
     session: string | null
     includeMasks: boolean
     includePatchCsv: boolean
+    disabledMask: boolean
+    disabledPatchCsv: boolean
     isFolderByType: Record<UploadType, boolean>
     pathsByType: Record<UploadType, string>
     uploadedFileCounts: Record<UploadType, number>
@@ -100,8 +102,10 @@ export function useUpload(projectId: number): UseUploadReturn {
     const [approach, setApproachState] = useState<Approach | null>(null)
     const [currentStep, setCurrentStep] = useState(Step.ApproachSelection)
     const [session, setSession] = useState<string | null>(null)
-    const [includeMasks, setIncludeMasks] = useState(true)
-    const [includePatchCsv, setIncludePatchCsv] = useState(true)
+    const [includeMasks, setIncludeMasksState] = useState(true)
+    const [includePatchCsv, setIncludePatchCsvState] = useState(true)
+    const [disabledMask, setDisabledMaskState] = useState(false)
+    const [disabledPatchCsv, setDisabledPatchCsvState] = useState(false)
     const [isFolderByType, setIsFolderByType] = useState<Record<UploadType, boolean>>({
         image: false,
         mask: false,
@@ -194,6 +198,32 @@ export function useUpload(projectId: number): UseUploadReturn {
 
     // ----- File/path actions --------------------------------------------------
 
+    const setIncludeMasks = useCallback((v: boolean) => {
+        setIncludeMasksState(v)
+        if (!v) {
+            setDisabledMaskState(false)
+            setDisabledPatchCsvState(true)
+        } else {
+            setDisabledMaskState(false)
+            if (includePatchCsvRef.current) {
+                setDisabledPatchCsvState(false)
+            }
+        }
+    }, [])
+
+    const setIncludePatchCsv = useCallback((v: boolean) => {
+        setIncludePatchCsvState(v)
+        if (!v) {
+            setDisabledPatchCsvState(false)
+            setDisabledMaskState(true)
+        } else {
+            setDisabledPatchCsvState(false)
+            if (includeMasksRef.current) {
+                setDisabledMaskState(false)
+            }
+        }
+    }, [])
+
     const setIsFolderForType = useCallback((type: UploadType, value: boolean) => {
         setIsFolderByType(prev => ({ ...prev, [type]: value }))
     }, [])
@@ -228,8 +258,10 @@ export function useUpload(projectId: number): UseUploadReturn {
         setApproachState(null)
         setCurrentStep(Step.ApproachSelection)
         setSession(null)
-        setIncludeMasks(true)
-        setIncludePatchCsv(true)
+        setIncludeMasksState(true)
+        setIncludePatchCsvState(true)
+        setDisabledMaskState(false)
+        setDisabledPatchCsvState(false)
         setIsFolderByType({ image: false, mask: false, patch_csv: false })
         setPathsByType({ image: '', mask: '', patch_csv: '' })
         setUploadedFileCounts({ image: 0, mask: 0, patch_csv: 0 })
@@ -246,6 +278,8 @@ export function useUpload(projectId: number): UseUploadReturn {
         session,
         includeMasks,
         includePatchCsv,
+        disabledMask,
+        disabledPatchCsv,
         isFolderByType,
         pathsByType,
         uploadedFileCounts,

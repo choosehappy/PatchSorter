@@ -255,7 +255,7 @@ export type ProcessRequest = {
     /**
      * Paths
      */
-    paths: Array<ReviewRow>;
+    paths: Array<ProcessRow>;
 };
 
 /**
@@ -274,6 +274,24 @@ export type ProcessResponse = {
      * Message
      */
     message: string;
+};
+
+/**
+ * ProcessRow
+ */
+export type ProcessRow = {
+    /**
+     * Image
+     */
+    image: string;
+    /**
+     * Mask
+     */
+    mask: string;
+    /**
+     * Csv
+     */
+    csv: string;
 };
 
 /**
@@ -416,13 +434,15 @@ export type UploadFilesResponse = {
 };
 
 /**
- * ValidateFoldersRequest
+ * ValidateRequest
+ *
+ * Unified validation request — all sources are globbed from the session temp dir.
  */
-export type ValidateFoldersRequest = {
+export type ValidateRequest = {
     /**
      * Image Folder
      */
-    image_folder: string;
+    image_folder?: string;
     /**
      * Mask Folder
      */
@@ -431,24 +451,6 @@ export type ValidateFoldersRequest = {
      * Patch Csv Folder
      */
     patch_csv_folder?: string;
-};
-
-/**
- * ValidatePathsRequest
- */
-export type ValidatePathsRequest = {
-    /**
-     * Image Paths
-     */
-    image_paths?: Array<string>;
-    /**
-     * Mask Paths
-     */
-    mask_paths?: Array<string>;
-    /**
-     * Patch Csv Paths
-     */
-    patch_csv_paths?: Array<string>;
 };
 
 /**
@@ -1476,8 +1478,8 @@ export type UploadPatchCsvResponses = {
 
 export type UploadPatchCsvResponse = UploadPatchCsvResponses[keyof UploadPatchCsvResponses];
 
-export type ValidateUploadPathsData = {
-    body: ValidatePathsRequest;
+export type ValidateUploadData = {
+    body: ValidateRequest;
     path: {
         /**
          * Project Id
@@ -1489,60 +1491,26 @@ export type ValidateUploadPathsData = {
         session_id: string;
     };
     query?: never;
-    url: '/projects/{project_id}/upload/{session_id}/validate/paths/';
+    url: '/projects/{project_id}/upload/{session_id}/validate/';
 };
 
-export type ValidateUploadPathsErrors = {
+export type ValidateUploadErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type ValidateUploadPathsError = ValidateUploadPathsErrors[keyof ValidateUploadPathsErrors];
+export type ValidateUploadError = ValidateUploadErrors[keyof ValidateUploadErrors];
 
-export type ValidateUploadPathsResponses = {
+export type ValidateUploadResponses = {
     /**
      * Successful Response
      */
     200: ValidateResponse;
 };
 
-export type ValidateUploadPathsResponse = ValidateUploadPathsResponses[keyof ValidateUploadPathsResponses];
-
-export type ValidateUploadFoldersData = {
-    body: ValidateFoldersRequest;
-    path: {
-        /**
-         * Project Id
-         */
-        project_id: number;
-        /**
-         * Session Id
-         */
-        session_id: string;
-    };
-    query?: never;
-    url: '/projects/{project_id}/upload/{session_id}/validate/folders/';
-};
-
-export type ValidateUploadFoldersErrors = {
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type ValidateUploadFoldersError = ValidateUploadFoldersErrors[keyof ValidateUploadFoldersErrors];
-
-export type ValidateUploadFoldersResponses = {
-    /**
-     * Successful Response
-     */
-    200: ValidateResponse;
-};
-
-export type ValidateUploadFoldersResponse = ValidateUploadFoldersResponses[keyof ValidateUploadFoldersResponses];
+export type ValidateUploadResponse = ValidateUploadResponses[keyof ValidateUploadResponses];
 
 export type ValidateUploadImageCsvData = {
     body: BodyValidateUploadImageCsv;

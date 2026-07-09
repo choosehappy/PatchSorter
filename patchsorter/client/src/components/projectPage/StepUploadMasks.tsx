@@ -10,6 +10,7 @@ interface StepUploadMasksProps {
     onServerPathChange: (path: string) => void
     includeMasks: boolean
     onToggleInclude: (include: boolean) => void
+    disabled: boolean
 }
 
 export default function StepUploadMasks({
@@ -21,6 +22,7 @@ export default function StepUploadMasks({
     onServerPathChange,
     includeMasks,
     onToggleInclude,
+    disabled,
 }: StepUploadMasksProps) {
     const [dragOver, setDragOver] = useState(false)
 
@@ -45,6 +47,7 @@ export default function StepUploadMasks({
                 label="Include masks"
                 checked={includeMasks}
                 onChange={e => onToggleInclude(e.target.checked)}
+                disabled={disabled}
                 className="mb-3"
             />
 

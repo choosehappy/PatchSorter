@@ -97,7 +97,7 @@ export default function StepReview({ reviewData, isLoading, approach: _approach 
         <div>
             {errorCount > 0 && (
                 <div className="alert alert-warning py-2 mb-2" style={{ fontSize: '0.875rem' }}>
-                    {errorCount} row{errorCount !== 1 ? 's have' : ' has'} errors. Fix the issues before processing.
+                    {errorCount} row{errorCount !== 1 ? 's have' : ' has'} errors. Consider fixing the issues before processing.
                 </div>
             )}
             {reviewData.length === 0 && (

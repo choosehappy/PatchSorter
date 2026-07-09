@@ -13,14 +13,9 @@ class UploadFilesResponse(BaseModel):
     message: str
 
 
-class ValidatePathsRequest(BaseModel):
-    image_paths: List[str] = []
-    mask_paths: List[str] = []
-    patch_csv_paths: List[str] = []
-
-
-class ValidateFoldersRequest(BaseModel):
-    image_folder: str
+class ValidateRequest(BaseModel):
+    """Unified validation request — all sources are globbed from the session temp dir."""
+    image_folder: str = ""
     mask_folder: str = ""
     patch_csv_folder: str = ""
 
@@ -33,13 +28,19 @@ class ReviewRow(BaseModel):
     error: str
 
 
+class ProcessRow(BaseModel):
+    image: str
+    mask: str
+    csv: str
+
+
 class ValidateResponse(BaseModel):
     paths: List[ReviewRow]
     errors: int
 
 
 class ProcessRequest(BaseModel):
-    paths: List[ReviewRow]
+    paths: List[ProcessRow]
 
 
 class ProcessResponse(BaseModel):

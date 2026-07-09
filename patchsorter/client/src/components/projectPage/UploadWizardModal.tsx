@@ -5,8 +5,7 @@ import {
     uploadImages,
     uploadMasks,
     uploadPatchCsv,
-    validateUploadPaths,
-    validateUploadFolders,
+    validateUpload,
     validateUploadImageCsv,
     processUpload,
     type ReviewRow,
@@ -136,27 +135,16 @@ export default function UploadWizardModal({
                 })
                 if (!res.data) throw new Error('Validate CSV failed')
                 response = res.data
-            } else if (Object.values(isFolderByType).some(Boolean)) {
-                const res = await validateUploadFolders({
-                    path: { project_id: projectId, session_id: session },
-                    body: {
-                        image_folder: pathsByType['image'],
-                        mask_folder: pathsByType['mask'],
-                        patch_csv_folder: pathsByType['patch_csv'],
-                    },
-                })
-                if (!res.data) throw new Error('Validate folders failed')
-                response = res.data
             } else {
-                const res = await validateUploadPaths({
+                const res = await validateUpload({
                     path: { project_id: projectId, session_id: session },
                     body: {
-                        image_paths: images.current.map(f => f.name),
-                        mask_paths: includeMasks ? masks.current.map(f => f.name) : [],
-                        patch_csv_paths: includePatchCsv ? patchCsvFiles.current.map(f => f.name) : [],
+                        image_folder: isFolderByType['image'] ? pathsByType['image'] : '',
+                        mask_folder: isFolderByType['mask'] ? pathsByType['mask'] : '',
+                        patch_csv_folder: isFolderByType['patch_csv'] ? pathsByType['patch_csv'] : '',
                     },
                 })
-                if (!res.data) throw new Error('Validate paths failed')
+                if (!res.data) throw new Error('Validate failed')
                 response = res.data
             }
 
@@ -235,9 +223,10 @@ export default function UploadWizardModal({
         if (!session || !reviewData) return
         setIsProcessing(true)
         try {
+            const okRows = reviewData.filter(r => r.status === 'ok')
             const res = await processUpload({
                 path: { project_id: projectId, session_id: session },
-                body: { paths: reviewData },
+                body: { paths: okRows.map(r => ({ image: r.image, mask: r.mask, csv: r.csv })) },
             })
             if (!res.data) throw new Error('Process failed')
             nextStep()
@@ -259,7 +248,6 @@ export default function UploadWizardModal({
             : STEP_BY_STEP_LABELS
 
     const flowIndex = approach ? currentFlow.indexOf(currentStep) : 0
-    const isLastStep = flowIndex === currentFlow.length - 1
     const isReviewStep = currentStep === Step.Review
 
     /** True when the current step is the last upload step (before review). */
@@ -311,6 +299,10 @@ export default function UploadWizardModal({
         reviewData.length > 0 &&
         reviewData.some(r => r.status === 'ok')
 
+    // Disable the label toggle that would leave zero label sources
+    const disabledMask = !includePatchCsv
+    const disabledPatchCsv = !includeMasks
+
     // ----- Render ------------------------------------------------------------
 
     return (
@@ -350,6 +342,7 @@ export default function UploadWizardModal({
                         onServerPathChange={p => updatePath('mask', p)}
                         includeMasks={includeMasks}
                         onToggleInclude={setIncludeMasks}
+                        disabled={disabledMask}
                     />
                 )}
 
@@ -364,6 +357,7 @@ export default function UploadWizardModal({
                         onServerPathChange={p => updatePath('patch_csv', p)}
                         includePatchCsv={includePatchCsv}
                         onToggleInclude={setIncludePatchCsv}
+                        disabled={disabledPatchCsv}
                     />
                 )}
 

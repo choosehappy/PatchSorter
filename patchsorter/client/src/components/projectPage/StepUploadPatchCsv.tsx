@@ -10,6 +10,7 @@ interface StepUploadPatchCsvProps {
     onServerPathChange: (path: string) => void
     includePatchCsv: boolean
     onToggleInclude: (include: boolean) => void
+    disabled: boolean
 }
 
 export default function StepUploadPatchCsv({
@@ -21,6 +22,7 @@ export default function StepUploadPatchCsv({
     onServerPathChange,
     includePatchCsv,
     onToggleInclude,
+    disabled,
 }: StepUploadPatchCsvProps) {
     const [dragOver, setDragOver] = useState(false)
 
@@ -45,6 +47,7 @@ export default function StepUploadPatchCsv({
                 label="Include patch CSV"
                 checked={includePatchCsv}
                 onChange={e => onToggleInclude(e.target.checked)}
+                disabled={disabled}
                 className="mb-3"
             />
 

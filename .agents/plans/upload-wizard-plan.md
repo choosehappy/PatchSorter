@@ -82,10 +82,12 @@ UploadWizardModal
 The Review step fetches data directly from the `/validate/` endpoint when the user navigates to it. It does **not** use wizard refs for review data. The flow is:
 
 1. User clicks "Next" from the last upload step
-2. Modal calls `POST /api/v1/projects/{project_id}/upload/{session}/validate/` with file paths from refs
+2. Modal calls `POST /api/v1/projects/{project_id}/upload/{session}/validate/` with file paths from refs (for file-drop mode) or folder paths (for folder mode)
 3. Server returns `ReviewRow[]` with status per row
 4. Modal stores results in local state (`reviewData`)
 5. `<StepReview>` renders the table from `reviewData`
+
+**Process button behavior:** The process button is **never blocked** by errors. It always remains enabled when there are at least one `ok` row. The error warning text changes from "Fix the issues before processing" to "Consider fixing the issues before processing". When the user clicks Process, only rows with `status === 'ok'` are sent to the backend (the `status` and `error` fields are stripped — only `image`, `mask`, `csv` are sent).
 
 ### Upload Types (from `ps-upload.js`)
 
@@ -106,7 +108,9 @@ This is a critical feature from the old wizard that is **missing** from the orig
 
 ### Optional Inputs
 
-Masks and CSV uploads are optional. Each has a toggle (`includeMasks`, `includeCSV`) that hides/shows the upload step entirely.
+Masks and CSV uploads are optional. Each has a toggle (`includeMasks`, `includePatchCsv`) that hides/shows the upload step entirely.
+
+**Toggle Mutex:** Only one toggle can be "declined" (turned OFF). When the user turns one toggle OFF, the other toggle is **enabled + disabled** (grayed out, unclickable) to show it is the remaining valid option. If the user turns the remaining ON toggle back OFF, the other toggle becomes ON+disabled again. This is enforced via `disabledMask` and `disabledPatchCsv` state booleans.
 
 ### Session Management via Ray Actor
 
@@ -363,6 +367,15 @@ interface StepReviewProps {
 | Error | `error` | Red text if present |
 | Status | `status` | Green "ok" or red "error" |
 
+### Review step error handling
+
+The review step displays a warning when there are errors:
+```
+{errorCount} row{errorCount !== 1 ? 's have' : ' has'} errors. Consider fixing the issues before processing.
+```
+
+The process button is **always enabled** when there is at least one `ok` row. When the user clicks Process, only `ok` rows are sent to the backend — error rows are silently excluded.
+
 ### Dataset building
 
 ```typescript
@@ -521,9 +534,13 @@ const loadReviewData = async () => {
 }
 
 // Called when user clicks "Process" on the review step
+// Only sends ok rows, stripped of status/error fields
 const handleProcess = async () => {
     setIsProcessing(true)
-    await processProjectsProjectIdUploadSessionProcessPost(projectId, session!, { paths: reviewData! })
+    const okRows = reviewData!.filter(r => r.status === 'ok')
+    await processProjectsProjectIdUploadSessionProcessPost(projectId, session!, {
+        paths: okRows.map(r => ({ image: r.image, mask: r.mask, csv: r.csv }))
+    })
     toast.success('Upload processing started successfully')
     onClose()
 }
@@ -595,35 +612,30 @@ Saves uploaded mask files into the actor's temp directory. Calls the Ray actor's
 
 Saves uploaded patch CSV files into the actor's temp directory. Calls the Ray actor's `save_patch_csvs()` method. Same request/response as above.
 
-### 4a. `POST /api/v1/projects/{project_id}/upload/{session}/validate/paths/`
+### 4a. `POST /api/v1/projects/{project_id}/upload/{session}/validate/`
 
-Validates paths from client-side uploaded files (drag-and-drop mode). Calls the Ray actor's `validate_paths()` method.
+Unified validation endpoint for both file-drop and folder-based uploads. Accepts a combined request body with all path parameters. The endpoint attempts to match masks and/or patch_csv files to images, even when the upload type is mixed.
 
-**Request:**
-```json
-{
-    "paths": [
-        { "type": "image", "filename": "img1.tif" },
-        { "type": "mask", "filename": "mask1.geojson" },
-        ...
-    ]
-}
-```
-
-### 4b. `POST /api/v1/projects/{project_id}/upload/{session}/validate/folders/`
-
-Validates paths from server-side folder inputs ("Load Folder" mode). Calls the Ray actor's `validate_folders()` method.
+A row is **valid** (status: `ok`) if **either** a corresponding mask **or** a corresponding patch_csv is found. A row is **error** if **neither** is found.
 
 **Request:**
 ```json
 {
+    "image_paths": ["img1.tif", "img2.tif"],
+    "mask_paths": ["mask1.geojson", "mask2.geojson"],
+    "patch_csv_paths": ["labels1.csv", "labels2.csv"],
     "image_folder": "/server/path/to/images/",
     "mask_folder": "/server/path/to/masks/",
     "patch_csv_folder": "/server/path/to/patch_csv/"
 }
 ```
 
-### 4c. `POST /api/v1/projects/{project_id}/upload/{session}/validate/patch_csv/`
+Only the relevant fields are populated depending on the upload mode:
+- **File-drop mode**: `image_paths`, `mask_paths`, `patch_csv_paths` are populated
+- **Folder mode**: `image_folder`, `mask_folder`, `patch_csv_folder` are populated
+- **Mixed mode**: Both sets may be populated (user mixes folder and file-drop)
+
+### 4b. `POST /api/v1/projects/{project_id}/upload/{session}/validate/patch_csv/`
 
 Validates a patch CSV file list (CSV approach). Accepts `multipart/form-data`. Calls the Ray actor's `validate_patch_csv()` method. The CSV **must** include a header row `image,mask,patch_csv`.
 
@@ -634,7 +646,7 @@ Content-Type: multipart/form-data
 csv_file: File
 ```
 
-**All three validate endpoints return the same response:**
+**All validate endpoints return the same response:**
 ```json
 {
     "paths": [
@@ -645,14 +657,21 @@ csv_file: File
 }
 ```
 
+### 4c. `POST /api/v1/projects/{project_id}/upload/{session}/validate/` (merged)
+
+Merges the old `validate/paths/` and `validate/folders/` endpoints into a single unified endpoint. This allows mixed upload types (folder + file-drop) in a single validation call.
+
 ### 5. `POST /api/v1/projects/{project_id}/upload/{session}/process/`
 
-Start server-side processing of validated paths. Calls the Ray actor's `process()` method, which dispatches Ray tasks.
+Start server-side processing of validated paths. Accepts only `image`, `mask`, `csv` per row (no `status`/`error` fields).
 
 **Request:**
 ```json
 {
-    "paths": [...]  // from validate response
+    "paths": [
+        { "image": "img1.tif", "mask": "mask1.geojson", "csv": "" },
+        { "image": "img2.tif", "mask": "", "csv": "labels2.csv" }
+    ]
 }
 ```
 
@@ -834,8 +853,8 @@ After backend endpoints are implemented:
 
 | File | Action |
 |------|--------|
-| `patchsorter/api/v1/upload/routes.py` | **Create** — upload endpoints (Ray actor-based), including three validate sub-routes |
-| `patchsorter/api/v1/upload/models.py` | **Create** — upload request/response models |
+| `patchsorter/api/v1/upload/routes.py` | **Create** — upload endpoints (Ray actor-based), including unified `/validate/` endpoint |
+| `patchsorter/api/v1/upload/models.py` | **Create** — upload request/response models (`ValidateRequest`, `ProcessRow`, etc.) |
 | `patchsorter/api/v1/upload/actor.py` | **Create** — `UploadSessionActor` Ray actor class; stores `self._tmpdir`, exposes `cleanup()` |
 | `patchsorter/api/v1/upload/gc_actor.py` | **Create** — `UploadSessionGarbageCollector` named Ray actor; periodic TTL-based cleanup of expired sessions |
 | `patchsorter/api/v1/main.py` | Modify — include upload router, start GC actor at app init |
