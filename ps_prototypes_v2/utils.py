@@ -183,12 +183,12 @@ class LabeledRateTracker:
     def __init__(self, nclasses: int, momentum: float = 0.99, device: str = "cpu"):
         self.momentum = momentum
         self.nclasses = nclasses
-        self.device = device
+        self.device = "cpu"
         self.rate = None
-        self.class_weights = torch.zeros(nclasses, dtype=torch.float32, device=device)
-        self.pseudo_class_weights = torch.zeros(
-            nclasses, dtype=torch.float32, device=device
-        )
+        self.class_freq = torch.zeros(nclasses, dtype=torch.float32, device=self.device)
+        self.class_freq.share_memory_()
+        self.pseudo_class_freq = torch.zeros(nclasses, dtype=torch.float32, device=self.device)
+        self.pseudo_class_freq.share_memory_()
 
     def _update_class_weights(
         self, labels: torch.Tensor, store: torch.Tensor
@@ -227,26 +227,32 @@ class LabeledRateTracker:
         valid_labels = labels[labels >= 0]
         label_freq = None
         if len(valid_labels) > 0:
-            self.class_weights, label_freq = self._update_class_weights(
-                valid_labels, self.class_weights
+            new_weights, label_freq = self._update_class_weights(
+                valid_labels, self.class_freq
             )
-            print("true:", self.class_weights)
+            with torch.no_grad():
+                self.class_freq.copy_(new_weights.cpu())
+
+            print("true:", self.class_freq)
 
         # Pseudo label class weights
         pseudo_freq = None
         if pseudo_labels is not None and len(pseudo_labels) > 0:
-            self.pseudo_class_weights, pseudo_freq = self._update_class_weights(
-                pseudo_labels, self.pseudo_class_weights
+            new_weights, pseudo_freq = self._update_class_weights(
+                pseudo_labels, self.pseudo_class_freq
             )
-            print("pseudo:\t", self.pseudo_class_weights)
+            with torch.no_grad():
+                self.pseudo_class_freq.copy_(new_weights.cpu())
+
+            print("pseudo:\t", self.pseudo_class_freq)
 
         return self.rate, label_freq, pseudo_freq
 
     def get_class_weights(self, pseudo: bool = False) -> torch.Tensor | None:
         """Return inverse-frequency weights as a tensor for use in cross_entropy."""
-        store = self.pseudo_class_weights if pseudo else self.class_weights
+        store = self.pseudo_class_freq if pseudo else self.class_freq
         if store.sum() == 0:
-            return None
+            return torch.ones_like(store, device=self.device)  #all equal weight
         weights = 1.0 / (store + 1e-8)
         weights[store == 0] = 0.0  # Mask unseen classes rather than inflating them
         return weights / weights.sum()
@@ -469,16 +475,14 @@ def get_transforms(patch_size: int) -> tuple[A.Compose, A.Compose]:
             p=0.5,                          # was 0.4
         ),
         A.ImageCompression(
-            quality_lower=p["jpeg_quality"],
-            quality_upper=100,
+            quality_range=(p["jpeg_quality"], 100),
             p=0.3,                          # was 0.2
         ),
         A.CoarseDropout(
-            max_holes=p["dropout_holes"],
-            max_height=p["dropout_size"],
-            max_width=p["dropout_size"],
-            min_holes=1,
-            fill_value=0,               # black = absent tissue, interpretable
+            num_holes_range=(1, p["dropout_holes"]),
+            hole_height_range=(1, p["dropout_size"]),
+            hole_width_range=(1, p["dropout_size"]),
+            fill=0,
             p=p["dropout_p"],
         ),
         ToTensorV2(),

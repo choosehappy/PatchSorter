@@ -22,7 +22,7 @@ from utils_logging import (
 )
 import timm
 from configs import *
-from sqlite_dataset import GTEnrichedDataset
+from sqlite_dataset import CandidatePoolIterableDataset, GTCandidatePool, SQLiteDataset, concat_batches
 from score_writer import ScoreWriter
 import atexit
 
@@ -35,24 +35,20 @@ import numpy as np
 torch.set_float32_matmul_precision('high')
 
 # Initialize dataset with proper parameters
-#DATA_DB_PATH = "mitosis_train_patches.db"
-DATA_DB_PATH = "train_v4.db"
+DATA_DB_PATH = "mitosis_train_patches.db"
+#DATA_DB_PATH = "train_v4.db"
+DATA_DB_TABLE = "mitosis_patches"
 
 label_tracker = LabeledRateTracker(N_CLASS, momentum=0.9, device=DEVICE)
 adaptive_thresh = AdaptiveThreshold(num_classes=N_CLASS, base_thresh=0.95, ema_decay=0.99, device=DEVICE)
 
 
-score_writer = ScoreWriter(DATA_DB_PATH)
-atexit.register(score_writer.close)
 
-dataset = GTEnrichedDataset(
+dataset = SQLiteDataset(
     DATA_DB_PATH,
+    table_name=DATA_DB_TABLE,
     nviews=NVIEWS,
-    transforms=get_transforms(PATCH_SIZE),
-    enrichment_rate=GT_ENRICHMENT,
-    label_tracker=label_tracker,
-    score_writer=score_writer,
-)
+    transforms=get_transforms(PATCH_SIZE),)
 
 
 dataloader = DataLoader(
@@ -60,15 +56,42 @@ dataloader = DataLoader(
     batch_size=BATCH_SIZE,
     shuffle=False,
     #num_workers=64,
-    num_workers=32,
+    num_workers=NWORKERS_BASE,
     pin_memory=True,
     drop_last=True,
     persistent_workers=True,
     prefetch_factor=4, #UNCOMMENT
 )
 # prefetcher = cuda_prefetc[her(dataloader)
-vram_prefetcher = threaded_vram_prefetcher(dataloader, buffer_size=4, device=DEVICE) #UNCOMMENT
-#vram_prefetcher = dataloader
+#vram_prefetcher = threaded_vram_prefetcher(dataloader, buffer_size=4, device=DEVICE) #UNCOMMENT
+vram_prefetcher = dataloader
+
+
+candidate_loader = None
+if GT_ENRICHMENT > 0:
+    candidate_batch_size = max(1, round(BATCH_SIZE * GT_ENRICHMENT))
+    candidate_dataset = CandidatePoolIterableDataset(DEVICE,
+        DATA_DB_PATH,
+        table_name=DATA_DB_TABLE,
+        transforms=get_transforms(PATCH_SIZE),
+        nviews=NVIEWS,
+        batch_size=candidate_batch_size,
+        pool_size=GT_POOL_SIZE,
+        label_tracker=label_tracker,
+        score_writer_factory=lambda: ScoreWriter(DATA_DB_PATH, DATA_DB_TABLE),
+        refresh_every_batches=GT_POOL_UPDATE_INTERVAL,
+    )
+    # batch_size=None: the dataset yields already-collated batches itself,
+    # so DataLoader does no further batching - it just gives us the
+    # standard multi-worker prefetching/double-buffering for free.
+    candidate_loader = DataLoader(
+        candidate_dataset,
+        batch_size=None,
+        num_workers=NWORKERS_ENRICH,
+    )
+
+candidate_iter_holder = [iter(candidate_loader)] if candidate_loader is not None else [None]
+
 
 
 #
@@ -232,6 +255,12 @@ for _ in range(10_000):
     for batch_idx, batch_data in tqdm(enumerate(vram_prefetcher)):
         # forward all views → [nviews, B, D]
         with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=False): ##TODO: don't use it while we're testing / building 
+            
+            if candidate_iter_holder[0] is not None:
+                cand_batch = next(candidate_iter_holder[0])
+                # if cand_batch is not None:
+                #     batch_data = concat_batches(batch_data, cand_batch)
+
             *views, labels, orig, ids = batch_data
             labels = labels.long().to(DEVICE,non_blocking=True)
 
@@ -330,7 +359,7 @@ for _ in range(10_000):
             # pseudo_pred_loss, pred_labels, high_conf = prediction_loss_pseudo_sce(pred_logits,labels,pseudo_class_weights=None,
             #                                                                   views_per_patch=NVIEWS)  # i don't think we want psudo class weights
 
-            if class_weights: #i think we should only do the pseudo if there is actually some class information? in psv1 - this was done via kmeans
+            if class_weights is not None: #i think we should only do the pseudo if there is actually some class information? in psv1 - this was done via kmeans
                 pseudo_class_weights = label_tracker.get_class_weights(pseudo=True)
 
                 pseudo_pred_loss, pred_labels, high_conf = prediction_loss_pseudo_sce_adaptive(pred_logits,labels,adaptive_thresh,
@@ -383,10 +412,6 @@ for _ in range(10_000):
 
             # mem_bank.add_candidates(z_batch.detach(), proj_coords.detach()) #___COMMENTED OUT
             #mem_bank.age_all()
-
-            if niter_total % GT_POOL_UPDATE_INTERVAL== 0:
-                dataset.refresh()
-
 
             if niter_total % LOG_EVERY == 0:
                 log_embedding_histograms(writer, proj_emb, niter_total)

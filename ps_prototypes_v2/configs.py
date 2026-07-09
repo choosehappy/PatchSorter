@@ -9,7 +9,7 @@ import torch
 HIDDEN_DIM = 256
 EMBED_DIM = 16
 PROJ_DIM = 2
-BATCH_SIZE = 1024
+BATCH_SIZE = 1024 #1024
 GT_ENRICHMENT = 0.10
 GT_POOL_SIZE = 2048
 GT_SCORE_INIT = 1.0
@@ -59,6 +59,9 @@ LOG_EVERY = 100
 K_NEIGHBORS = 50 # was 5 -- but i think these should be much higher
 EPS = 1e-6
 DEVICE = "cuda:1" if torch.cuda.is_available() else "cpu"
+NWORKERS_BASE = 32
+NWORKERS_ENRICH = 2
+
 
 PATCH_SIZE = 60  # 64 #this should allow for some local translation
 N_CLASS = 5
@@ -72,6 +75,6 @@ SWAV_SINKHORN_ITERS = 3
 SWAV_EPS = 0.05
 
 
-LOAD_CHECKPOINT = False
+LOAD_CHECKPOINT = True
 TORCH_PROFILE = False # Enable torch profiler (record CPU/CUDA traces to runs/torch_prof)
 LOG_EMBEDDINGS_TOSQL = True # Log embeddings to tensorboard
