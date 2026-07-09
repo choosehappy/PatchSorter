@@ -132,11 +132,10 @@ nas_read/
 
 ### `PatchIterator` abstract base class
 - **Signature**: `class PatchIterator(ABC)`
-- **Abstract method**: `__iter__(self) -> Iterator[Tuple[BaseGeometry, int | None, float | None, uuid.UUID | None]]`
-  - Yields: `(geometry, label, downsample_factor, uuid)`
+- **Abstract method**: `__iter__(self) -> Iterator[Tuple[BaseGeometry, int | None, uuid.UUID | None]]`
+  - Yields: `(geometry, label, uuid)`
   - `geometry`: shapely Polygon or Point
   - `label`: int label class ID or `None`
-  - `downsample_factor`: user-specified downsample or `None` (computed later)
   - `uuid`: user-provided UUID or `None` (generated later)
 
 ### `GeojsonPatchIterator`
@@ -146,7 +145,6 @@ nas_read/
   - Extract shapely geometry from OGR geometry (via `ExportToWkb` → `shapely.wkb.loads`)
   - Extract label from feature properties if available (e.g., `label`, `class_id`, `label_class_id`)
   - Extract UUID from feature `uid` property if available
-  - `downsample_factor = None` (computed later from project settings)
 - **Raises**: `ValueError` if feature is not a Polygon (points not allowed in geojson-only mode)
 
 ### `CsvPatchIterator`
@@ -157,7 +155,7 @@ nas_read/
   - Create shapely `Point(x, y)`
   - Extract label from `label` column if available
   - Extract UUID from `uuid` column if available
-  - `downsample_factor = None` (computed later)
+
 
 ### `HybridPatchIterator`
 - **Constructor**: `__init__(self, geojson_path: str, csv_path: str)`
@@ -165,8 +163,8 @@ nas_read/
 - Iterates geojson features via OGR (same geometry/label extraction as `GeojsonPatchIterator`)
 - For each feature:
   - Look up `uid` from feature properties in CSV index
-  - If matched: use CSV `uuid`, CSV `label`, CSV `downsample_factor` (if column exists)
-  - If not matched: generate UUID, use feature label if available, `downsample_factor = None`
+  - If matched: use CSV `uuid`, CSV `label`
+  - If not matched: generate UUID, use feature label if available
 
 ---
 
@@ -221,8 +219,8 @@ def process_row(
     - **Comment**: "In the future, this selection may be driven by a project-level setting rather than a hardcoded lookup"
 11. **Iterate patches**:
     ```python
-    for geometry, label, downsample, uuid in iterator:
-        computed_downsample = downsample if downsample else compute_downsample(...)
+    for geometry, label, uuid in iterator:
+        computed_downsample = compute_downsample(...)
         patch_bytes = extract_patch_from_geometry(ts, geometry, patch_size, computed_downsample, base_mag)
         records.append((uuid, label, image_id, computed_downsample, centroid_x, centroid_y, polygon_wkt, patch_bytes))
     ```
@@ -314,7 +312,7 @@ def process_upload_csv(
 
 ## Key Design Decisions
 
-1. **Iterator responsibility**: Iterators yield `(geometry, label, downsample, uuid)` only — no patch extraction. Extraction happens in the calling loop after downsample is determined.
+1. **Iterator responsibility**: Iterators yield `(geometry, label, uuid)` only — no patch extraction. Extraction happens in the calling loop after downsample is determined.
 
 2. **Downsample determination**: Driven by project setting `patch_extraction_method`:
    - `"use estimated object size"`: Average polygon radius of first 5 features → single downsample for all patches. Raises error if geojson contains Points.
