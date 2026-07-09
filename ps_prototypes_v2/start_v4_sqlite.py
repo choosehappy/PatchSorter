@@ -22,7 +22,7 @@ from utils_logging import (
 )
 import timm
 from configs import *
-from sqlite_dataset import CandidatePoolIterableDataset, GTCandidatePool, SQLiteDataset, concat_batches
+from sqlite_dataset import CandidatePoolIterableDataset, GTCandidatePool, SQLiteDataset
 from score_writer import ScoreWriter
 import atexit
 
@@ -63,8 +63,8 @@ dataloader = DataLoader(
     prefetch_factor=4, #UNCOMMENT
 )
 # prefetcher = cuda_prefetc[her(dataloader)
-#vram_prefetcher = threaded_vram_prefetcher(dataloader, buffer_size=4, device=DEVICE) #UNCOMMENT
-vram_prefetcher = dataloader
+vram_prefetcher = threaded_vram_prefetcher(dataloader, buffer_size=4, device=DEVICE) #UNCOMMENT
+#vram_prefetcher = dataloader
 
 
 candidate_loader = None
@@ -90,7 +90,7 @@ if GT_ENRICHMENT > 0:
         num_workers=NWORKERS_ENRICH,
     )
 
-candidate_iter_holder = [iter(candidate_loader)] if candidate_loader is not None else [None]
+candidate_iter_holder = [iter(candidate_loader)] if candidate_loader is not None else [None] #TODO: there is probably a way to use the vram_prefeather here, but not sure its worth it so won't opitmize until proven needed
 
 
 
@@ -256,22 +256,47 @@ for _ in range(10_000):
         # forward all views → [nviews, B, D]
         with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=False): ##TODO: don't use it while we're testing / building 
             
+            # 1. Grab candidate batch if available
+            cand_batch = None
             if candidate_iter_holder[0] is not None:
                 cand_batch = next(candidate_iter_holder[0])
-                # if cand_batch is not None:
-                #     batch_data = concat_batches(batch_data, cand_batch)
 
-            *views, labels, orig, ids = batch_data
-            labels = labels.long().to(DEVICE,non_blocking=True)
+            # 2. Unpack Base Batch
+            *base_views, base_labels, base_orig, base_ids = batch_data
+            base_labels = base_labels.long().to(DEVICE, non_blocking=True)
+            base_views_gpu = [v.to(DEVICE, non_blocking=True) for v in base_views]
 
-            # imgs = torch.cat(views, dim=0).half().to(DEVICE,non_blocking=True) / 255.0  # [B*V, C, H, W]
-            # views = [v.half().to(DEVICE,non_blocking=True) for v in views] # lets not do this during development
+            # 3. Unpack & Ship Candidate Batch directly to GPU
+            if cand_batch is not None:
+                *cand_views, cand_labels, cand_orig, cand_ids = cand_batch
+                
+                cand_labels = cand_labels.long().to(DEVICE, non_blocking=True)
+                cand_views_gpu = [v.to(DEVICE, non_blocking=True) for v in cand_views]
+                
+                # 4. Fast Vectorized Concat directly on the GPU
+                labels = torch.cat([base_labels, cand_labels], dim=0)
+                
+                # Concat matching views on GPU
+                views_gpu = [
+                    torch.cat([bv, cv], dim=0) 
+                    for bv, cv in zip(base_views_gpu, cand_views_gpu)
+                ]
+                
+                # (Optional) Handle metadata ids if needed for loss/tracking
+                ids = torch.cat([base_ids.to(DEVICE), cand_ids.to(DEVICE)], dim=0)
+            else:
+                # Fallback if no candidate batch this round
+                labels = base_labels
+                views_gpu = base_views_gpu
+                ids = base_ids
 
-            # Concatenate, convert to half-precision, and normalize
-            views_gpu = [v.to(DEVICE, non_blocking=True) for v in views]
             #imgs = torch.stack(views_gpu, dim=1).flatten(0, 1) / 255.0  # [B*V, C, H, W] #NOTE: THIS WAS VERY WRONG, flattened in the wrong direction
             imgs = torch.stack(views_gpu, dim=0).flatten(0, 1) / 255.0  # [B*V, C, H, W]
- 
+
+
+            B = views_gpu[0].shape[0]
+            V = len(views_gpu)
+
             del views_gpu
 
             if USE_MASK:
@@ -283,8 +308,6 @@ for _ in range(10_000):
             z = backbone(imgs)  # [B*V, D]
             emb, coords, logits = joint_head(z)  # [B*V, ...]
 
-            B = views[0].shape[0]
-            V = len(views)
 
             emb = F.normalize(emb, dim=-1)   #NOTE: this is likely done in a few of the functions below as well but doing it twice shouldn't be a problem and ensures consistency across all losses that use emb
 
@@ -429,6 +452,10 @@ for _ in range(10_000):
                     niter_total,
                     write_embeddings=False,
                 )
+
+
+                orig = torch.cat((base_orig.cpu(),cand_orig)) if cand_batch is not None else base_orig
+
                 log_nearest_neighbors(
                     writer,
                     imgs,

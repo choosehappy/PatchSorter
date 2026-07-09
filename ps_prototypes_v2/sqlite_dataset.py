@@ -392,25 +392,25 @@ class CandidatePoolIterableDataset(IterableDataset):
 # (anchor, *views, label, orig, idx) since both wrap the same base dataset /
 # nviews setting - just concat each field along dim 0.
 # ---------------------------------------------------------------------------
-def concat_batches(base_batch: tuple, cand_batch: tuple) -> tuple:
-    if len(base_batch) != len(cand_batch):
-        raise ValueError(
-            f"Batch structure mismatch: base has {len(base_batch)} fields, "
-            f"candidate has {len(cand_batch)} fields. Check nviews matches on both datasets."
-        )
+# def concat_batches(base_batch: tuple, cand_batch: tuple) -> tuple:
+#     if len(base_batch) != len(cand_batch):
+#         raise ValueError(
+#             f"Batch structure mismatch: base has {len(base_batch)} fields, "
+#             f"candidate has {len(cand_batch)} fields. Check nviews matches on both datasets."
+#         )
 
-    merged = []
-    for b_field, c_field in zip(base_batch, cand_batch):
-        if b_field is None and c_field is None:
-            merged.append(None)
-        elif torch.is_tensor(b_field) and torch.is_tensor(c_field):
-            merged.append(torch.cat([b_field, c_field], dim=0))
-        elif isinstance(b_field, np.ndarray) and isinstance(c_field, np.ndarray):
-            merged.append(np.concatenate([b_field, c_field], axis=0))
-        else:
-            # Fall back to default_collate-style concatenation via list + re-collate
-            merged.append(default_collate(list(b_field) + list(c_field)))
-    return tuple(merged)
+#     merged = []
+#     for b_field, c_field in zip(base_batch, cand_batch):
+#         if b_field is None and c_field is None:
+#             merged.append(None)
+#         elif torch.is_tensor(b_field) and torch.is_tensor(c_field):
+#             merged.append(torch.cat([b_field, c_field], dim=0))
+#         elif isinstance(b_field, np.ndarray) and isinstance(c_field, np.ndarray):
+#             merged.append(np.concatenate([b_field, c_field], axis=0))
+#         else:
+#             # Fall back to default_collate-style concatenation via list + re-collate
+#             merged.append(default_collate(list(b_field) + list(c_field)))
+#     return tuple(merged)
 
 
 # # ---------------------------------------------------------------------------
