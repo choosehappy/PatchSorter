@@ -58,7 +58,7 @@ LOG_EVERY = 100
 
 K_NEIGHBORS = 50 # was 5 -- but i think these should be much higher
 EPS = 1e-6
-DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
+DEVICE = "cuda:1" if torch.cuda.is_available() else "cpu"
 
 PATCH_SIZE = 60  # 64 #this should allow for some local translation
 N_CLASS = 5

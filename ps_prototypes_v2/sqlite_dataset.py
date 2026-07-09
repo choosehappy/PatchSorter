@@ -77,6 +77,11 @@ class SQLiteDataset:
                 f"UPDATE {self.table_name} SET score = ? WHERE score IS NULL",
                 (GT_SCORE_INIT,),
             )
+            if "tmp_label" not in columns:
+                conn.execute(
+                    f"ALTER TABLE {self.table_name} ADD COLUMN tmp_label INTEGER DEFAULT -1"
+                )
+
             conn.commit()
 
     def _deserialize_blob(self, blob: bytes) -> np.ndarray:
@@ -164,18 +169,18 @@ class GTEnrichedDataset(SQLiteDataset):
             if rows:
                 row_ids, tmp_labels, scores = zip(*rows)
                 row_ids_arr = np.array(row_ids, dtype=np.int64)
-                
+
                 # Vectorized label handling for None values
                 labels_arr = np.array([int(l) if l is not None else -1 for l in tmp_labels], dtype=np.int64)
-                
+
                 # Vectorized score handling for None values
                 scores_arr = np.array([float(s) if s is not None else GT_SCORE_INIT for s in scores], dtype=np.float64)
-                
+
                 # Bulk assignment to pre-allocated arrays
                 self._candidate_ids[:self._candidate_count] = row_ids_arr
                 self._candidate_labels[:self._candidate_count] = labels_arr
                 self._candidate_scores[:self._candidate_count] = scores_arr
-                
+
                 # Build index mapping and update list efficiently
                 self._candidate_index = {int(rid): idx for idx, rid in enumerate(row_ids)}
                 update_rows = [(float(GT_SCORE_INIT), int(rid)) for rid, s in zip(row_ids, scores) if s is None]
@@ -198,31 +203,13 @@ class GTEnrichedDataset(SQLiteDataset):
 
     def refresh(self) -> None:
         """Refresh the candidate pool from SQLite to capture newly labeled items.
-        
+
         This method reloads the top-K scored labeled items from the database,
         allowing newly labeled rows to enter the enrichment pool if their scores
         are high enough. Call this periodically during training to keep the pool
         up-to-date with new labels.
         """
         self._load_candidate_pool()
-
-    # def _get_rarity_map(self) -> dict[int, float] | None:
-    #     tracker = getattr(self, "label_tracker", None)
-    #     if tracker is None:
-    #         return None
-
-    #     weights = getattr(tracker, "class_weights", None)
-    #     if weights is None:
-    #         return None
-
-    #     freqs = weights.detach().cpu().numpy().astype(np.float64)
-    #     if freqs.size == 0 or freqs.sum() == 0:
-    #         return None
-
-    #     freqs = np.maximum(freqs, 1e-8)
-    #     inv_freqs = 1.0 / freqs
-    #     inv_norm = inv_freqs / np.mean(inv_freqs)
-    #     return {int(i): float(inv_norm[i]) for i in range(inv_norm.shape[0])}
 
     def _get_rarity_factors(self) -> np.ndarray:
         if self._candidate_count == 0:
@@ -258,22 +245,15 @@ class GTEnrichedDataset(SQLiteDataset):
 
         return factors
 
-    def _choose_row(self) -> tuple[int, int, float, int]:
-        if self.enrichment_rate > 0 and self._candidate_count > 0 and random.random() < self.enrichment_rate:
-            weights = self._candidate_weights[: self._candidate_count]
-            if not np.isfinite(weights).all() or weights.sum() <= 0:
-                idx = random.randint(0, self._candidate_count - 1)
-            else:
-                idx = int(np.random.choice(self._candidate_count, p=weights / weights.sum()))
+    def _n_extra_slots(self) -> int:
+        """Number of additional (enrichment-only) slots appended per epoch."""
+        if self.enrichment_rate > 0 and self._candidate_count > 0:
+            return int(round(self.nitems * self.enrichment_rate))
+        return 0
 
-            return (
-                int(self._candidate_ids[idx]),
-                int(self._candidate_labels[idx]),
-                float(self._candidate_scores[idx]),
-                idx,
-            )
-
-        row_id = random.randint(1, self.nitems)
+    def _lookup_row(self, row_id: int) -> tuple[int, int, float, int]:
+        """Resolve a row_id's current (label, score, candidate_idx), whether or
+        not it's currently sitting in the candidate pool."""
         existing_idx = self._candidate_index.get(row_id, -1)
         if existing_idx >= 0:
             return (
@@ -282,8 +262,34 @@ class GTEnrichedDataset(SQLiteDataset):
                 float(self._candidate_scores[existing_idx]),
                 existing_idx,
             )
-
         return row_id, -1, float(GT_SCORE_INIT), -1
+
+    def _draw_from_pool(self) -> tuple[int, int, float, int]:
+        """Weighted draw from the enrichment candidate pool (used both for the
+        probabilistic enrichment path and for the dedicated extra slots)."""
+        weights = self._candidate_weights[: self._candidate_count]
+        if not np.isfinite(weights).all() or weights.sum() <= 0:
+            idx = random.randint(0, self._candidate_count - 1)
+        else:
+            idx = int(np.random.choice(self._candidate_count, p=weights / weights.sum()))
+
+        return (
+            int(self._candidate_ids[idx]),
+            int(self._candidate_labels[idx]),
+            float(self._candidate_scores[idx]),
+            idx,
+        )
+
+    def _choose_row(self, index: int) -> tuple[int, int, float, int]:
+        # Extra, appended enrichment-only slots: index >= nitems.
+        if index >= self.nitems:
+            return self._draw_from_pool()
+
+        # Guaranteed sweep slot: every real id is seen exactly once per epoch,
+        # regardless of enrichment_rate. Enrichment no longer competes with
+        # coverage - it's purely additive via the extra slots above.
+        row_id = index + 1
+        return self._lookup_row(row_id)
 
     def _update_row_score(
         self,
@@ -309,10 +315,11 @@ class GTEnrichedDataset(SQLiteDataset):
                 )
                 conn.commit()
 
+    def __len__(self) -> int:
+        return self.nitems + self._n_extra_slots()
+
     def __getitem__(self, index: int) -> tuple[np.ndarray, list, int, np.ndarray, int]:
-        chosen_id, old_label, old_score, chosen_idx = self._choose_row()
-        anchor,*views, label, orig, idx = super().__getitem__(chosen_id - 1)
+        chosen_id, old_label, old_score, chosen_idx = self._choose_row(index)
+        anchor, *views, label, orig, idx = super().__getitem__(chosen_id - 1)
         self._update_row_score(chosen_id, chosen_idx, old_label, old_score, label)
-        return anchor,*views, label, orig, idx  
-
-
+        return anchor, *views, label, orig, idx

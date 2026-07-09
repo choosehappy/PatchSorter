@@ -784,7 +784,7 @@ def prediction_loss_sup(
     # supervised loss
     sup_loss = torch.tensor(0.0, device=device)
     accuracy = torch.tensor(0.0, device=device)
-    confusion = torch.tensor(0.0, device=device)
+    confusion = None 
     if labeled_mask.any():
         labeled_logits = logits[labeled_mask]
         labeled_labels = labels[labeled_mask].long()

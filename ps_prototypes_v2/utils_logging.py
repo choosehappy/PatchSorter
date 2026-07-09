@@ -86,6 +86,8 @@ def log_confusion_matrix(writer, confusion, step, prefix="confusion"):
     writer: torch.utils.tensorboard.SummaryWriter
     step: global step / epoch to log against
     """
+    if confusion is None:
+        return  
     num_classes = confusion.shape[0]
     for true_c in range(num_classes):
         for pred_c in range(num_classes):

@@ -35,7 +35,8 @@ import numpy as np
 torch.set_float32_matmul_precision('high')
 
 # Initialize dataset with proper parameters
-DATA_DB_PATH = "mitosis_train_patches.db"
+#DATA_DB_PATH = "mitosis_train_patches.db"
+DATA_DB_PATH = "train_v4.db"
 
 label_tracker = LabeledRateTracker(N_CLASS, momentum=0.9, device=DEVICE)
 adaptive_thresh = AdaptiveThreshold(num_classes=N_CLASS, base_thresh=0.95, ema_decay=0.99, device=DEVICE)
@@ -329,11 +330,13 @@ for _ in range(10_000):
             # pseudo_pred_loss, pred_labels, high_conf = prediction_loss_pseudo_sce(pred_logits,labels,pseudo_class_weights=None,
             #                                                                   views_per_patch=NVIEWS)  # i don't think we want psudo class weights
 
-            pseudo_class_weights = label_tracker.get_class_weights(pseudo=True)
+            if class_weights: #i think we should only do the pseudo if there is actually some class information? in psv1 - this was done via kmeans
+                pseudo_class_weights = label_tracker.get_class_weights(pseudo=True)
 
-            pseudo_pred_loss, pred_labels, high_conf = prediction_loss_pseudo_sce_adaptive(pred_logits,labels,adaptive_thresh,
-                                                                                           pseudo_class_weights=pseudo_class_weights,views_per_patch=NVIEWS)  # i don't think we want psudo class weights
-
+                pseudo_pred_loss, pred_labels, high_conf = prediction_loss_pseudo_sce_adaptive(pred_logits,labels,adaptive_thresh,
+                                                                                            pseudo_class_weights=pseudo_class_weights,views_per_patch=NVIEWS)  # i don't think we want psudo class weights
+            else:
+                pseudo_pred_loss, pred_labels, high_conf = torch.tensor(0.0, device=DEVICE), torch.zeros_like(labels), torch.zeros_like(labels, dtype=torch.bool)
             
             labeled_rate, num_label, num_pseudo = label_tracker.update(
                 labels, pred_labels[high_conf] if high_conf is not None else None
