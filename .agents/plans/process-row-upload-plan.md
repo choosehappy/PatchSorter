@@ -5,11 +5,12 @@
 ### `FileStore` abstract base class
 - **Base class** for managing paths with a configurable sub_path
 - Constructor: `__init__(self, sub_path: str)`
-- Sets `self.base_path` from constants (e.g., `/opt/PatchSorter/mounts/nas_write`)
+- Sets `self.base_path = constants.MOUNTS_PATH` (i.e. `/opt/PatchSorter/mounts`)
 - Sets `self.full_path = os.path.join(self.base_path, sub_path)`
+- **Note**: `constants.py` must be updated to add `MOUNTS_PATH = os.path.join('/opt/PatchSorter', 'mounts')`
 - Provides methods:
-  - `get_base_path()` — returns the base mounts path
-  - `get_full_path(filepath=None)` — returns `self.full_path` or joins filepath
+  - `get_base_path()` — returns `self.base_path` (the mounts root)
+  - `get_full_path(filepath=None)` — returns `self.full_path` or `os.path.join(self.full_path, filepath)`
   - `global_to_relative(path)` — converts absolute path to relative (w.r.t. `self.full_path`)
   - `relative_to_global(path)` — converts relative path to absolute (w.r.t. `self.full_path`)
 
@@ -18,43 +19,42 @@
 - **Sub-path**: `"nas_write"`
 - **Purpose**: PatchSorter writable storage (uploaded files, projects, masks)
 - **Methods**:
-  - `get_project_path(project_id: int, relative: bool = False)` — returns `projects/proj_{project_id}`
-  - `get_project_image_path(project_id: int, image_id: int, relative: bool = False)` — returns `projects/proj_{project_id}/images/img_{image_id}`
-  - `get_project_mask_path(project_id: int, image_id: int, relative: bool = False)` — returns `{project_image_path}/masks`
-  - `get_temp_path(relative: bool = False)` — returns `temp`
+  - `get_project_path(project_id: int) -> str` — returns absolute path `{full_path}/projects/proj_{project_id}`
+  - `get_project_image_path(project_id: int, image_id: int) -> str` — returns absolute path `{full_path}/projects/proj_{project_id}/images/img_{image_id}`
+  - `get_project_mask_path(project_id: int, image_id: int) -> str` — returns absolute path `{get_project_image_path(...)}/masks`
+  - `get_temp_path() -> str` — returns absolute path `{full_path}/temp`
+  - `move_to_permanent(session_id: str, project_id: int, image_id: int, filename: str) -> str` — atomic `shutil.move` from `UploadStore` image path to `get_project_image_path(project_id, image_id)`, creates dest dir if needed, returns the new absolute path
 
 ### `NASReadStore` class (inherits `FileStore`)
 - **Constructor**: `__init__(self)`
 - **Sub-path**: `"nas_read"`
 - **Purpose**: Read-only folder/CSV uploads mounted to the PatchSorter Docker container (outside of session-managed paths)
 - **Methods**:
-  - `get_input_images_path(relative: bool = False)` — returns `images`
-  - `get_input_masks_dir(relative: bool = False)` — returns `masks`
+  - `get_input_images_path() -> str` — returns absolute path `{full_path}/images`
+  - `get_input_masks_dir() -> str` — returns absolute path `{full_path}/masks`
 
 ### `UploadStore` class (inherits `FileStore`)
 - **Constructor**: `__init__(self)`
 - **Sub-path**: `os.path.join("nas_write", "tmp", "upload_sessions")` (root within nas_write mounts)
 - **Purpose**: Per-upload-session temporary storage
 - **Methods**:
-  - `get_session_dir(session_id: str, relative: bool = False)` — returns `{session_id}/`
-  - `get_images_dir(session_id: str, relative: bool = False)` — returns `{session_id}/images/`
-  - `get_masks_dir(session_id: str, relative: bool = False)` — returns `{session_id}/masks/`
-  - `get_patch_csvs_dir(session_id: str, relative: bool = False)` — returns `{session_id}/patch_csvs/`
-  - `get_image_path(session_id: str, filename: str, relative: bool = False)` — returns full path to uploaded image
-  - `get_mask_path(session_id: str, filename: str, relative: bool = False)` — returns full path to uploaded mask
-  - `get_patch_csv_path(session_id: str, filename: str, relative: bool = False)` — returns full path to uploaded CSV
+  - `get_session_dir(session_id: str) -> str` — returns absolute path `{full_path}/{session_id}`
+  - `get_images_dir(session_id: str) -> str` — returns absolute path `{full_path}/{session_id}/images`
+  - `get_masks_dir(session_id: str) -> str` — returns absolute path `{full_path}/{session_id}/masks`
+  - `get_patch_csvs_dir(session_id: str) -> str` — returns absolute path `{full_path}/{session_id}/patch_csvs`
+  - `get_image_path(session_id: str, filename: str) -> str` — returns `{get_images_dir(session_id)}/{filename}`
+  - `get_mask_path(session_id: str, filename: str) -> str` — returns `{get_masks_dir(session_id)}/{filename}`
+  - `get_patch_csv_path(session_id: str, filename: str) -> str` — returns `{get_patch_csvs_dir(session_id)}/{filename}`
+  - `create_session_dirs(session_id: str)` — creates `images/`, `masks/`, `patch_csvs/` subdirs under the session dir
+  - `cleanup_session(session_id: str)` — removes the session directory via `shutil.rmtree`
 
-### `FileSystemManager` class
+### `FileStoreManager` class
 - **Constructor**: `__init__(self)`
-- **Manages three FileStore instances**:
-  - `self.nas_write = NASWriteStore()` — for PatchSorter writable storage
-  - `self.nas_read = NASReadStore()` — for read-only mounted folder/CSV uploads
-  - `self.upload_store = UploadStore()` — for upload session temp storage
-- **Methods**:
-  - `get_session_path(session_id: str) -> UploadStore` — returns the upload store (scoped to session via methods)
-  - `get_project_image_path(project_id: int, image_id: int) -> str` — delegates to `nas_write.get_project_image_path()`
-  - `move_to_permanent(session_id, project_id, image_id, filename)` — atomic `shutil.move` from upload store to nas_write permanent dir
-  - `cleanup_session(session_id)` — removes upload session directory via `shutil.rmtree`
+- **Purpose**: Lightweight container for the three store instances. Has no methods of its own — all path logic lives in the stores.
+- **Attributes**:
+  - `self.nas_write = NASWriteStore()`
+  - `self.nas_read = NASReadStore()`
+  - `self.upload_store = UploadStore()`
 
 ### Path structure
 
@@ -66,7 +66,6 @@ nas_write/
 │           ├── images/
 │           ├── masks/
 │           └── patch_csvs/
-├── temp/
 └── projects/
     └── proj_{project_id}/
         └── images/
@@ -114,15 +113,17 @@ nas_read/
 
 ### New: `estimate_object_radius_from_polygons` function
 - **Signature**: `estimate_object_radius_from_polygons(geometries: list[BaseGeometry]) -> float`
-- Takes first 5 polygon geometries
-- For each polygon, compute `geometry.buffer(0).distance(geometry.centroid)` (mean radius of vertices from centroid)
-- Return the average radius in base-pixel units
+- Takes first 5 polygon geometries (coordinates assumed to be in the image's base-magnification pixel space)
+- For each polygon, delegates to `get_polygon_radius_in_pixels(geometry)`
+- Returns the average radius in base-pixel units
 - Caller converts to microns using `mm_per_pixel_at_base`
 
 ### New: `get_polygon_radius_in_pixels` function
 - **Signature**: `get_polygon_radius_in_pixels(geometry: BaseGeometry) -> float`
-- Computes mean distance of polygon vertices from centroid in base-pixel units
-- Returns float radius
+- Computes the half-diagonal of the polygon's bounding box using `geometry.bounds` → `(minx, miny, maxx, maxy)`
+- Formula: `0.5 * max(maxx - minx, maxy - miny)` — the minimum radius that encloses the bounding box along the longest axis
+- Coordinates are treated as base-magnification pixel units
+- Returns float radius in base-pixel units
 
 ---
 
@@ -145,7 +146,7 @@ nas_read/
   - Extract shapely geometry from OGR geometry (via `ExportToWkb` → `shapely.wkb.loads`)
   - Extract label from feature properties if available (e.g., `label`, `class_id`, `label_class_id`)
   - Extract UUID from feature `uid` property if available
-- **Raises**: `ValueError` if feature is not a Polygon (points not allowed in geojson-only mode)
+- **Raises**: `ValueError` with an informative message if feature geometry is not a Polygon, e.g.: `f"GeojsonPatchIterator only supports Polygon geometries, but feature FID={fid} has geometry type '{geom_type_name}'. Use CsvPatchIterator for point-based coordinates."`
 
 ### `CsvPatchIterator`
 - **Constructor**: `__init__(self, csv_path: str)`
@@ -174,18 +175,18 @@ nas_read/
 - Add optional field: `base_mag: float | None = None`
 
 ### Add new models
-- `ProcessCsvRequest(BaseModel)`:
-  - `csv_content: str` — base64-encoded or raw CSV content
 - `ProcessCsvResponse(BaseModel)`:
   - `task_id: str`
   - `status: str`
   - `message: str`
 
+> `ProcessCsvRequest` is **not** a Pydantic model — the CSV is received as a standard FastAPI `UploadFile` parameter directly on the endpoint.
+
 ---
 
 ## 5. `process_row` Ray Remote Function (`patchsorter/api/v1/upload/actor.py`)
 
-### `@ray.remote(max_concurrency=1)` function signature
+### `@ray.remote` function signature
 ```python
 def process_row(
     process_row_arg: ProcessRow,
@@ -194,38 +195,42 @@ def process_row(
 ) -> dict:
 ```
 
+> `max_concurrency` is **not** set — it is only meaningful on Ray actor classes, not on standalone remote functions.
+
 ### Execution flow
-1. **Get fsmanager**: `fsman = FileSystemManager()`
-2. **Get session path**: `session_path = fsman.upload_store` (UploadStore already scoped to session by UploadSessionActor)
-3. **Resolve image path**: `image_path = session_path.get_image_path(session_id, process_row_arg.image)`
-4. **Open image**: `ts = large_image.open(image_path)`
-5. **Determine base_mag**:
+1. **Get store manager**: `fsman = FileStoreManager()`
+2. **Resolve image path**: `image_path = fsman.upload_store.get_image_path(session_id, process_row_arg.image)`
+3. **Open image**: `ts = large_image.open(image_path)`
+4. **Determine base_mag**:
    - If `process_row_arg.base_mag` is provided → use it
-   - Else → extract from `ts.getMetadata()`
-   - Else → raise `ValueError("base_mag not provided and could not be extracted from image")`
-6. **Collect image metadata**:
+   - Else → extract from `ts.getMetadata().get("magnification")`
+   - Else → raise `ValueError("base_mag not provided and could not be extracted from image metadata")`
+5. **Collect image metadata**:
    - `base_mag`, `base_width`, `base_height` from `ts.getMetadata()`
-   - `deepzoom_tilesize` from `ts.getMetadata()["tilewidth"]` / `["tileheight"]`
-7. **Determine iterator** based on which files are present:
-   - `mask` present → `GeojsonPatchIterator`
-   - `csv` present only → `CsvPatchIterator`
+   - `deepzoom_tilesize` from `ts.getMetadata().get("tileWidth", 256)`
+6. **Determine iterator** based on which files are present:
+   - `mask` present, no `csv` → `GeojsonPatchIterator`
+   - `csv` present, no `mask` → `CsvPatchIterator`
    - Both present → `HybridPatchIterator`
-8. **Get database session**: `client = get_client()` → `with client.get_session() as session:`
-9. **Insert image record**: `ImageStore(session).create(...)` → get `image_id`
-10. **Determine patch extraction method**:
-    - Read project setting `patch_extraction_method` (enum: `"use estimated object size"`, `"use manual object radius"`, `"fit all objects"`)
-    - If `"use manual object radius"` → read project setting `object_radius` (microns)
-    - Compute downsample for each patch using `compute_downsample_factor` or per-polygon radius
-    - **Comment**: "In the future, this selection may be driven by a project-level setting rather than a hardcoded lookup"
+7. **Get database session**: `client = get_client()` → `with client.get_session() as session:`
+8. **Insert image record**: `result = ImageStore(session).create(...)` → `image_id = result["image_id"]`
+9. **Load settings** (passed in from `UploadSessionActor` — see section 6):
+   - `patch_size: int` — from project setting `patch_size`
+   - `patch_extraction_method: str` — from project setting `patch_extraction_method`
+   - `object_radius: float | None` — from project setting `object_radius` (required when method is `"use manual object radius"`)
+10. **Determine downsample strategy** from `patch_extraction_method`:
+    - `"use estimated object size"` → call `estimate_object_radius_from_polygons` on first 5 geometries from iterator, compute single downsample via `compute_downsample_factor`
+    - `"use manual object radius"` → use `object_radius` from settings, compute single downsample via `compute_downsample_factor`
+    - `"fit all objects"` → compute per-geometry downsample via `get_polygon_radius_in_pixels` inside the loop
 11. **Iterate patches**:
     ```python
-    for geometry, label, uuid in iterator:
-        computed_downsample = compute_downsample(...)
+    for geometry, label, patch_uuid in iterator:
+        computed_downsample = compute_downsample(...)  # single or per-patch
         patch_bytes = extract_patch_from_geometry(ts, geometry, patch_size, computed_downsample, base_mag)
-        records.append((uuid, label, image_id, computed_downsample, centroid_x, centroid_y, polygon_wkt, patch_bytes))
+        records.append((patch_uuid, label, image_id, computed_downsample, centroid_x, centroid_y, polygon_wkt, patch_bytes))
     ```
 12. **Bulk insert**: `PatchStore(project_id, session).copy_insert(records)`
-13. **Move image to permanent storage**: `fsman.move_to_permanent(session_id, project_id, image_id, image_filename)`
+13. **Move image to permanent storage**: `fsman.nas_write.move_to_permanent(session_id, project_id, image_id, image_filename)`
 14. **Return**: `{"image_id": image_id, "patch_count": len(records)}`
 
 ### Error handling
@@ -234,7 +239,35 @@ def process_row(
 
 ---
 
-## 6. `process` Method in `UploadSessionActor` (`patchsorter/api/v1/upload/actor.py`)
+## 6. `UploadSessionActor` updates (`patchsorter/api/v1/upload/actor.py`)
+
+### Actor class declaration
+```python
+@ray.remote(max_concurrency=2)
+class UploadSessionActor:
+```
+
+> `max_concurrency=2` allows `process()` to call `ray.get()` on remote tasks without deadlocking the actor's single execution slot.
+
+### Updated `__init__`
+- Remove `tempfile.TemporaryDirectory`
+- Instantiate `fsman = FileStoreManager()` and store as `self._fsman`
+- Call `self._fsman.upload_store.create_session_dirs(session_id)` to create the session directory structure on disk
+- Load project settings from the DB at actor startup:
+  ```python
+  with get_client().get_session() as session:
+      self._settings = SettingStore(session).get_project_settings(project_id)
+  ```
+  Store as `self._settings: dict` with keys: `patch_size`, `patch_extraction_method`, `object_radius`
+
+### Updated `__ray_shutdown__`
+- Replace `self._tmpdir.cleanup()` with `self._fsman.upload_store.cleanup_session(self._session_id)`
+
+### Updated `save_images` / `save_masks` / `save_patch_csvs`
+- Replace `os.path.join(self._tmpdir.name, subdir, filename)` with appropriate `UploadStore` path methods
+
+### Updated `validate_mixed` / `validate_image_csv`
+- Pass `self._fsman.upload_store.get_session_dir(self._session_id)` as the tmpdir argument instead of `self._tmpdir.name`
 
 ### Updated `process(self, paths: list[dict]) -> dict`
 ```python
@@ -242,18 +275,19 @@ def process(self, paths: list[dict]) -> dict:
     task_id = str(uuid.uuid4())
     process_rows = [ProcessRow(**p) for p in paths]
     try:
-        # Dispatch all tasks
+        # Dispatch all tasks, passing pre-loaded settings
         task_refs = [
-            process_row.remote(pr, self._project_id, self._session_id)
+            process_row.remote(pr, self._project_id, self._session_id, self._settings)
             for pr in process_rows
         ]
         # Block until all complete (any failure raises)
         results = ray.get(task_refs)
+        exit_actor()  # only exit on success
         return {
             "task_id": task_id,
             "status": "completed",
             "message": f"Processed {len(results)} image(s)",
-            "results": [r for r in results],
+            "results": results,
         }
     except Exception as e:
         return {
@@ -262,9 +296,9 @@ def process(self, paths: list[dict]) -> dict:
             "message": str(e),
             "results": [],
         }
-    finally:
-        exit_actor()
 ```
+
+> `exit_actor()` is called **only on success**. On failure the actor remains alive so the session can be inspected or retried by the caller.
 
 ---
 
@@ -280,7 +314,7 @@ def process(self, paths: list[dict]) -> dict:
 def process_upload_csv(
     project_id: int,
     session_id: str,
-    csv_file: UploadFile,
+    csv_file: UploadFile,  # standard FastAPI multipart file upload
 ) -> ProcessCsvResponse:
     """Stub: later to accept a validated CSV for CSV-only upload flow."""
     return ProcessCsvResponse(
@@ -290,13 +324,15 @@ def process_upload_csv(
     )
 ```
 
+> No separate request model is needed — the CSV arrives as a standard FastAPI `UploadFile` multipart parameter.
+
 ---
 
 ## Files to Create
 
 | File | Purpose |
 |------|---------|
-| `patchsorter/api/v1/upload/fsmanager.py` | File system path management, session/permanent storage, file moves |
+| `patchsorter/api/v1/upload/fsmanager.py` | File system path management via `FileStoreManager`, `NASWriteStore`, `NASReadStore`, `UploadStore` |
 | `patchsorter/api/v1/upload/patch_iterator.py` | `PatchIterator` ABC + `GeojsonPatchIterator`, `CsvPatchIterator`, `HybridPatchIterator` |
 
 ## Files to Modify
@@ -304,9 +340,11 @@ def process_upload_csv(
 | File | Change |
 |------|--------|
 | `patchsorter/utils/patch_extraction.py` | Mark existing code as deprecated; add `compute_downsample_factor`, `extract_patch_from_geometry`, `estimate_object_radius_from_polygons`, `get_polygon_radius_in_pixels` |
-| `patchsorter/api/v1/upload/models.py` | Add `base_mag` to `ProcessRow`; add `ProcessCsvRequest`, `ProcessCsvResponse` |
-| `patchsorter/api/v1/upload/actor.py` | Add `process_row` ray remote function; implement `process` method (blocking) |
+| `patchsorter/api/v1/upload/models.py` | Add `base_mag` to `ProcessRow`; add `ProcessCsvResponse` |
+| `patchsorter/api/v1/upload/actor.py` | Refactor to use `UploadStore` (remove `tempfile`); load settings in `__init__`; add `process_row` remote function; update `process` method |
 | `patchsorter/api/v1/upload/routes.py` | Add `process-csv` endpoint stub |
+| `patchsorter/config/constants.py` | Add `MOUNTS_PATH = os.path.join('/opt/PatchSorter', 'mounts')` |
+| `patchsorter/config/settings_defaults.toml` | Add `patch_extraction_method` (enum, project-scoped) and `object_radius` (string/float, project-scoped) settings |
 
 ---
 
@@ -314,18 +352,20 @@ def process_upload_csv(
 
 1. **Iterator responsibility**: Iterators yield `(geometry, label, uuid)` only — no patch extraction. Extraction happens in the calling loop after downsample is determined.
 
-2. **Downsample determination**: Driven by project setting `patch_extraction_method`:
-   - `"use estimated object size"`: Average polygon radius of first 5 features → single downsample for all patches. Raises error if geojson contains Points.
-   - `"use manual object radius"`: Uses project setting `object_radius` (microns) → single downsample for all patches.
-   - `"fit all objects"`: Per-polygon radius → per-patch downsample.
+2. **Settings loaded at actor startup**: `UploadSessionActor.__init__` fetches the project's settings from the DB once and stores them on `self._settings`. They are passed through to `process_row` as a plain dict to avoid redundant DB round-trips per image. New settings required in `settings_defaults.toml`:
+   - `patch_extraction_method` — enum, project-scoped, allowed values: `["use estimated object size", "use manual object radius", "fit all objects"]`, default `"use estimated object size"`
+   - `object_radius` — string (parsed as float at runtime), project-scoped, default `"10.0"` (microns)
 
-3. **Object radius to downsample formula**:
+3. **Downsample determination**: Driven by `patch_extraction_method` setting:
+   - `"use estimated object size"`: Average bounding-box radius of first 5 polygon geometries → single downsample for all patches. Raises error if geojson contains non-Polygon geometries.
+   - `"use manual object radius"`: Uses `object_radius` setting (microns) → single downsample for all patches.
+   - `"fit all objects"`: Per-polygon bounding-box radius → per-patch downsample.
    ```
    downsample = max(1.0, (2 * radius_microns) / (patch_size * mm_per_pixel_at_base * 1000) / base_mag)
    ```
 
-4. **UUID resolution in Hybrid mode**: CSV `uuid` column used as pandas index for O(1) lookup by geojson feature `uid`.
+4. **UUID resolution in Hybrid mode**: CSV `uuid` column used as pandas index for O(1) lookup by geojson feature `uid`. 
 
 5. **Blocking actor**: `ray.get()` on all `process_row` refs ensures any failure propagates and the entire upload session fails atomically.
 
-6. **Temp directory management**: UploadSessionActor creates and owns the temp directory lifecycle. process_row assumes the directory structure already exists and does not create or clean up temp directories.
+6. **Session directory management**: `UploadSessionActor.__init__` calls `UploadStore.create_session_dirs()` to create the session directory tree under `mounts/nas_write/tmp/upload_sessions/{session_id}/`. `process_row` assumes the structure exists. On success, `UploadSessionActor.process()` calls `exit_actor()` which triggers `__ray_shutdown__` → `UploadStore.cleanup_session()`. On failure, the session dir is left intact for debugging.
