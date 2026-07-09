@@ -139,31 +139,27 @@ def test_folder_mode_neither_label(tmp_path):
 
 
 def test_folder_mode_empty_image_folder(tmp_path):
-    """Empty image folder returns error."""
+    """Empty image folder raises Exception."""
     session = _create_session_dirs(tmp_path)
     empty_img = tmp_path / "empty_imgs"
     empty_img.mkdir()
 
-    result = _validate_mixed(
-        str(session),
-        image_folder=str(empty_img),
-    )
-
-    assert result["errors"] == 1
-    assert "No images found" in result["paths"][0]["error"]
+    with pytest.raises(Exception, match="No valid images found in image folder"):
+        _validate_mixed(
+            str(session),
+            image_folder=str(empty_img),
+        )
 
 
 def test_folder_mode_missing_image_folder(tmp_path):
-    """Non-existent image folder returns error."""
+    """Non-existent image folder raises Exception."""
     session = _create_session_dirs(tmp_path)
 
-    result = _validate_mixed(
-        str(session),
-        image_folder="/nonexistent/path",
-    )
-
-    assert result["errors"] == 1
-    assert "No images found" in result["paths"][0]["error"]
+    with pytest.raises(Exception, match="Image folder does not exist"):
+        _validate_mixed(
+            str(session),
+            image_folder="/nonexistent/path",
+        )
 
 
 def test_folder_mode_multiple_images_partial_labels(tmp_path):
@@ -533,7 +529,7 @@ def test_only_csv_folder_no_mask_folder(tmp_path):
 
 
 def test_both_folders_empty(tmp_path):
-    """Both folders exist but are empty — no images found."""
+    """Both folders exist but are empty — raises Exception for empty image folder."""
     session = _create_session_dirs(tmp_path)
     empty_img = tmp_path / "empty_img"
     empty_mask = tmp_path / "empty_mask"
@@ -542,15 +538,13 @@ def test_both_folders_empty(tmp_path):
     empty_mask.mkdir()
     empty_csv.mkdir()
 
-    result = _validate_mixed(
-        str(session),
-        image_folder=str(empty_img),
-        mask_folder=str(empty_mask),
-        patch_csv_folder=str(empty_csv),
-    )
-
-    assert result["errors"] == 1
-    assert "No images found" in result["paths"][0]["error"]
+    with pytest.raises(Exception, match="No valid images found in image folder"):
+        _validate_mixed(
+            str(session),
+            image_folder=str(empty_img),
+            mask_folder=str(empty_mask),
+            patch_csv_folder=str(empty_csv),
+        )
 
 
 def test_mixed_both_sources_same_stem(tmp_path):
@@ -576,34 +570,30 @@ def test_mixed_both_sources_same_stem(tmp_path):
     assert "server_masks" in img1["mask"]
 
 
-def test_nonexistent_mask_folder_ignored(tmp_path):
-    """Non-existent mask folder is silently ignored (not an error)."""
+def test_nonexistent_mask_folder_raises(tmp_path):
+    """Non-existent mask folder raises Exception."""
     session = _create_session_dirs(tmp_path)
     _write_image(session, "img1.tif")
     _write_mask(session, "img1")
 
-    result = _validate_mixed(
-        str(session),
-        mask_folder="/nonexistent/mask/folder",
-    )
-
-    assert result["errors"] == 0
-    assert result["paths"][0]["mask"] != ""
+    with pytest.raises(Exception, match="Mask folder does not exist"):
+        _validate_mixed(
+            str(session),
+            mask_folder="/nonexistent/mask/folder",
+        )
 
 
-def test_nonexistent_csv_folder_ignored(tmp_path):
-    """Non-existent CSV folder is silently ignored (not an error)."""
+def test_nonexistent_csv_folder_raises(tmp_path):
+    """Non-existent CSV folder raises Exception."""
     session = _create_session_dirs(tmp_path)
     _write_image(session, "img1.tif")
     _write_csv(session, "img1")
 
-    result = _validate_mixed(
-        str(session),
-        patch_csv_folder="/nonexistent/csv/folder",
-    )
-
-    assert result["errors"] == 0
-    assert result["paths"][0]["csv"] != ""
+    with pytest.raises(Exception, match="Patch CSV folder does not exist"):
+        _validate_mixed(
+            str(session),
+            patch_csv_folder="/nonexistent/csv/folder",
+        )
 
 
 def test_many_images_sorted(tmp_path):
@@ -618,3 +608,96 @@ def test_many_images_sorted(tmp_path):
     assert len(result["paths"]) == 3
     stems = [r["image"].split("/")[-1].replace(".tif", "") for r in result["paths"]]
     assert stems == sorted(stems)
+
+
+# ------------------------------------------------------------------
+# Missing/empty folder exception tests
+# ------------------------------------------------------------------
+
+
+def test_missing_image_folder_raises(tmp_path):
+    """Non-existent image_folder should raise Exception."""
+    session = _create_session_dirs(tmp_path)
+    _write_image(session, "img1.tif")
+
+    with pytest.raises(Exception, match="Image folder does not exist"):
+        _validate_mixed(
+            str(session),
+            image_folder="/nonexistent/image/folder",
+        )
+
+
+def test_empty_image_folder_raises(tmp_path):
+    """Image_folder with no valid images should raise Exception."""
+    session = _create_session_dirs(tmp_path)
+    server_img = tmp_path / "server_imgs"
+    server_img.mkdir(parents=True)
+    (server_img / "readme.txt").write_text("not an image")
+
+    with pytest.raises(Exception, match="No valid images found in image folder"):
+        _validate_mixed(
+            str(session),
+            image_folder=str(server_img),
+        )
+
+
+def test_missing_mask_folder_raises(tmp_path):
+    """Non-existent mask_folder should raise Exception."""
+    session = _create_session_dirs(tmp_path)
+    server_img = tmp_path / "server_imgs"
+    _write_server_file(server_img, "img1.tif")
+
+    with pytest.raises(Exception, match="Mask folder does not exist"):
+        _validate_mixed(
+            str(session),
+            image_folder=str(server_img),
+            mask_folder="/nonexistent/mask/folder",
+        )
+
+
+def test_empty_mask_folder_raises(tmp_path):
+    """Mask_folder with no .geojson files should raise Exception."""
+    session = _create_session_dirs(tmp_path)
+    server_img = tmp_path / "server_imgs"
+    server_mask = tmp_path / "server_masks"
+    _write_server_file(server_img, "img1.tif")
+    server_mask.mkdir(parents=True)
+    (server_mask / "readme.txt").write_text("not a mask")
+
+    with pytest.raises(Exception, match="No valid mask files found in mask folder"):
+        _validate_mixed(
+            str(session),
+            image_folder=str(server_img),
+            mask_folder=str(server_mask),
+        )
+
+
+def test_missing_csv_folder_raises(tmp_path):
+    """Non-existent patch_csv_folder should raise Exception."""
+    session = _create_session_dirs(tmp_path)
+    server_img = tmp_path / "server_imgs"
+    _write_server_file(server_img, "img1.tif")
+
+    with pytest.raises(Exception, match="Patch CSV folder does not exist"):
+        _validate_mixed(
+            str(session),
+            image_folder=str(server_img),
+            patch_csv_folder="/nonexistent/csv/folder",
+        )
+
+
+def test_empty_csv_folder_raises(tmp_path):
+    """Patch_csv_folder with no .csv files should raise Exception."""
+    session = _create_session_dirs(tmp_path)
+    server_img = tmp_path / "server_imgs"
+    server_csv = tmp_path / "server_csvs"
+    _write_server_file(server_img, "img1.tif")
+    server_csv.mkdir(parents=True)
+    (server_csv / "readme.txt").write_text("not a csv")
+
+    with pytest.raises(Exception, match="No valid patch CSV files found in patch CSV folder"):
+        _validate_mixed(
+            str(session),
+            image_folder=str(server_img),
+            patch_csv_folder=str(server_csv),
+        )

@@ -61,6 +61,17 @@ scope = "project"
 default = "64"
 type = "integer"
 
+[settings.patch_extraction_method]
+scope          = "project"
+default        = "use estimated object size"
+type           = "enum"
+allowed_values = ["use estimated object size", "use manual object radius", "fit all objects"]
+
+[settings.object_radius]
+scope   = "project"
+default = "10.0"
+type    = "string"
+
 # ---------------------------------------------------------------------------
 # Application-scoped settings
 # ---------------------------------------------------------------------------

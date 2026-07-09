@@ -32,6 +32,7 @@ class ProcessRow(BaseModel):
     image: str
     mask: str
     csv: str
+    base_mag: float | None = None
 
 
 class ValidateResponse(BaseModel):
@@ -44,6 +45,12 @@ class ProcessRequest(BaseModel):
 
 
 class ProcessResponse(BaseModel):
+    task_id: str
+    status: str
+    message: str
+
+
+class ProcessCsvResponse(BaseModel):
     task_id: str
     status: str
     message: str

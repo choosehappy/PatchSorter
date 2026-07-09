@@ -5,6 +5,16 @@ export type ClientOptions = {
 };
 
 /**
+ * Body_process_upload_csv
+ */
+export type BodyProcessUploadCsv = {
+    /**
+     * Csv File
+     */
+    csv_file: Blob | File;
+};
+
+/**
  * Body_upload_images
  */
 export type BodyUploadImages = {
@@ -249,6 +259,24 @@ export type PatchResponse = {
 };
 
 /**
+ * ProcessCsvResponse
+ */
+export type ProcessCsvResponse = {
+    /**
+     * Task Id
+     */
+    task_id: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
  * ProcessRequest
  */
 export type ProcessRequest = {
@@ -292,6 +320,10 @@ export type ProcessRow = {
      * Csv
      */
     csv: string;
+    /**
+     * Base Mag
+     */
+    base_mag?: number | null;
 };
 
 /**
@@ -1579,3 +1611,37 @@ export type ProcessUploadResponses = {
 };
 
 export type ProcessUploadResponse = ProcessUploadResponses[keyof ProcessUploadResponses];
+
+export type ProcessUploadCsvData = {
+    body: BodyProcessUploadCsv;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/projects/{project_id}/upload/{session_id}/process-csv/';
+};
+
+export type ProcessUploadCsvErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ProcessUploadCsvError = ProcessUploadCsvErrors[keyof ProcessUploadCsvErrors];
+
+export type ProcessUploadCsvResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProcessCsvResponse;
+};
+
+export type ProcessUploadCsvResponse = ProcessUploadCsvResponses[keyof ProcessUploadCsvResponses];

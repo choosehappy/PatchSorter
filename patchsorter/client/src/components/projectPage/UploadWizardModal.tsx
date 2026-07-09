@@ -144,6 +144,11 @@ export default function UploadWizardModal({
                         patch_csv_folder: isFolderByType['patch_csv'] ? pathsByType['patch_csv'] : '',
                     },
                 })
+                if (res.error) {
+                    const detail = (res.error as any)?.detail
+                    toast.error(detail ? `Validation error: ${detail}` : 'Failed to validate paths. Please check your input and try again.')
+                    return
+                }
                 if (!res.data) throw new Error('Validate failed')
                 response = res.data
             }
@@ -151,7 +156,8 @@ export default function UploadWizardModal({
             setReviewData(response.paths)
         } catch (err) {
             console.error('Review validation failed:', err)
-            toast.error('Failed to validate paths. Please check your input and try again.')
+            const detail = (err as any)?.detail ?? (err as any)?.response?.data?.detail
+            toast.error(detail ? `Validation error: ${detail}` : 'Failed to validate paths. Please check your input and try again.')
         } finally {
             setIsReviewLoading(false)
         }

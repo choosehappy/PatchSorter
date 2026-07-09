@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from .actor import UploadSessionActor
 from .models import (
     OpenSessionResponse,
+    ProcessCsvResponse,
     ProcessRequest,
     ProcessResponse,
     ReviewRow,
@@ -18,6 +19,13 @@ from .models import (
 )
 
 router = APIRouter()
+
+
+def _extract_ray_cause_message(exc: Exception) -> str:
+    """Unwrap Ray exceptions to get the root cause message."""
+    if exc.__class__.__name__ == "RayTaskError" and hasattr(exc, "cause") and exc.cause is not None:
+        return str(exc.cause)
+    return str(exc)
 
 
 def _get_actor(session_id: str) -> ray.actor.ActorHandle:
@@ -124,13 +132,17 @@ def validate_upload(
     request: ValidateRequest,
 ) -> ValidateResponse:
     actor = _get_actor(session_id)
-    result: dict = ray.get(
-        actor.validate_mixed.remote(
-            request.image_folder,
-            request.mask_folder,
-            request.patch_csv_folder,
+    try:
+        result: dict = ray.get(
+            actor.validate_mixed.remote(
+                request.image_folder,
+                request.mask_folder,
+                request.patch_csv_folder,
+            )
         )
-    )
+    except Exception as e:
+        detail = _extract_ray_cause_message(e)
+        raise HTTPException(status_code=404, detail=detail)
     return ValidateResponse(**result)
 
 
@@ -170,3 +182,21 @@ def process_upload(
         actor.process.remote([r.model_dump() for r in request.paths])
     )
     return ProcessResponse(**result)
+
+
+@router.post(
+    "/projects/{project_id}/upload/{session_id}/process-csv/",
+    response_model=ProcessCsvResponse,
+    operation_id="process_upload_csv",
+)
+def process_upload_csv(
+    project_id: int,
+    session_id: str,
+    csv_file: UploadFile,  # standard FastAPI multipart file upload
+) -> ProcessCsvResponse:
+    """Stub: later to accept a validated CSV for CSV-only upload flow."""
+    return ProcessCsvResponse(
+        task_id=str(uuid.uuid4()),
+        status="pending",
+        message="Not yet implemented",
+    )
