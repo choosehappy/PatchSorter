@@ -239,7 +239,8 @@ export default function UploadWizardModal({
             toast.success('Upload processing started successfully.')
         } catch (err) {
             console.error('Process failed:', err)
-            toast.error('Failed to start processing. Please try again.')
+            const detail = (err as any)?.detail ?? (err as any)?.response?.data?.detail
+            toast.error(detail ? `Processing error: ${detail}` : 'Failed to start processing. Please try again.')
         } finally {
             setIsProcessing(false)
         }
