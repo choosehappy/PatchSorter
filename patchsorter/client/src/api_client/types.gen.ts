@@ -302,6 +302,10 @@ export type ProcessResponse = {
      * Message
      */
     message: string;
+    /**
+     * Child Tasks
+     */
+    child_tasks?: Array<string>;
 };
 
 /**
@@ -1645,3 +1649,35 @@ export type ProcessUploadCsvResponses = {
 };
 
 export type ProcessUploadCsvResponse = ProcessUploadCsvResponses[keyof ProcessUploadCsvResponses];
+
+export type SearchRayTasksData = {
+    /**
+     * Ray Cluster Filters
+     */
+    body?: Array<Array<string>>;
+    path?: never;
+    query?: never;
+    url: '/task';
+};
+
+export type SearchRayTasksErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SearchRayTasksError = SearchRayTasksErrors[keyof SearchRayTasksErrors];
+
+export type SearchRayTasksResponses = {
+    /**
+     * Response Searchraytasks
+     *
+     * Successful Response
+     */
+    200: Array<{
+        [key: string]: unknown;
+    }>;
+};
+
+export type SearchRayTasksResponse = SearchRayTasksResponses[keyof SearchRayTasksResponses];

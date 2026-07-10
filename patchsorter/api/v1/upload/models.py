@@ -48,6 +48,7 @@ class ProcessResponse(BaseModel):
     task_id: str
     status: str
     message: str
+    child_tasks: list[str] = []
 
 
 class ProcessCsvResponse(BaseModel):

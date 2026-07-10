@@ -19,6 +19,7 @@ import StepUploadPatchCsv from './StepUploadPatchCsv'
 import StepUploadFileList from './StepUploadFileList'
 import StepReview from './StepReview'
 import StepComplete from './StepComplete'
+import TaskChildrenGrid from './TaskChildrenGrid'
 import './UploadWizardModal.css'
 
 // ---------------------------------------------------------------------------
@@ -113,6 +114,7 @@ export default function UploadWizardModal({
     const [isReviewLoading, setIsReviewLoading] = useState(false)
     const [isProcessing, setIsProcessing] = useState(false)
     const [isUploading, setIsUploading] = useState(false)
+    const [childTaskId, setChildTaskId] = useState<string | null>(null)
 
     // Notify parent when session is created
     useEffect(() => {
@@ -235,6 +237,9 @@ export default function UploadWizardModal({
                 body: { paths: okRows.map(r => ({ image: r.image, mask: r.mask, csv: r.csv })) },
             })
             if (!res.data) throw new Error('Process failed')
+            if (res.data.child_tasks?.length) {
+                setChildTaskId(res.data.child_tasks[0])
+            }
             nextStep()
             toast.success('Upload processing started successfully.')
         } catch (err) {
@@ -388,6 +393,18 @@ export default function UploadWizardModal({
                 {/* Step 6: complete */}
                 {currentStep === Step.Complete && <StepComplete />}
             </Modal.Body>
+
+            {/* Task state polling (shown during processing) */}
+            {childTaskId && (
+                <Modal.Body className="pt-0">
+                    <TaskChildrenGrid
+                        parentTaskId={childTaskId}
+                        onCompletion={() => {
+                            setChildTaskId(null)
+                        }}
+                    />
+                </Modal.Body>
+            )}
 
             {currentFlow.length > 0 && (
                 <Modal.Footer>

@@ -178,10 +178,14 @@ def process_upload(
     request: ProcessRequest,
 ) -> ProcessResponse:
     actor = _get_actor(session_id)
-    result: dict = ray.get(
-        actor.process.remote([r.model_dump() for r in request.paths])
+    path_dicts = [r.model_dump() for r in request.paths]
+    result: dict = ray.get(actor.process.remote(path_dicts))
+    return ProcessResponse(
+        task_id=result["task_id"],
+        status=result["status"],
+        message=result["message"],
+        child_tasks=result.get("child_tasks", []),
     )
-    return ProcessResponse(**result)
 
 
 @router.post(

@@ -12,6 +12,7 @@ from .patch.routes import router as patch_router
 from .project.routes import router as project_router
 from .settings.routes import router as settings_router
 from .upload.routes import router as upload_router
+from .ray.routes import router as ray_router
 
 log = logging.getLogger(__name__)
 
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(image_router)
     app.include_router(export_router)
     app.include_router(upload_router)
+    app.include_router(ray_router)
 
     # Global session managers are lazily constructed by the package getters
     # (get_head_session_manager / get_worker_session_manager) when needed.

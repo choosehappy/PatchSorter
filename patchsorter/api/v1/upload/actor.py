@@ -6,7 +6,7 @@ import os
 import uuid
 from pathlib import Path
 from typing import List
-from ray.actor import exit_actor
+from typing import List
 import ray
 import large_image
 
@@ -420,10 +420,11 @@ class UploadSessionActor:
     # ------------------------------------------------------------------
 
     def process(self, paths: list[dict]) -> dict:
-        """Start processing for validated paths.
+        """Dispatch process_row Ray tasks for each path.
 
-        Dispatches process_row Ray tasks for each path and blocks until
-        all complete. Any failure causes the entire upload session to fail.
+        Returns the task_id and child task IDs without blocking on results.
+        The caller should poll ray.state.state.list_tasks() with
+        parent_task_id filter to track progress.
         """
         task_id = str(uuid.uuid4())
         process_rows = [ProcessRow(**p) for p in paths]
@@ -433,19 +434,17 @@ class UploadSessionActor:
                 process_row.remote(pr, self._project_id, self._session_id, self._settings)
                 for pr in process_rows
             ]
-            # Block until all complete (any failure raises)
-            results = ray.get(task_refs)
-            exit_actor()  # only exit on success
+            child_task_ids = [ref.hex for ref in task_refs]
             return {
                 "task_id": task_id,
-                "status": "completed",
-                "message": f"Processed {len(results)} image(s)",
-                "results": results,
+                "status": "dispatched",
+                "message": f"Dispatched {len(child_task_ids)} task(s)",
+                "child_tasks": child_task_ids,
             }
         except Exception as e:
             return {
                 "task_id": task_id,
                 "status": "failed",
                 "message": str(e),
-                "results": [],
+                "child_tasks": [],
             }
