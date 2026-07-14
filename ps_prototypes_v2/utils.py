@@ -31,10 +31,10 @@ from collections import Counter, defaultdict
 
 import torch
 from torch.utils.data import DataLoader, Dataset
-import itertools
+
 
 import random
-
+import time
 
 class InfiniteDataset(Dataset):
     def __init__(self, dataset):
@@ -50,13 +50,6 @@ class InfiniteDataset(Dataset):
         # This gives you "shuffling" even in an infinite loop
         random_idx = random.choice(self.indices)
         return self.dataset[random_idx]
-
-
-import torch
-
-import torch
-
-import torch
 
 
 import torch
@@ -189,6 +182,7 @@ class LabeledRateTracker:
         self.class_freq.share_memory_()
         self.pseudo_class_freq = torch.zeros(nclasses, dtype=torch.float32, device=self.device)
         self.pseudo_class_freq.share_memory_()
+        self.num_updates = 0 
 
     def _update_class_weights(
         self, labels: torch.Tensor, store: torch.Tensor
@@ -227,6 +221,7 @@ class LabeledRateTracker:
         valid_labels = labels[labels >= 0]
         label_freq = None
         if len(valid_labels) > 0:
+            self.num_updates +=1
             new_weights, label_freq = self._update_class_weights(
                 valid_labels, self.class_freq
             )
@@ -894,7 +889,7 @@ def semantic_head_loss(coords, labels, margin=0.5):
     labels = labels[labeled_mask]
 
     if coords.shape[0] < 2:
-        return torch.tensor(0.0, device=device), torch.tensor(0.0, device=device), torch.tensor(0.0, device=device)
+        return torch.tensor(0.0, device=device), torch.tensor(0.0, device=device)
 
     # Pairwise distance matrix
     dists = torch.cdist(coords, coords)  # [B_labeled, B_labeled]
@@ -1516,3 +1511,49 @@ class AdaptiveThreshold:
 
         per_sample_thresh = thresholds[preds]
         return probs >= per_sample_thresh
+
+
+def compute_weighting_scores(ids,labels,proj_emb,class_weights,nbase_ids):
+     # 1. Create mask for labeled items
+    labeled_mask = labels >= 0 #TODO: technically this can be relaxed to include either psuedo labels or even all patches
+                                #and have them ranked by rarity and not a combination of label + rarity (receiving at most 50% of the score due to weighting)
+                                # but this has a consequence on the DB pull, since then we populate the partial index column with scores which can totall kill performance
+                                # at least for the time being, i would leave this to focus specifically on enriching for truely labeled patches
+
+
+    labeled_mask[nbase_ids:] = False #only consider the first view
+    if not labeled_mask.any():
+        return None, None
+
+
+    
+    # 2. Extract only labeled elements for the query subset, labels, and ids
+    queries = proj_emb[labeled_mask]
+    labeled_labels = labels[labeled_mask]
+    labeled_ids = ids[labeled_mask[0:ids.shape[0]].cpu()]
+
+    # 3. Compute distance of labeled queries against ALL proj_embs
+    # dists shape: [num_labeled, num_all]
+    dists = torch.cdist(queries, proj_emb)
+    
+    # Neighbor count cannot exceed total available database elements (num_all - 1)que    k = min(K_NEIGHBORS, dists.shape[1] - 1)
+    k = min(K_NEIGHBORS, dists.shape[1] - 1)
+
+    # Find the top k nearest neighbors. 
+    # Since queries are a subset of proj_emb, the query item itself will be in the database 
+    # with a distance of 0.0. We grab k + 1 neighbors to skip that self-distance.
+    knn_dists, _ = torch.topk(dists, k=k + 1, dim=1, largest=False)
+    
+    # knn_dists[:, 0] is the distance to itself (0.0). We slice [:, 1:] to get actual neighbors.
+    knn_dists_squared = knn_dists[:, 1:] ** 2
+    spatial_rarity = (knn_dists_squared / 2.0).mean(dim=1)
+    spatial_rarity_normalized = torch.clamp(spatial_rarity, min=0.0, max=1.0).cpu()
+
+    # 4. Extract class weights for labeled classes
+    class_rarity = class_weights[labeled_labels.cpu()]
+
+    
+    combined_rarity = (GT_SPATIAL_RARITY_ALPHA * spatial_rarity_normalized) + (GT_CLASS_RARITY_ALPHA * class_rarity)
+    
+    return labeled_ids, combined_rarity
+

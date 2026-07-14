@@ -29,7 +29,6 @@ import atexit
 from save_utils import save_models_checkpoint, load_models_checkpoint
 from utils_profile import start_profiler
 
-import tables
 import numpy as np
 
 torch.set_float32_matmul_precision('high')
@@ -59,8 +58,8 @@ dataloader = DataLoader(
     num_workers=NWORKERS_BASE,
     pin_memory=True,
     drop_last=True,
-    persistent_workers=True,
-    prefetch_factor=4, #UNCOMMENT
+    # persistent_workers=True,
+    # prefetch_factor=4, #UNCOMMENT
 )
 # prefetcher = cuda_prefetc[her(dataloader)
 vram_prefetcher = threaded_vram_prefetcher(dataloader, buffer_size=4, device=DEVICE) #UNCOMMENT
@@ -77,8 +76,6 @@ if GT_ENRICHMENT > 0:
         nviews=NVIEWS,
         batch_size=candidate_batch_size,
         pool_size=GT_POOL_SIZE,
-        label_tracker=label_tracker,
-        score_writer_factory=lambda: ScoreWriter(DATA_DB_PATH, DATA_DB_TABLE),
         refresh_every_batches=GT_POOL_UPDATE_INTERVAL,
     )
     # batch_size=None: the dataset yields already-collated batches itself,
@@ -92,7 +89,7 @@ if GT_ENRICHMENT > 0:
 
 candidate_iter_holder = [iter(candidate_loader)] if candidate_loader is not None else [None] #TODO: there is probably a way to use the vram_prefeather here, but not sure its worth it so won't opitmize until proven needed
 
-
+score_writer = ScoreWriter(DATA_DB_PATH, DATA_DB_TABLE)
 
 #
 # ------------------------
@@ -265,6 +262,7 @@ for _ in range(10_000):
             *base_views, base_labels, base_orig, base_ids = batch_data
             base_labels = base_labels.long().to(DEVICE, non_blocking=True)
             base_views_gpu = [v.to(DEVICE, non_blocking=True) for v in base_views]
+            nbase_ids = len(base_ids)
 
             # 3. Unpack & Ship Candidate Batch directly to GPU
             if cand_batch is not None:
@@ -365,13 +363,13 @@ for _ in range(10_000):
             #repulsion_loss_val = repulsion_loss(proj_coords, margin=REPULSION_MARGIN)
             repulsion_loss_val = torch.tensor(0.0, device=DEVICE)  
 
-            semantic_coord_attr_loss, semantic_coord_repel_loss = semantic_head_loss(proj_coords / GRID_SIZE, labels, margin=.05, k_neighbors=10)
+            semantic_coord_attr_loss, semantic_coord_repel_loss = semantic_head_loss(proj_coords / GRID_SIZE, labels, margin=.05 )
             semantic_coord_loss = (semantic_coord_attr_loss + semantic_coord_repel_loss)  # report seperately
 
             #proj_emb_norm = F.normalize(proj_emb, dim=1 )  # projects onto unit hypersphere
             proj_emb_norm = proj_emb #normalization was done above --- not name refactoring yet
 
-            semantic_emb_attr_loss, semantic_emb_repel_loss = semantic_head_loss(proj_emb_norm, labels, margin=0.5, k_neighbors=10) #TODO: use this rarity score to better weight points
+            semantic_emb_attr_loss, semantic_emb_repel_loss = semantic_head_loss(proj_emb_norm, labels, margin=0.5) #TODO: use this rarity score to better weight points
             
             semantic_emb_loss = (semantic_emb_attr_loss + semantic_emb_repel_loss)  # report seperately
 
@@ -382,7 +380,7 @@ for _ in range(10_000):
             # pseudo_pred_loss, pred_labels, high_conf = prediction_loss_pseudo_sce(pred_logits,labels,pseudo_class_weights=None,
             #                                                                   views_per_patch=NVIEWS)  # i don't think we want psudo class weights
 
-            if class_weights is not None: #i think we should only do the pseudo if there is actually some class information? in psv1 - this was done via kmeans
+            if sum(label_tracker.class_freq)>0 and label_tracker.num_updates > NBATCH_PSEUDO_WARMUP: 
                 pseudo_class_weights = label_tracker.get_class_weights(pseudo=True)
 
                 pseudo_pred_loss, pred_labels, high_conf = prediction_loss_pseudo_sce_adaptive(pred_logits,labels,adaptive_thresh,
@@ -390,29 +388,16 @@ for _ in range(10_000):
             else:
                 pseudo_pred_loss, pred_labels, high_conf = torch.tensor(0.0, device=DEVICE), torch.zeros_like(labels), torch.zeros_like(labels, dtype=torch.bool)
             
-            labeled_rate, num_label, num_pseudo = label_tracker.update(
-                labels, pred_labels[high_conf] if high_conf is not None else None
+            labeled_rate, num_label, num_pseudo = label_tracker.update(  
+                labels[0:nbase_ids], pred_labels[high_conf] if high_conf is not None else None
             )  # update with current batch's true and pseudo labels
 
-
+            #update DB score
             with torch.no_grad():
-                dists = torch.cdist(proj_emb,proj_emb)
-                # --- Compute Rarity Scores (Method 1) ---
-                k = min(K_NEIGHBORS, dists.shape[0] - 1)
-                knn_dists, _ = torch.topk(dists, k=k + 1, dim=1, largest=False)
-                spatial_rarity = knn_dists[:, 1:].mean(dim=1) 
-
-
-                # score_updater --- accepts parameters for the different weightints on initislaization
-                # also this functionality here also allows for sampling of non-labeled patches that have a >0 score - which enables spatial rarity
-                #sample_scores=score_updater.compute_score(spatial_rarity,class_weights,labels)
-                #score_updater.enqueue(ids,sample_scores)
-
-                # rarity_scores[0:B].shape
-                # torch.Size([1032])
-                # ids.shape
-                # torch.Size([1032])
-
+                ids_update, scores_update= compute_weighting_scores(ids,labels,proj_emb,label_tracker.get_class_weights(),nbase_ids)
+                print(ids_update,scores_update)
+                if ids_update is not None:
+                    score_writer.enqueue(ids_update+1, niter_total + scores_update) #NOTE: VERY IMPORTANT - IDs are shifted by 1 here because the DB starts at 1 and not at zero, unlike the dataloader
 
             total_loss = (
                 COORD_CONSITENCY_LOSS * coord_consistency_loss
@@ -439,8 +424,7 @@ for _ in range(10_000):
             scaler.step(optimizer)
             scaler.update()
 
-            # mem_bank.add_candidates(z_batch.detach(), proj_coords.detach()) #___COMMENTED OUT
-            #mem_bank.age_all()
+
 
             if niter_total % LOG_EVERY == 0:
                 log_embedding_histograms(writer, proj_emb, niter_total)

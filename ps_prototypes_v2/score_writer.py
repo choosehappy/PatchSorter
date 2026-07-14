@@ -4,6 +4,7 @@ import sqlite3
 import threading
 import time
 from queue import Queue
+import torch
 
 from configs import GT_DB_UPDATE_BATCH, GT_DB_UPDATE_INTERVAL
 
@@ -25,26 +26,27 @@ class ScoreWriter:
         conn.execute("PRAGMA journal_mode=WAL;")
         return conn
 
-    def enqueue(self, row_id_or_ids: int | list[int], score_or_scores: float | list[float]) -> None:
-            """Enqueue score update(s) (non-blocking).
 
-            Accepts either:
-            - a single (row_id, score) pair, or
-            - parallel lists (row_ids, scores) for bulk enqueueing.
-            """
-            if isinstance(row_id_or_ids, (list, tuple)):
-                row_ids = row_id_or_ids
-                scores = score_or_scores
-                if not isinstance(scores, (list, tuple)):
-                    raise TypeError("scores must be a list/tuple when row_id_or_ids is a list/tuple")
-                if len(row_ids) != len(scores):
-                    raise ValueError(
-                        f"row_ids and scores must be the same length, got {len(row_ids)} and {len(scores)}"
-                    )
-                for row_id, score in zip(row_ids, scores):
-                    self.queue.put((row_id, score))
-            else:
-                self.queue.put((row_id_or_ids, score_or_scores))
+
+    def enqueue(self, row_ids: torch.Tensor, scores: torch.Tensor) -> None:
+        """Enqueue score update(s) (non-blocking).
+        
+        Expects both inputs to be PyTorch Tensors (1D or 0D).
+        """
+        # 1. Bring to CPU once (no-op if already on CPU)
+        row_ids = row_ids.cpu()
+        scores = scores.cpu()
+
+        # 2. Handle single-item (0-D / scalar) tensors instantly
+        if row_ids.ndim == 0:
+            self.queue.put((row_ids.item(), scores.item()))
+            return
+
+        # 3. Fast bulk enqueue
+        # Extracting the underlying numpy storage is a zero-copy view.
+        # .tolist() on 1D CPU tensors is highly optimized in C++.
+        for r_id, scr in zip(row_ids.tolist(), scores.tolist()):
+            self.queue.put((r_id, scr))
 
     def _flush_batch(self) -> None:
         """Flush accumulated batch to DB using executemany UPSERT."""
@@ -54,7 +56,7 @@ class ScoreWriter:
         try:
             with self._get_connection() as conn:
                 conn.executemany(
-                    f"UPDATE {self.table_name} SET score = ? WHERE id = ?",
+                    f"UPDATE {self.table_name} SET score_timestamp = ? WHERE id = ?",
                     [(score, row_id) for row_id, score in self._batch],
                 )
                 conn.commit()

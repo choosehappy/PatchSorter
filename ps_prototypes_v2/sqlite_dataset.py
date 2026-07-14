@@ -4,6 +4,7 @@ import io
 import sqlite3
 from typing import Any
 
+import time
 import numpy as np
 import torch
 from albumentations.pytorch import ToTensorV2
@@ -12,10 +13,8 @@ from torch.utils.data._utils.collate import default_collate
 
 from configs import (
     GT_POOL_SIZE,
-    GT_RARITY_ALPHA,
     GT_SCORE_DECAY,
-    GT_SCORE_INIT,
-    GT_SCORE_MIN,
+    GT_SCORE_IN_MEMORY_DECAY,
 )
 from score_writer import ScoreWriter
 
@@ -75,24 +74,22 @@ class SQLiteDataset:
             cursor = conn.cursor()
             cursor.execute(f"PRAGMA table_info({self.table_name})")
             columns = [row[1] for row in cursor.fetchall()]
-            if "score" not in columns:
+            if "score_timestamp" not in columns:
                 conn.execute(
-                    f"ALTER TABLE {self.table_name} ADD COLUMN score REAL DEFAULT {GT_SCORE_INIT}"
+                    f"ALTER TABLE {self.table_name} ADD COLUMN score_timestamp REAL DEFAULT NULL"
                 )
-            cursor.execute(f"UPDATE {self.table_name} SET score = NULL") ##NOTE: This is only done for building/testing the system - in production we definitely want to keep the score
+            cursor.execute(f"UPDATE {self.table_name} SET score_timestamp = NULL") ##NOTE: This is only done for building/testing the system - in production we definitely want to keep the score
 
             if "tmp_label" not in columns:
                 conn.execute(
                     f"ALTER TABLE {self.table_name} ADD COLUMN tmp_label INTEGER DEFAULT -1"
                 )
 
-            cursor.execute(f"UPDATE {self.table_name} SET score = ? WHERE tmp_label != -1",(GT_SCORE_INIT,),)  #NOTE: set a default score in case it wasn't done else where. when setting the GT label - we need to set the score
-
             conn.execute(
                 f"""
-                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_score_positive
-                ON {self.table_name} (score)
-                WHERE score > 0
+                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_score_timestamp_positive
+                ON {self.table_name} (score_timestamp)
+                WHERE score_timestamp > 0
                 """
             )
             conn.execute(
@@ -161,15 +158,10 @@ class GTCandidatePool:
         self,
         fname: str,
         table_name: str = "mitosis_patches",
-        pool_size: int = GT_POOL_SIZE,
-        label_tracker: Any | None = None,
-        score_writer: ScoreWriter | None = None,
-    ):
+        pool_size: int = GT_POOL_SIZE):
         self.fname = fname
         self.table_name = table_name
         self.pool_size = int(pool_size)
-        self.label_tracker = label_tracker
-        self.score_writer = score_writer
         self._conn: sqlite3.Connection | None = None
 
         self._candidate_index: dict[int, int] = {}
@@ -209,21 +201,43 @@ class GTCandidatePool:
     def _load_candidate_pool(self) -> None:
         with self._get_connection() as conn:
             cursor = conn.cursor()
+
             cursor.execute(
-                f"SELECT id, tmp_label, score FROM {self.table_name} "
-                f"WHERE score is not NULL ORDER BY score DESC LIMIT ?", 
-                (self.pool_size,),
+                f"""
+                SELECT 
+                    id, 
+                    tmp_label, 
+                    score_timestamp,
+                    -- Self-contained decay calculation: scales automatically to the maximum step in the DB
+                    (
+                        (score_timestamp - CAST(score_timestamp AS INT)) 
+                        * 
+                        MAX(0.0001, EXP(-:decay * (
+                            (SELECT COALESCE(MAX(CAST(score_timestamp AS INT)), 0) FROM {self.table_name}) 
+                            - CAST(score_timestamp AS INT)
+                        )))
+                    ) AS computed_sorting_score
+                FROM {self.table_name}
+                WHERE score_timestamp IS NOT NULL
+                ORDER BY computed_sorting_score DESC
+                LIMIT :limit
+                """,
+                {
+                    "decay": GT_SCORE_DECAY, 
+                    "limit": self.pool_size
+                }
             )
+
             rows = cursor.fetchall()
-/
+            
             self._candidate_count = len(rows)
 
             if rows:
-                row_ids, tmp_labels, scores = zip(*rows)
+                row_ids, tmp_labels, _, computed_sorting_score = zip(*rows)
                 row_ids_arr = np.array(row_ids, dtype=np.int64)
 
                 labels_arr = np.array([int(l) if l is not None else -1 for l in tmp_labels], dtype=np.int64)
-                scores_arr = np.array([float(s) if s is not None else GT_SCORE_INIT for s in scores], dtype=np.float64)
+                scores_arr = np.array([float(s) if s is not None else 0 for s in computed_sorting_score], dtype=np.float64) #AJ - TODO: CORRECT SCORES
 
                 self._candidate_ids[: self._candidate_count] = row_ids_arr
                 self._candidate_labels[: self._candidate_count] = labels_arr
@@ -233,41 +247,12 @@ class GTCandidatePool:
             else:
                 self._candidate_index = {}
 
-            if self._candidate_count > 0:
-                rarity_factors = self._get_rarity_factors()
-                weights = self._candidate_scores[: self._candidate_count] * rarity_factors
-                np.maximum(weights, GT_SCORE_MIN, out=weights)
-                self._candidate_weights[: self._candidate_count] = weights
-
     def refresh(self) -> None:
         """Reload the top-K scored labeled items from SQLite. Safe to call at
         any point, including mid-epoch - it only mutates this object's own
         arrays, never anything a DataLoader/sampler has committed to."""
         self._load_candidate_pool()
 
-    def _get_rarity_factors(self) -> np.ndarray: #AJ: --- refactor this. i think it should basically be class_Weight * 
-        if self._candidate_count == 0:
-            return np.empty(0, dtype=np.float64)
-
-        tracker = self.label_tracker
-        if tracker is None:
-            return np.ones(self._candidate_count, dtype=np.float64)
-
-        class_weight = tracker.get_class_weights().cpu().numpy().astype(np.float64)
-
-        labels = self._candidate_labels[: self._candidate_count].astype(np.int64)
-        factors = np.ones(self._candidate_count, dtype=np.float64)
-        positive = labels >= 0
-        if positive.any():
-            valid_labels = labels[positive]
-            valid_labels = np.where(valid_labels < class_weight.shape[0], valid_labels, -1)
-            factors[positive] = np.where(
-                valid_labels >= 0,
-                class_weight[valid_labels],
-                1.0,
-            )
-
-        return factors
 
     def draw_batch(self, n: int) -> list[tuple[int, int, float, int]]:
         """Weighted sample of n DISTINCT candidates (without replacement)
@@ -280,7 +265,7 @@ class GTCandidatePool:
             return []
 
         n = min(n, self._candidate_count)
-        weights = self._candidate_weights[: self._candidate_count]
+        weights = self._candidate_scores[: self._candidate_count]
         if not np.isfinite(weights).all() or weights.sum() <= 0:
             order = np.random.choice(self._candidate_count, size=n, replace=False)
         else:
@@ -297,15 +282,9 @@ class GTCandidatePool:
             for idx in order
         ]
 
-    def update_score(self, row_id: int, candidate_idx: int, old_score: float, current_label: int) -> None:
-        new_score = max(old_score * GT_SCORE_DECAY, GT_SCORE_MIN)
-
+    def decay_in_memory_score(self, candidate_idx: int) -> None:
         if candidate_idx >= 0:
-            self._candidate_labels[candidate_idx] = current_label
-            self._candidate_scores[candidate_idx] = new_score
-
-        if self.score_writer is not None:
-            self.score_writer.enqueue(row_id, new_score)
+            self._candidate_scores[candidate_idx] *= GT_SCORE_IN_MEMORY_DECAY
 
 
 # ---------------------------------------------------------------------------
@@ -333,8 +312,6 @@ class CandidatePoolIterableDataset(IterableDataset):
         nviews: int,
         batch_size: int,
         pool_size: int = GT_POOL_SIZE,
-        label_tracker: Any | None = None,
-        score_writer_factory: Any | None = None,
         refresh_every_batches: int = 1,
         
     ):
@@ -347,21 +324,13 @@ class CandidatePoolIterableDataset(IterableDataset):
         self.nviews = nviews
         self.batch_size = batch_size
         self.pool_size = pool_size
-        self.label_tracker = label_tracker
-        self.score_writer_factory = score_writer_factory
+
         self.refresh_every_batches = max(1, refresh_every_batches)
         self.device = device
 
     def __iter__(self) -> Any:
         base = SQLiteDataset(self.fname, self.table_name, nviews=self.nviews, transforms=self.transforms)
-        score_writer = self.score_writer_factory() if self.score_writer_factory is not None else None
-        pool = GTCandidatePool(
-            self.fname,
-            self.table_name,
-            pool_size=self.pool_size,
-            label_tracker=self.label_tracker,
-            score_writer=score_writer,
-        )
+        pool = GTCandidatePool(self.fname,self.table_name,pool_size=self.pool_size)
 
         batches_since_refresh = 0
         while True:
@@ -375,7 +344,7 @@ class CandidatePoolIterableDataset(IterableDataset):
             items = []
             for row_id, old_label, old_score, candidate_idx in picks:
                 anchor, *views, label, orig, _ = base[row_id - 1]
-                pool.update_score(row_id, candidate_idx, old_score, label)
+                pool.decay_in_memory_score(candidate_idx) 
                 items.append((anchor, *views, label, orig, row_id - 1))
 
             yield default_collate(items)
@@ -385,120 +354,3 @@ class CandidatePoolIterableDataset(IterableDataset):
                 pool.refresh()
                 batches_since_refresh = 0
 
-
-# ---------------------------------------------------------------------------
-# Batch concatenation helper. Both loaders share the same tuple structure
-# (anchor, *views, label, orig, idx) since both wrap the same base dataset /
-# nviews setting - just concat each field along dim 0.
-# ---------------------------------------------------------------------------
-# def concat_batches(base_batch: tuple, cand_batch: tuple) -> tuple:
-#     if len(base_batch) != len(cand_batch):
-#         raise ValueError(
-#             f"Batch structure mismatch: base has {len(base_batch)} fields, "
-#             f"candidate has {len(cand_batch)} fields. Check nviews matches on both datasets."
-#         )
-
-#     merged = []
-#     for b_field, c_field in zip(base_batch, cand_batch):
-#         if b_field is None and c_field is None:
-#             merged.append(None)
-#         elif torch.is_tensor(b_field) and torch.is_tensor(c_field):
-#             merged.append(torch.cat([b_field, c_field], dim=0))
-#         elif isinstance(b_field, np.ndarray) and isinstance(c_field, np.ndarray):
-#             merged.append(np.concatenate([b_field, c_field], axis=0))
-#         else:
-#             # Fall back to default_collate-style concatenation via list + re-collate
-#             merged.append(default_collate(list(b_field) + list(c_field)))
-#     return tuple(merged)
-
-
-# # ---------------------------------------------------------------------------
-# # Example wiring.
-# # ---------------------------------------------------------------------------
-# def build_loaders(
-#     fname: str,
-#     table_name: str,
-#     transforms,
-#     nviews: int,
-#     batch_size: int,
-#     enrichment_rate: float,
-#     pool_size: int = GT_POOL_SIZE,
-#     label_tracker: Any | None = None,
-#     score_writer_factory: Any | None = None,
-#     num_workers: int = 4,
-#     candidate_num_workers: int = 2,
-#     refresh_every_batches: int = 1,
-# ) -> tuple[DataLoader, DataLoader | None]:
-#     base_dataset = SQLiteDataset(fname, table_name, nviews=nviews, transforms=transforms)
-#     base_loader = DataLoader(
-#         base_dataset,
-#         batch_size=batch_size,
-#         shuffle=True,
-#         num_workers=num_workers,
-#     )
-
-#     candidate_loader = None
-#     if enrichment_rate > 0:
-#         candidate_batch_size = max(1, round(batch_size * enrichment_rate))
-#         candidate_dataset = CandidatePoolIterableDataset(
-#             fname,
-#             table_name,
-#             transforms=transforms,
-#             nviews=nviews,
-#             batch_size=candidate_batch_size,
-#             pool_size=pool_size,
-#             label_tracker=label_tracker,
-#             score_writer_factory=score_writer_factory,
-#             refresh_every_batches=refresh_every_batches,
-#         )
-#         # batch_size=None: the dataset yields already-collated batches itself,
-#         # so DataLoader does no further batching - it just gives us the
-#         # standard multi-worker prefetching/double-buffering for free.
-#         candidate_loader = DataLoader(
-#             candidate_dataset,
-#             batch_size=None,
-#             num_workers=candidate_num_workers,
-#         )
-
-#     return base_loader, candidate_loader
-
-
-# def train_one_epoch(
-#     base_loader: DataLoader,
-#     candidate_loader: DataLoader | None,
-#     train_step,
-#     candidate_iter_holder: list,
-# ) -> None:
-#     # candidate_iter_holder is a 1-element list acting as a mutable box, so
-#     # the SAME iterator (and therefore the SAME long-lived worker processes)
-#     # persists across calls to train_one_epoch, instead of being torn down
-#     # and respawned every epoch. Build it once before the training loop:
-#     #   candidate_iter_holder = [iter(candidate_loader)] if candidate_loader else [None]
-#     for base_batch in base_loader:
-#         batch = base_batch
-
-#         if candidate_iter_holder[0] is not None:
-#             cand_batch = next(candidate_iter_holder[0])
-#             batch = concat_batches(base_batch, cand_batch)
-
-#         train_step(batch)
-
-
-# """
-# Usage:
-
-#     base_loader, candidate_loader = build_loaders(
-#         fname, table_name, transforms, nviews, batch_size,
-#         enrichment_rate=0.1,
-#         score_writer_factory=lambda: ScoreWriter(fname, table_name),
-#         num_workers=4, candidate_num_workers=2,
-#     )
-
-#     # Built ONCE, outside the epoch loop, so candidate_loader's worker
-#     # processes stay alive for the whole run rather than respawning every
-#     # epoch (respawning is harmless correctness-wise, just wasteful).
-#     candidate_iter_holder = [iter(candidate_loader)] if candidate_loader is not None else [None]
-
-#     for epoch in range(num_epochs):
-#         train_one_epoch(base_loader, candidate_loader, train_step, candidate_iter_holder)
-# """
