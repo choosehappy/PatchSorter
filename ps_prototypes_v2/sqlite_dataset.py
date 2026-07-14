@@ -79,14 +79,29 @@ class SQLiteDataset:
                 conn.execute(
                     f"ALTER TABLE {self.table_name} ADD COLUMN score REAL DEFAULT {GT_SCORE_INIT}"
                 )
-            cursor.execute(
-                f"UPDATE {self.table_name} SET score = ? WHERE score IS NULL",
-                (GT_SCORE_INIT,),
-            )
+            cursor.execute(f"UPDATE {self.table_name} SET score = NULL") ##NOTE: This is only done for building/testing the system - in production we definitely want to keep the score
+
             if "tmp_label" not in columns:
                 conn.execute(
                     f"ALTER TABLE {self.table_name} ADD COLUMN tmp_label INTEGER DEFAULT -1"
                 )
+
+            cursor.execute(f"UPDATE {self.table_name} SET score = ? WHERE tmp_label != -1",(GT_SCORE_INIT,),)  #NOTE: set a default score in case it wasn't done else where. when setting the GT label - we need to set the score
+
+            conn.execute(
+                f"""
+                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_score_positive
+                ON {self.table_name} (score)
+                WHERE score > 0
+                """
+            )
+            conn.execute(
+                f"""
+                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_tmp_label_positive
+                ON {self.table_name} (tmp_label)
+                WHERE tmp_label > -1
+                """
+            )
 
             conn.commit()
 
@@ -196,11 +211,11 @@ class GTCandidatePool:
             cursor = conn.cursor()
             cursor.execute(
                 f"SELECT id, tmp_label, score FROM {self.table_name} "
-                f"WHERE tmp_label >= 0 ORDER BY score DESC LIMIT ?",
+                f"WHERE score is not NULL ORDER BY score DESC LIMIT ?", 
                 (self.pool_size,),
             )
             rows = cursor.fetchall()
-
+/
             self._candidate_count = len(rows)
 
             if rows:
@@ -215,17 +230,8 @@ class GTCandidatePool:
                 self._candidate_scores[: self._candidate_count] = scores_arr
 
                 self._candidate_index = {int(rid): idx for idx, rid in enumerate(row_ids)}
-                update_rows = [(float(GT_SCORE_INIT), int(rid)) for rid, s in zip(row_ids, scores) if s is None]
             else:
                 self._candidate_index = {}
-                update_rows = []
-
-            if update_rows:
-                cursor.executemany(
-                    f"UPDATE {self.table_name} SET score = ? WHERE id = ?",
-                    update_rows,
-                )
-                conn.commit()
 
             if self._candidate_count > 0:
                 rarity_factors = self._get_rarity_factors()
@@ -239,7 +245,7 @@ class GTCandidatePool:
         arrays, never anything a DataLoader/sampler has committed to."""
         self._load_candidate_pool()
 
-    def _get_rarity_factors(self) -> np.ndarray:
+    def _get_rarity_factors(self) -> np.ndarray: #AJ: --- refactor this. i think it should basically be class_Weight * 
         if self._candidate_count == 0:
             return np.empty(0, dtype=np.float64)
 
@@ -300,13 +306,6 @@ class GTCandidatePool:
 
         if self.score_writer is not None:
             self.score_writer.enqueue(row_id, new_score)
-        else:
-            with self._get_connection() as conn:
-                conn.execute(
-                    f"UPDATE {self.table_name} SET score = ? WHERE id = ?",
-                    (new_score, row_id),
-                )
-                conn.commit()
 
 
 # ---------------------------------------------------------------------------

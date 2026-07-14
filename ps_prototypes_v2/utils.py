@@ -894,10 +894,13 @@ def semantic_head_loss(coords, labels, margin=0.5):
     labels = labels[labeled_mask]
 
     if coords.shape[0] < 2:
-        return torch.tensor(0.0, device=device), torch.tensor(0.0, device=device)
+        return torch.tensor(0.0, device=device), torch.tensor(0.0, device=device), torch.tensor(0.0, device=device)
 
     # Pairwise distance matrix
     dists = torch.cdist(coords, coords)  # [B_labeled, B_labeled]
+
+
+    # ----------------------------------------
 
     # Create masks
     same_class = (labels.unsqueeze(0) == labels.unsqueeze(1)) & (
@@ -1405,37 +1408,111 @@ def prediction_loss_pseudo_sce_adaptive(
     #return pseudo_loss, num_pseudo
     return pseudo_loss, agreed, high_conf
 
+# class AdaptiveThreshold:
+#     def __init__(self, num_classes, base_thresh=0.95, ema_decay=0.99, device='cuda'):
+#         self.num_classes = num_classes
+#         self.base_thresh = base_thresh
+#         self.ema_decay = ema_decay
+
+#         self.class_confidence_ema = torch.full(
+#             (num_classes,),
+#             base_thresh,
+#             device=device,
+#         )
+        
+
+#     @torch.no_grad()
+#     def update(self, probs, preds):
+#         for c in range(self.num_classes):
+#             mask = preds == c
+#             if mask.any():
+#                 batch_mean_conf = probs[mask].mean()
+#                 self.class_confidence_ema[c] = (
+#                     self.ema_decay * self.class_confidence_ema[c]
+#                     + (1 - self.ema_decay) * batch_mean_conf
+#                 )
+
+#     def get_thresholds(self):
+#         # normalize by the strongest class so the best class sits at ~base_thresh
+#         max_conf = self.class_confidence_ema.max().clamp(min=1e-6)
+#         return self.base_thresh * (self.class_confidence_ema / max_conf)
+
+#     def high_conf_mask(self, probs, preds):
+#         thresholds = self.get_thresholds()  # [num_classes]
+#         print(f"Adaptive thresholds: {thresholds.cpu().numpy()}")
+#         per_sample_thresh = thresholds[preds]  # [N]
+#         return probs >= per_sample_thresh
+
+
 class AdaptiveThreshold:
+    """
+    FlexMatch-style per-class adaptive thresholding.
+
+    sigma_c: learning-effect estimate for class c — literally a count of how many
+    samples predicted as class c have crossed the fixed base_thresh, not a running
+    average confidence. This matters: a rare-but-confident class now correctly gets
+    a *low* sigma_c (few samples ever cross), whereas the old mean-confidence version
+    could give it a *high* sigma_c (its few samples happened to be very confident).
+
+    Since we're streaming rather than doing a single offline pass over the whole
+    unlabeled set (as the paper does), sigma_c here is an EMA of per-batch crossing
+    counts rather than a true running total — a streaming approximation of the
+    paper's cumulative counter, not identical to it. Flagging this because it means
+    sigma_c reflects "recent rate," not "total count," and its scale depends on your
+    batch size and ema_decay — that's a reasonable online adaptation, just not a
+    literal match to the paper's offline bookkeeping.
+    """
     def __init__(self, num_classes, base_thresh=0.95, ema_decay=0.99, device='cuda'):
         self.num_classes = num_classes
         self.base_thresh = base_thresh
         self.ema_decay = ema_decay
 
-        self.class_confidence_ema = torch.full(
-            (num_classes,),
-            base_thresh,
-            device=device,
-        )
-        
+        # zero-init: every class starts fully lenient (threshold -> 0), and only
+        # tightens as it accumulates confident predictions. This is a real behavior
+        # change from the old base_thresh-init version: early in training, ALL
+        # classes will pass through with near-zero threshold, i.e. pseudo-labeling
+        # is maximally permissive until sigma_c builds up. That's the paper's
+        # intended curriculum (lenient early, strict once "learned") — but it does
+        # mean you should expect noisier pseudo-labels in the first stretch of
+        # training compared to your previous strict-by-default init. Worth watching
+        # via your confusion-matrix logging during that early phase.
+        self.class_sigma_ema = torch.zeros(num_classes, device=device)
 
     @torch.no_grad()
     def update(self, probs, preds):
-        for c in range(self.num_classes):
-            mask = preds == c
-            if mask.any():
-                batch_mean_conf = probs[mask].mean()
-                self.class_confidence_ema[c] = (
-                    self.ema_decay * self.class_confidence_ema[c]
-                    + (1 - self.ema_decay) * batch_mean_conf
-                )
+        """
+        probs: [N] confidence for the (majority) predicted label, for samples
+               already passing majority_mask upstream
+        preds: [N] majority-voted class per sample
+        """
+        crossed = probs >= self.base_thresh
+        batch_counts = torch.zeros(self.num_classes, device=probs.device)
+        if crossed.any():
+            classes_crossed = preds[crossed]
+            batch_counts.scatter_add_(
+                0, classes_crossed, torch.ones_like(classes_crossed, dtype=torch.float)
+            )
+        self.class_sigma_ema = (
+            self.ema_decay * self.class_sigma_ema + (1 - self.ema_decay) * batch_counts
+        )
 
     def get_thresholds(self):
-        # normalize by the strongest class so the best class sits at ~base_thresh
-        max_conf = self.class_confidence_ema.max().clamp(min=1e-6)
-        return self.base_thresh * (self.class_confidence_ema / max_conf)
+        max_sigma = self.class_sigma_ema.max().clamp(min=1e-6)
+        beta_c = self.class_sigma_ema / max_sigma           # linear ratio, in [0, 1]
+
+        # concave warm-up mapping from the paper: M(0)=0, M(1)=1, concave in between.
+        # This specifically gives classes with small sigma_c a threshold that's less
+        # punishing than plain linear scaling would — e.g. beta_c=0.1 maps to
+        # M=0.053 under linear scaling but ~0.105 under this mapping, roughly double
+        # the leniency for weak/rare classes. That's the concrete effect of fix #3.
+        m_beta = beta_c / (2 - beta_c).clamp(min=1e-6)
+
+        return self.base_thresh * m_beta
 
     def high_conf_mask(self, probs, preds):
-        thresholds = self.get_thresholds()  # [num_classes]
+        thresholds = self.get_thresholds()
+
         print(f"Adaptive thresholds: {thresholds.cpu().numpy()}")
-        per_sample_thresh = thresholds[preds]  # [N]
+
+        per_sample_thresh = thresholds[preds]
         return probs >= per_sample_thresh

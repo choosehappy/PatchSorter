@@ -365,13 +365,13 @@ for _ in range(10_000):
             #repulsion_loss_val = repulsion_loss(proj_coords, margin=REPULSION_MARGIN)
             repulsion_loss_val = torch.tensor(0.0, device=DEVICE)  
 
-            semantic_coord_attr_loss, semantic_coord_repel_loss = semantic_head_loss(proj_coords / GRID_SIZE, labels, margin=.05)
+            semantic_coord_attr_loss, semantic_coord_repel_loss = semantic_head_loss(proj_coords / GRID_SIZE, labels, margin=.05, k_neighbors=10)
             semantic_coord_loss = (semantic_coord_attr_loss + semantic_coord_repel_loss)  # report seperately
 
             #proj_emb_norm = F.normalize(proj_emb, dim=1 )  # projects onto unit hypersphere
             proj_emb_norm = proj_emb #normalization was done above --- not name refactoring yet
 
-            semantic_emb_attr_loss, semantic_emb_repel_loss = semantic_head_loss(proj_emb_norm, labels, margin=0.5)
+            semantic_emb_attr_loss, semantic_emb_repel_loss = semantic_head_loss(proj_emb_norm, labels, margin=0.5, k_neighbors=10) #TODO: use this rarity score to better weight points
             
             semantic_emb_loss = (semantic_emb_attr_loss + semantic_emb_repel_loss)  # report seperately
 
@@ -394,19 +394,25 @@ for _ in range(10_000):
                 labels, pred_labels[high_conf] if high_conf is not None else None
             )  # update with current batch's true and pseudo labels
 
-            # # ---compute tempoerate loss - make sure our coorindates don't go wild
-            # mem_z, mem_coords, mem_ages = mem_bank.sample(MEMORY_SAMPLE_SIZE)
-            # if mem_z.shape[0] > 0:
-            #     with torch.no_grad():
-            #         _, mem_proj_coords_now, _ = joint_head(mem_z)
-            #     margin = get_margin(pred_loss, labeled_rate)
-            #     loss_temp = temporal_loss(
-            #         mem_proj_coords_now, mem_coords, mem_ages, margin=margin
-            #     )
-            # else:
-            #     loss_temp = torch.tensor(0.0, device=DEVICE)
 
-            # contrastative loss ==  ??   proj + emb space
+            with torch.no_grad():
+                dists = torch.cdist(proj_emb,proj_emb)
+                # --- Compute Rarity Scores (Method 1) ---
+                k = min(K_NEIGHBORS, dists.shape[0] - 1)
+                knn_dists, _ = torch.topk(dists, k=k + 1, dim=1, largest=False)
+                spatial_rarity = knn_dists[:, 1:].mean(dim=1) 
+
+
+                # score_updater --- accepts parameters for the different weightints on initislaization
+                # also this functionality here also allows for sampling of non-labeled patches that have a >0 score - which enables spatial rarity
+                #sample_scores=score_updater.compute_score(spatial_rarity,class_weights,labels)
+                #score_updater.enqueue(ids,sample_scores)
+
+                # rarity_scores[0:B].shape
+                # torch.Size([1032])
+                # ids.shape
+                # torch.Size([1032])
+
 
             total_loss = (
                 COORD_CONSITENCY_LOSS * coord_consistency_loss

@@ -25,9 +25,26 @@ class ScoreWriter:
         conn.execute("PRAGMA journal_mode=WAL;")
         return conn
 
-    def enqueue(self, row_id: int, score: float) -> None:
-        """Enqueue a score update (non-blocking)."""
-        self.queue.put((row_id, score))
+    def enqueue(self, row_id_or_ids: int | list[int], score_or_scores: float | list[float]) -> None:
+            """Enqueue score update(s) (non-blocking).
+
+            Accepts either:
+            - a single (row_id, score) pair, or
+            - parallel lists (row_ids, scores) for bulk enqueueing.
+            """
+            if isinstance(row_id_or_ids, (list, tuple)):
+                row_ids = row_id_or_ids
+                scores = score_or_scores
+                if not isinstance(scores, (list, tuple)):
+                    raise TypeError("scores must be a list/tuple when row_id_or_ids is a list/tuple")
+                if len(row_ids) != len(scores):
+                    raise ValueError(
+                        f"row_ids and scores must be the same length, got {len(row_ids)} and {len(scores)}"
+                    )
+                for row_id, score in zip(row_ids, scores):
+                    self.queue.put((row_id, score))
+            else:
+                self.queue.put((row_id_or_ids, score_or_scores))
 
     def _flush_batch(self) -> None:
         """Flush accumulated batch to DB using executemany UPSERT."""
