@@ -36,7 +36,7 @@ def get_ray_task_state(
         HTTPException(503): If the Ray cluster is unavailable.
     """
     try:
-        tasks = ray.state.state.list_tasks(
+        tasks = ray.util.state.list_tasks(
             filters=ray_cluster_filters or [],
             detail=True,
             limit=constants.RAY_TASK_RETURN_LIMIT,
@@ -64,14 +64,15 @@ def _task_state_to_dict(task) -> dict:
         task: Ray TaskState object from ray.state.state.list_tasks().
 
     Returns:
-        Dict with keys: task_id, func_or_class_name, state, creation_time,
-        end_time, error_message.
+        Dict with keys: task_id, func_or_class_name, state, creation_time_ms,
+        end_time_ms, error_message.
     """
     return {
-        "task_id": task.task_id.hex,
-        "func_or_class_name": task.func_name,
-        "state": task.state.name,
-        "creation_time": task.creation_time,
-        "end_time": task.end_time,
+        "task_id": task.task_id,
+        "func_or_class_name": task.func_or_class_name,
+        "state": task.state,
+        "creation_time_ms": task.creation_time_ms,
+        "end_time_ms": task.end_time_ms,
         "error_message": task.error_message,
     }
+

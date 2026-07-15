@@ -179,12 +179,12 @@ def process_upload(
 ) -> ProcessResponse:
     actor = _get_actor(session_id)
     path_dicts = [r.model_dump() for r in request.paths]
-    result: dict = ray.get(actor.process.remote(path_dicts))
+    task_ref = actor.process.remote(path_dicts)
+    parent_task_id = task_ref.task_id().hex()
     return ProcessResponse(
-        task_id=result["task_id"],
-        status=result["status"],
-        message=result["message"],
-        child_tasks=result.get("child_tasks", []),
+        task_id=parent_task_id,
+        status="dispatched",
+        message=f"Dispatched {len(request.paths)} task(s)",
     )
 
 

@@ -186,6 +186,15 @@ export default function UploadWizardModal({
 
     // ----- handleNext --------------------------------------------------------
 
+    const handleRowChange = useCallback(
+        (index: number, updates: Partial<ReviewRow>) => {
+            setReviewData(prev =>
+                prev ? prev.map((row, i) => (i === index ? { ...row, ...updates } : row)) : prev
+            )
+        },
+        [],
+    )
+
     const handleNext = useCallback(async () => {
         if (!session) { nextStep(); return }
         try {
@@ -234,14 +243,34 @@ export default function UploadWizardModal({
             const okRows = reviewData.filter(r => r.status === 'ok')
             const res = await processUpload({
                 path: { project_id: projectId, session_id: session },
-                body: { paths: okRows.map(r => ({ image: r.image, mask: r.mask, csv: r.csv })) },
+                body: { paths: okRows.map(r => ({ image: r.image, mask: r.mask, csv: r.csv, base_mag: r.base_mag ?? null })) },
             })
+            if (res.error) {
+                const detail = (res.error as any)?.detail
+                toast.error(detail ? `Processing error: ${detail}` : 'Failed to start processing. Please try again.')
+                return
+            }
             if (!res.data) throw new Error('Process failed')
-            if (res.data.child_tasks?.length) {
-                setChildTaskId(res.data.child_tasks[0])
+            if (res.data?.task_id) {
+                setChildTaskId(res.data.task_id)
             }
             nextStep()
-            toast.success('Upload processing started successfully.')
+            const taskId = res.data.task_id
+            toast(
+                <div>
+                    <div>Processing files…</div>
+                    <div>
+                        <TaskChildrenGrid
+                            parentTaskId={taskId}
+                            containerId={`toast-task-${taskId}`}
+                            onCompletion={() => {
+                                setChildTaskId(null)
+                            }}
+                        />
+                    </div>
+                </div>,
+                { autoClose: false, closeOnClick: false, draggable: false }
+            )
         } catch (err) {
             console.error('Process failed:', err)
             const detail = (err as any)?.detail ?? (err as any)?.response?.data?.detail
@@ -387,24 +416,13 @@ export default function UploadWizardModal({
                         approach={approach}
                         reviewData={reviewData}
                         isLoading={isReviewLoading}
+                        onRowChange={handleRowChange}
                     />
                 )}
 
                 {/* Step 6: complete */}
                 {currentStep === Step.Complete && <StepComplete />}
             </Modal.Body>
-
-            {/* Task state polling (shown during processing) */}
-            {childTaskId && (
-                <Modal.Body className="pt-0">
-                    <TaskChildrenGrid
-                        parentTaskId={childTaskId}
-                        onCompletion={() => {
-                            setChildTaskId(null)
-                        }}
-                    />
-                </Modal.Body>
-            )}
 
             {currentFlow.length > 0 && (
                 <Modal.Footer>

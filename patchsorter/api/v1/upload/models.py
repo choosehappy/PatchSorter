@@ -26,6 +26,7 @@ class ReviewRow(BaseModel):
     csv: str
     status: str  # 'ok' | 'error'
     error: str
+    base_mag: float | None = None
 
 
 class ProcessRow(BaseModel):
@@ -48,7 +49,6 @@ class ProcessResponse(BaseModel):
     task_id: str
     status: str
     message: str
-    child_tasks: list[str] = []
 
 
 class ProcessCsvResponse(BaseModel):

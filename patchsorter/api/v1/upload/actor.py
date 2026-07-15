@@ -140,6 +140,14 @@ def _validate_mixed(
         mask_rel = os.path.relpath(str(mask_by_stem[stem]), constants.MOUNTS_PATH) if stem in mask_by_stem else ""
         csv_rel = os.path.relpath(str(csv_by_stem[stem]), constants.MOUNTS_PATH) if stem in csv_by_stem else ""
 
+        base_mag: float | None = None
+        if img_rel:
+            try:
+                ts = large_image.open(str(img_path))
+                base_mag = ts.getMetadata().get("magnification")
+            except Exception:
+                base_mag = None
+
         if not mask_rel and not csv_rel:
             rows.append(
                 dict(
@@ -148,6 +156,7 @@ def _validate_mixed(
                     csv=csv_rel,
                     status="error",
                     error=f"No mask or patch CSV found for {img_path.name}",
+                    base_mag=base_mag,
                 )
             )
         else:
@@ -158,6 +167,7 @@ def _validate_mixed(
                     csv=csv_rel,
                     status="ok",
                     error="",
+                    base_mag=base_mag,
                 )
             )
 
@@ -183,6 +193,16 @@ def _validate_image_csv(csv_content: bytes) -> dict:
         if patch_csv and not os.path.exists(os.path.join(constants.MOUNTS_PATH, patch_csv)):
             errors.append(f"Patch CSV not found: {patch_csv}")
 
+        base_mag: float | None = None
+        if img:
+            resolved = os.path.join(constants.MOUNTS_PATH, img)
+            if os.path.exists(resolved):
+                try:
+                    ts = large_image.open(resolved)
+                    base_mag = ts.getMetadata().get("magnification")
+                except Exception:
+                    base_mag = None
+
         rows.append(
             dict(
                 image=img,
@@ -190,6 +210,7 @@ def _validate_image_csv(csv_content: bytes) -> dict:
                 csv=patch_csv,
                 status="error" if errors else "ok",
                 error="; ".join(errors),
+                base_mag=base_mag,
             )
         )
 
@@ -248,7 +269,10 @@ def process_row(
     else:
         base_mag = ts.getMetadata().get("magnification")
     if base_mag is None:
-        raise ValueError("base_mag not provided and could not be extracted from image metadata")
+        raise ValueError(
+            f"base_mag not provided and could not be extracted from image metadata "
+            f"for {image_path}"
+        )
 
     # Collect image metadata
     base_width = ts.getMetadata().get("width", 0)
@@ -355,7 +379,9 @@ def process_row(
     return {"image_id": image_id, "patch_count": total_patches}
 
 
-@ray.remote(max_concurrency=2)
+# Concurrency note: https://github.com/ray-project/ray/issues/31879 
+# For our use case, concurrency 1 is sufficient because the actor is only used for a single session at a time.
+@ray.remote(max_concurrency=1)
 class UploadSessionActor:
     """Per-session Ray actor that owns upload paths under the mounts directory
     and performs path validation before processing.
@@ -426,25 +452,12 @@ class UploadSessionActor:
         The caller should poll ray.state.state.list_tasks() with
         parent_task_id filter to track progress.
         """
-        task_id = str(uuid.uuid4())
         process_rows = [ProcessRow(**p) for p in paths]
-        try:
-            # Dispatch all tasks, passing pre-loaded settings
-            task_refs = [
-                process_row.remote(pr, self._project_id, self._session_id, self._settings)
-                for pr in process_rows
-            ]
-            child_task_ids = [ref.hex for ref in task_refs]
-            return {
-                "task_id": task_id,
-                "status": "dispatched",
-                "message": f"Dispatched {len(child_task_ids)} task(s)",
-                "child_tasks": child_task_ids,
-            }
-        except Exception as e:
-            return {
-                "task_id": task_id,
-                "status": "failed",
-                "message": str(e),
-                "child_tasks": [],
-            }
+        # Dispatch all tasks, passing pre-loaded settings
+        task_refs = [
+            process_row.remote(pr, self._project_id, self._session_id, self._settings)
+            for pr in process_rows
+        ]
+
+        ray.get(task_refs)
+        return

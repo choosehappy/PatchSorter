@@ -2,14 +2,17 @@ import { useMemo, useRef, useCallback, useEffect } from 'react'
 import { SlickgridReact } from 'slickgrid-react'
 import type { Column, GridOption, SlickgridReactInstance } from 'slickgrid-react'
 import type { ReviewRow, Approach } from './useUpload'
+import { Editors } from 'slickgrid-react'
+import { MAGNIFICATION_OPTIONS } from '../../constants'
 
 interface StepReviewProps {
     approach: Approach | null
     reviewData: ReviewRow[] | null
     isLoading: boolean
+    onRowChange: (index: number, updates: Partial<ReviewRow>) => void
 }
 
-export default function StepReview({ reviewData, isLoading, approach: _approach }: StepReviewProps) {
+export default function StepReview({ reviewData, isLoading, approach: _approach, onRowChange }: StepReviewProps) {
     const gridRef = useRef<SlickgridReactInstance | null>(null)
 
     const errorCount = useMemo(() => reviewData?.filter(r => r.status === 'error').length ?? 0, [reviewData])
@@ -36,10 +39,31 @@ export default function StepReview({ reviewData, isLoading, approach: _approach 
             return `<span class="${truncateStyle}" style="max-width:${maxWidth}px" title="${v}">${v}</span>`
         }
 
+        const baseMagFormatter = (_row: number, _cell: number, value: unknown) => {
+            const v = Number(value ?? 0)
+            return v ? String(v) : '<span class="text-muted">—</span>'
+        }
+
         return [
             { id: 'image',   name: 'Image',       field: 'image',   sortable: true,  formatter: pathFormatter('image') },
             { id: 'mask',    name: 'Mask',         field: 'mask',    sortable: true,  formatter: pathFormatter('mask') },
             { id: 'csv',     name: 'Label',        field: 'csv',     sortable: true,  formatter: pathFormatter('csv') },
+            {
+                id: 'base_mag',
+                name: 'Base Mag',
+                field: 'base_mag',
+                sortable: true,
+                editor: {
+                    model: Editors.singleSelect,
+                    collection: [
+                        { value: '', label: '—' },
+                        ...MAGNIFICATION_OPTIONS.map(m => ({ value: m, label: String(m) })),
+                    ],
+                    massUpdate: true,
+                    options: { showClear: true },
+                },
+                formatter: baseMagFormatter,
+            },
             { id: 'error',   name: 'Error',        field: 'error',   sortable: false, formatter: errorFormatter },
             { id: 'status',  name: 'Status',       field: 'status',  sortable: true,  formatter: statusFormatter },
         ]
@@ -53,6 +77,7 @@ export default function StepReview({ reviewData, isLoading, approach: _approach 
             csv: row.csv,
             error: row.error,
             status: row.status,
+            base_mag: row.base_mag ?? '',
         })),
         [reviewData],
     )
@@ -63,6 +88,10 @@ export default function StepReview({ reviewData, isLoading, approach: _approach 
         rowHeight: 32,
         forceFitColumns: true,
         autoResize: { container: '#upload-review-container' },
+        editable: true,
+        autoEdit: true,
+        autoCommitEdit: true,
+        enableCellNavigation: true,
         ...({ headerRowOptions: { filterPlugin: { filterCollectionMetadataItem: { placeholder: 'Search' } } } } as GridOption),
     }
 
@@ -111,6 +140,12 @@ export default function StepReview({ reviewData, isLoading, approach: _approach 
                         options={gridOptions}
                         dataset={dataset}
                         onReactGridCreated={e => onGridReady(e.detail)}
+                        onCellChange={e => {
+                            const dataContext = e.detail.args?.item
+                            const id = dataContext.id
+                            const val = dataContext?.base_mag
+                            onRowChange(id, { base_mag: val != null && val !== '' ? Number(val) : null })
+                        }}
                     />
                 </div>
             )}

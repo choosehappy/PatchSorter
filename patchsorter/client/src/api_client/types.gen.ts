@@ -302,10 +302,6 @@ export type ProcessResponse = {
      * Message
      */
     message: string;
-    /**
-     * Child Tasks
-     */
-    child_tasks?: Array<string>;
 };
 
 /**
@@ -414,6 +410,10 @@ export type ReviewRow = {
      * Error
      */
     error: string;
+    /**
+     * Base Mag
+     */
+    base_mag?: number | null;
 };
 
 /**
