@@ -195,6 +195,15 @@ export default function UploadWizardModal({
         [],
     )
 
+    const handleAllBaseMagChange = useCallback(
+        (value: number | null) => {
+            setReviewData(prev =>
+                prev ? prev.map(row => ({ ...row, base_mag: value })) : prev
+            )
+        },
+        [],
+    )
+
     const handleNext = useCallback(async () => {
         if (!session) { nextStep(); return }
         try {
@@ -338,7 +347,8 @@ export default function UploadWizardModal({
     const canProcess =
         reviewData !== null &&
         reviewData.length > 0 &&
-        reviewData.some(r => r.status === 'ok')
+        reviewData.some(r => r.status === 'ok') &&
+        reviewData.every(r => r.base_mag != null)
 
     // Disable the label toggle that would leave zero label sources
     const disabledMask = !includePatchCsv
@@ -417,6 +427,8 @@ export default function UploadWizardModal({
                         reviewData={reviewData}
                         isLoading={isReviewLoading}
                         onRowChange={handleRowChange}
+                        allHaveBaseMag={reviewData !== null && reviewData.length > 0 && reviewData.every(r => r.base_mag != null)}
+                        onAllBaseMagChange={handleAllBaseMagChange}
                     />
                 )}
 

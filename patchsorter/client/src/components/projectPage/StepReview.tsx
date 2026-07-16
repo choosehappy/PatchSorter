@@ -10,9 +10,11 @@ interface StepReviewProps {
     reviewData: ReviewRow[] | null
     isLoading: boolean
     onRowChange: (index: number, updates: Partial<ReviewRow>) => void
+    allHaveBaseMag: boolean
+    onAllBaseMagChange: (value: number | null) => void
 }
 
-export default function StepReview({ reviewData, isLoading, approach: _approach, onRowChange }: StepReviewProps) {
+export default function StepReview({ reviewData, isLoading, approach: _approach, onRowChange, allHaveBaseMag, onAllBaseMagChange }: StepReviewProps) {
     const gridRef = useRef<SlickgridReactInstance | null>(null)
 
     const errorCount = useMemo(() => reviewData?.filter(r => r.status === 'error').length ?? 0, [reviewData])
@@ -50,7 +52,7 @@ export default function StepReview({ reviewData, isLoading, approach: _approach,
             { id: 'csv',     name: 'Label',        field: 'csv',     sortable: true,  formatter: pathFormatter('csv') },
             {
                 id: 'base_mag',
-                name: 'Base Mag',
+                name: 'Base Magnification',
                 field: 'base_mag',
                 sortable: true,
                 editor: {
@@ -129,6 +131,26 @@ export default function StepReview({ reviewData, isLoading, approach: _approach,
                     {errorCount} row{errorCount !== 1 ? 's have' : ' has'} errors. Consider fixing the issues before processing.
                 </div>
             )}
+            {!allHaveBaseMag && (
+                <div className="alert alert-warning py-2 mb-2" style={{ fontSize: '0.875rem' }}>
+                    PatchSorter was unable to determine the base magnification for some uploaded images. Select a dropdown value for each image or select base magnification to assign to all images. This action will overwrite any existing base magnification values.
+                </div>
+            )}
+            <div className="mb-2 d-flex align-items-center gap-2">
+                <label className="col-form-label mb-0" style={{ fontSize: '0.875rem' }}>Assign base magnification to all:</label>
+                <select
+                    className="form-select form-select-sm"
+                    style={{ width: 'auto' }}
+                    defaultValue=""
+                    onChange={e => {
+                        const val = e.target.value
+                        onAllBaseMagChange(val === '' ? null : Number(val))
+                    }}
+                >
+                    <option value="">—</option>
+                    {MAGNIFICATION_OPTIONS.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+            </div>
             {reviewData.length === 0 && (
                 <p className="text-muted text-center py-3">No rows returned from validation.</p>
             )}
