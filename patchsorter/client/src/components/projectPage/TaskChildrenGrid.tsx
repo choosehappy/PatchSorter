@@ -11,6 +11,7 @@ import './taskChildrenGrid.css'
 
 interface RayTaskState {
     task_id: string
+    name: string
     func_or_class_name: string
     state: string
     creation_time?: number | null
@@ -21,6 +22,7 @@ interface RayTaskState {
 interface TaskRow {
     id: string
     task_id: string
+    name: string
     func_or_class_name: string
     state: string
     error_message: string | null
@@ -48,6 +50,7 @@ interface TaskChildrenGridProps {
 export default function TaskChildrenGrid({ parentTaskId, containerId, onCompletion }: TaskChildrenGridProps) {
     const pollRef = React.useRef<number | null>(null)
     const doneRef = React.useRef(false)
+    const fetchChildrenOnceRef = React.useRef<(() => Promise<void>) | null>(null)
 
     const [columnDefinitions, setColumnDefinitions] = React.useState<Column[]>([])
     const [gridOptions, setGridOptions] = React.useState<GridOption | undefined>()
@@ -57,47 +60,42 @@ export default function TaskChildrenGrid({ parentTaskId, containerId, onCompleti
     const [loading, setLoading] = React.useState(true)
     const [error, setError] = React.useState<string | null>(null)
 
-    React.useEffect(() => {
-        defineGrid()
+    const startPolling = React.useCallback(() => {
+        doneRef.current = false
+        if (pollRef.current) {
+            clearInterval(pollRef.current)
+        }
+        fetchChildrenOnceRef.current?.()
+        pollRef.current = window.setInterval(() => {
+            if (!doneRef.current) {
+                fetchChildrenOnceRef.current?.()
+            }
+        }, POLL_INTERVAL_MS)
     }, [])
 
-    React.useEffect(() => {
-        if (isExpanded) {
-            startPolling()
-            setTimeout(() => {
-                reactGrid?.slickGrid.resizeCanvas()
-                reactGrid?.slickGrid.autosizeColumns()
-            }, 50)
-        } else {
-            stopPolling()
-        }
-    }, [isExpanded, reactGrid])
-
-    React.useEffect(() => {
-        if (isExpanded) {
-            fetchChildrenOnce()
-        }
-    }, [parentTaskId])
-
-    React.useEffect(() => {
-        return () => {
-            stopPolling()
+    const stopPolling = React.useCallback(() => {
+        if (pollRef.current) {
+            clearInterval(pollRef.current)
+            pollRef.current = null
         }
     }, [])
 
     const defineGrid = () => {
-        const stateFormatter = (_row: number, _cell: number, value: string, _columnDef: Column, _dataContext: TaskRow) => {
+        const stateFormatter = (_row: number, _cell: number, value: string, _columnDef: Column, dataContext: TaskRow) => {
             const s = (value ?? '').toString().toUpperCase()
             const bgColor = STATE_COLORS[s] || '#6c757d'
             const textColor = s === 'RUNNING' ? '#fff' : undefined
-            return `<span style="background-color: ${bgColor}; color: ${textColor || 'inherit'}; padding: 2px 8px; border-radius: 4px; font-size: 0.85rem;">${s}</span>`
+            const errorMsg = (dataContext?.error_message ?? '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            return errorMsg
+                ? `<span title="${errorMsg}" style="background-color: ${bgColor}; color: ${textColor || 'inherit'}; padding: 2px 8px; border-radius: 4px; font-size: 0.85rem;">${s}</span>`
+                : `<span style="background-color: ${bgColor}; color: ${textColor || 'inherit'}; padding: 2px 8px; border-radius: 4px; font-size: 0.85rem;">${s}</span>`
         }
 
         const columns: Column[] = [
             {
                 id: 'func',
-                name: 'Function/Class',
-                field: 'func_or_class_name',
+                name: 'Task Name',
+                field: 'name',
                 sortable: true,
                 minWidth: 120,
                 customTooltip: {
@@ -142,6 +140,7 @@ export default function TaskChildrenGrid({ parentTaskId, containerId, onCompleti
     }, [])
 
     const fetchChildrenOnce = React.useCallback(async () => {
+        fetchChildrenOnceRef.current = fetchChildrenOnce
         try {
             const res = await searchRayTasks({
                 body: [['parent_task_id', '=', parentTaskId]],
@@ -159,6 +158,7 @@ export default function TaskChildrenGrid({ parentTaskId, containerId, onCompleti
             const rows: TaskRow[] = result.map((t, index) => ({
                 id: String(index),
                 task_id: t.task_id,
+                name: t.name,
                 func_or_class_name: t.func_or_class_name,
                 state: t.state,
                 error_message: t.error_message ?? null,
@@ -188,24 +188,43 @@ export default function TaskChildrenGrid({ parentTaskId, containerId, onCompleti
         }
     }, [parentTaskId, reactGrid, onCompletion])
 
-    const startPolling = React.useCallback(() => {
-        if (pollRef.current) {
-            clearInterval(pollRef.current)
-        }
-        fetchChildrenOnce()
-        pollRef.current = window.setInterval(fetchChildrenOnce, POLL_INTERVAL_MS)
-    }, [fetchChildrenOnce])
-
-    const stopPolling = React.useCallback(() => {
-        if (pollRef.current) {
-            clearInterval(pollRef.current)
-            pollRef.current = null
-        }
-    }, [])
-
     const toggleExpanded = React.useCallback(() => {
         setIsExpanded((prev) => !prev)
     }, [])
+
+    React.useEffect(() => {
+        defineGrid()
+    }, [])
+
+    React.useEffect(() => {
+        if (isExpanded) {
+            startPolling()
+            setTimeout(() => {
+                reactGrid?.slickGrid.resizeCanvas()
+                reactGrid?.slickGrid.autosizeColumns()
+            }, 50)
+        }
+    }, [isExpanded, startPolling])
+
+    React.useEffect(() => {
+        if (isExpanded) {
+            fetchChildrenOnce()
+        }
+    }, [parentTaskId, isExpanded, fetchChildrenOnce])
+
+    React.useEffect(() => {
+        if (reactGrid) {
+            reactGrid.slickGrid.invalidate()
+            reactGrid.slickGrid.render()
+        }
+    }, [dataset, reactGrid])
+
+    React.useEffect(() => {
+        return () => {
+            doneRef.current = true
+            stopPolling()
+        }
+    }, [stopPolling])
 
     if (!gridOptions || !columnDefinitions.length) {
         return (

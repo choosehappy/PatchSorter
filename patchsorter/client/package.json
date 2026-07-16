@@ -13,6 +13,7 @@
   "dependencies": {
     "@hey-api/openapi-ts": "^0.97.1",
     "@slickgrid-universal/common": "^10.8.2",
+    "@slickgrid-universal/custom-tooltip-plugin": "^10.8.3",
     "@tanstack/react-query": "^5.100.10",
     "bootstrap": "^5.3.8",
     "react": "^19.2.6",

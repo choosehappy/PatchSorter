@@ -29,7 +29,7 @@ def get_ray_task_state(
             parent_task_id, type.
 
     Returns:
-        List of task state dicts with keys: task_id, func_or_class_name,
+        List of task state dicts with keys: task_id, name, func_or_class_name,
         state, creation_time, end_time, error_message.
 
     Raises:
@@ -64,11 +64,12 @@ def _task_state_to_dict(task) -> dict:
         task: Ray TaskState object from ray.state.state.list_tasks().
 
     Returns:
-        Dict with keys: task_id, func_or_class_name, state, creation_time_ms,
+        Dict with keys: task_id, name, func_or_class_name, state, creation_time_ms,
         end_time_ms, error_message.
     """
     return {
         "task_id": task.task_id,
+        "name": task.name,
         "func_or_class_name": task.func_or_class_name,
         "state": task.state,
         "creation_time_ms": task.creation_time_ms,

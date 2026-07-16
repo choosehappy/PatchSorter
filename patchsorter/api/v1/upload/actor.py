@@ -455,7 +455,9 @@ class UploadSessionActor:
         process_rows = [ProcessRow(**p) for p in paths]
         # Dispatch all tasks, passing pre-loaded settings
         task_refs = [
-            process_row.remote(pr, self._project_id, self._session_id, self._settings)
+            process_row
+                .options(name=f"Import {pr.image}")
+                .remote(pr, self._project_id, self._session_id, self._settings)
             for pr in process_rows
         ]
 

@@ -247,7 +247,7 @@ export const processUploadCsv = <ThrowOnError extends boolean = false>(options: 
  * parent_task_id, type.
  *
  * Returns:
- * List of task state dicts with keys: task_id, func_or_class_name,
+ * List of task state dicts with keys: task_id, name, func_or_class_name,
  * state, creation_time, end_time, error_message.
  *
  * Raises:
