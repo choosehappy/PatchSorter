@@ -179,9 +179,9 @@ class LabeledRateTracker:
         self.device = "cpu"
         self.rate = None
         self.class_freq = torch.zeros(nclasses, dtype=torch.float32, device=self.device)
-        self.class_freq.share_memory_()
+        #self.class_freq.share_memory_() #TODO: maybe remove?
         self.pseudo_class_freq = torch.zeros(nclasses, dtype=torch.float32, device=self.device)
-        self.pseudo_class_freq.share_memory_()
+        #self.pseudo_class_freq.share_memory_()
         self.num_updates = 0 
 
     def _update_class_weights(
@@ -228,7 +228,7 @@ class LabeledRateTracker:
             with torch.no_grad():
                 self.class_freq.copy_(new_weights.cpu())
 
-            print("true:", self.class_freq)
+#            print("true:", self.class_freq)
 
         # Pseudo label class weights
         pseudo_freq = None
@@ -239,7 +239,7 @@ class LabeledRateTracker:
             with torch.no_grad():
                 self.pseudo_class_freq.copy_(new_weights.cpu())
 
-            print("pseudo:\t", self.pseudo_class_freq)
+#            print("pseudo:\t", self.pseudo_class_freq)
 
         return self.rate, label_freq, pseudo_freq
 
@@ -507,20 +507,10 @@ class JointHead(nn.Module):
             # nn.ReLU()
         )
 
-        self.proj_fc_nn = nn.Sequential(
-            nn.ReLU(),
-            nn.Linear(embed_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, embed_dim),
-        )
-        
         self.proj_fc = nn.Sequential(
             nn.Linear(embed_dim, proj_dim),
-            nn.Hardtanh(min_val=0.0, max_val=grid_size),  # equivalent to clamp(0, 100)
+            #nn.Hardtanh(min_val=0.0, max_val=grid_size),  # equivalent to clamp(0, 100)
+            nn.Sigmoid()
         )
 
         self.pred_fc = nn.Linear(embed_dim, num_classes)
@@ -531,8 +521,8 @@ class JointHead(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        nn.init.uniform_(self.proj_fc[0].weight, -1.0, 1.0)  # wider than xavier
-        nn.init.uniform_(self.proj_fc[0].bias, 0.0, self.grid_size)
+        # nn.init.uniform_(self.proj_fc[0].weight, -1.0, 1.0)  # wider than xavier
+        # nn.init.uniform_(self.proj_fc[0].bias, 0.0, self.grid_size)
         # init prototypes small and normalize
         with torch.no_grad():
             nn.init.normal_(self.prototypes, mean=0.0, std=0.01)
@@ -540,13 +530,8 @@ class JointHead(nn.Module):
 
     def forward(self, z):
         shared = self.shared_fc(z)
-        # proj     = (self.proj_fc(shared) + 1) / 2 * self.grid_size  # [0, grid_size]
-        # proj = self.proj_fc(shared) *self.grid_size
-        
-        #proj_nn = self.proj_fc_nn(shared)
-        #proj = self.proj_fc(proj_nn)
-        
-        proj = self.proj_fc(shared)
+
+        proj = self.proj_fc(shared) * self.grid_size
         
         logits = self.pred_fc(shared)
         return shared, proj, logits
@@ -922,15 +907,15 @@ def semantic_head_loss(coords, labels, margin=0.5):
 # ------------------------
 # NEIGHBORHOOD LOSS (GPU kNN, approximate)
 # ------------------------
+ema_temp = torch.tensor(1.0).to(DEVICE)
 def neighborhood_loss(z_batch, proj_coords, k=K_NEIGHBORS, temp=.1):
+    global ema_temp #janky
     V, B, D = z_batch.shape
     assert k < B, f"k={k} must be < batch size={B}"
 
     diag_mask = torch.eye(B, dtype=torch.bool, device=z_batch.device)
 
     loss = 0.0
-    adaptive_temp = None
-
 
     for v in range(V):
         # Build target neighborhood in embedding space (no gradient needed)
@@ -958,13 +943,12 @@ def neighborhood_loss(z_batch, proj_coords, k=K_NEIGHBORS, temp=.1):
         proj_dists_masked = proj_dists.masked_fill(diag_mask, 1e9)
 
 
-        if adaptive_temp is None:
-            with torch.no_grad():
-                nn_dists = proj_dists.detach().masked_fill(diag_mask, 1e9).min(dim=1).values
-                adaptive_temp = (nn_dists.mean() / (1.0 + 0.5 * k)).clamp(0.05, 20.0)
-
-
-        log_probs = torch.log_softmax(-proj_dists_masked / adaptive_temp, dim=1)  # [B, B]
+        with torch.no_grad():
+            nn_dists = proj_dists.detach().masked_fill(diag_mask, 1e9).min(dim=1).values
+            batch_adaptive_temp = (nn_dists.mean() / (1.0 + 0.5 * k)).clamp(1.0, 20.0)
+            ema_temp = (0.99 * ema_temp + 0.01 * batch_adaptive_temp).detach()
+        # print(f"EMA temp: {ema_temp.item():.4f}, batch temp: {batch_adaptive_temp.item():.4f}")
+        log_probs = torch.log_softmax(-proj_dists_masked / ema_temp.item(), dim=1)  # [B, B]
 
         neighbor_log_probs = log_probs.gather(dim=1, index=neighbor_idx)
         loss += -(weights * neighbor_log_probs).sum(dim=1).mean()
@@ -1064,30 +1048,34 @@ class SpreadLoss(nn.Module):
         return F.mse_loss(coords, target)
 
 
-# def mean_loss(coords):
-#     mean = coords.mean(dim=0)
-#     return torch.norm(mean - GRID_SIZE/2)
+
+def rank_uniform_loss(coords, grid_size=GRID_SIZE,w_decorr=0.05):
+    # coords: [B, 2]
+    B = coords.shape[0]
+    loss = 0.0
+    for d in range(2):
+        vals = coords[:, d]
+        ranks = torch.argsort(torch.argsort(vals)).float()  # detach-friendly rank
+        target = (ranks + 0.5) / B * grid_size
+        loss += F.mse_loss(vals, target.detach()) / (grid_size ** 2)  # normalize to ~[0,1] scale
+
+    
+    return 10*(loss + w_decorr *decorrelation_loss(coords)  )
 
 
-def max_mean_discrepancy(coords, grid_size=GRID_SIZE, n_samples=500):
-    coords = coords.float() / grid_size  # normalize to [0,1]
+def decorrelation_loss(coords, eps=1e-6):
+    # coords: [B, 2]
+    x = coords[:, 0]
+    y = coords[:, 1]
+    x = x - x.mean()
+    y = y - y.mean()
 
-    # Sample from true uniform distribution
-    uniform = torch.rand_like(coords.repeat(n_samples // coords.shape[0] + 1, 1))[
-        :n_samples
-    ]
+    cov_xy = (x * y).mean()
+    std_x = torch.sqrt((x * x).mean() + eps)
+    std_y = torch.sqrt((y * y).mean() + eps)
 
-    # MMD with RBF kernel
-    def rbf(a, b, sigma=0.1):
-        diff = a.unsqueeze(0) - b.unsqueeze(1)  # [N, M, 2]
-        return torch.exp(-diff.pow(2).sum(-1) / (2 * sigma**2))
-
-    xx = rbf(coords, coords).mean()
-    yy = rbf(uniform, uniform).mean()
-    xy = rbf(coords, uniform).mean()
-
-    return xx - 2 * xy + yy
-
+    corr = cov_xy / (std_x * std_y)
+    return corr.pow(2)  # penalize magnitude of correlation, sign-agnostic
 
 def simclr_loss(proj_emb, temperature=0.5):
     """
@@ -1403,40 +1391,6 @@ def prediction_loss_pseudo_sce_adaptive(
     #return pseudo_loss, num_pseudo
     return pseudo_loss, agreed, high_conf
 
-# class AdaptiveThreshold:
-#     def __init__(self, num_classes, base_thresh=0.95, ema_decay=0.99, device='cuda'):
-#         self.num_classes = num_classes
-#         self.base_thresh = base_thresh
-#         self.ema_decay = ema_decay
-
-#         self.class_confidence_ema = torch.full(
-#             (num_classes,),
-#             base_thresh,
-#             device=device,
-#         )
-        
-
-#     @torch.no_grad()
-#     def update(self, probs, preds):
-#         for c in range(self.num_classes):
-#             mask = preds == c
-#             if mask.any():
-#                 batch_mean_conf = probs[mask].mean()
-#                 self.class_confidence_ema[c] = (
-#                     self.ema_decay * self.class_confidence_ema[c]
-#                     + (1 - self.ema_decay) * batch_mean_conf
-#                 )
-
-#     def get_thresholds(self):
-#         # normalize by the strongest class so the best class sits at ~base_thresh
-#         max_conf = self.class_confidence_ema.max().clamp(min=1e-6)
-#         return self.base_thresh * (self.class_confidence_ema / max_conf)
-
-#     def high_conf_mask(self, probs, preds):
-#         thresholds = self.get_thresholds()  # [num_classes]
-#         print(f"Adaptive thresholds: {thresholds.cpu().numpy()}")
-#         per_sample_thresh = thresholds[preds]  # [N]
-#         return probs >= per_sample_thresh
 
 
 class AdaptiveThreshold:

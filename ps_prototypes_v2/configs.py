@@ -49,7 +49,8 @@ COORD_CONTRASTIVE_LOSS = 0
 SIMCLR_EMB_LOSS = 100
 
 SPREAD_LOSS = 10.0
-MAX_MEAN_LOSS = 10_000.0
+#MAX_MEAN_LOSS = 10_000.0
+RANK_UNIFORM_LOSS = 10_000.0
 PSEUDO_THRESH = 0.9
 
 USE_MASK = True
@@ -77,7 +78,7 @@ SWAV_SINKHORN_ITERS = 3
 SWAV_EPS = 0.05
 
 
-LOAD_CHECKPOINT = False
+LOAD_CHECKPOINT = True
 TORCH_PROFILE = False # Enable torch profiler (record CPU/CUDA traces to runs/torch_prof)
 LOG_EMBEDDINGS_TOSQL = True # Log embeddings to tensorboard
 

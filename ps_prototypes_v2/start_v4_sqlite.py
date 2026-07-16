@@ -3,6 +3,9 @@ import io
 import random
 import sqlite3
 
+import cv2
+cv2.setNumThreads(0)
+
 import torch
 import torch.nn.functional as F
 from albumentations.pytorch import ToTensorV2
@@ -58,8 +61,8 @@ dataloader = DataLoader(
     num_workers=NWORKERS_BASE,
     pin_memory=True,
     drop_last=True,
-    # persistent_workers=True,
-    # prefetch_factor=4, #UNCOMMENT
+    persistent_workers=True,
+    prefetch_factor=4, #UNCOMMENT
 )
 # prefetcher = cuda_prefetc[her(dataloader)
 vram_prefetcher = threaded_vram_prefetcher(dataloader, buffer_size=4, device=DEVICE) #UNCOMMENT
@@ -215,20 +218,20 @@ niter_total = 0
 # running_loss = []
 
 
-# ideal spacing given batch size and grid size
-ideal_spacing = GRID_SIZE / math.sqrt(BATCH_SIZE)  # ~3.1 for 1024 points
-REPULSION_MARGIN = ideal_spacing * 10.5  # slight buffer above ideal
+# # ideal spacing given batch size and grid size
+# ideal_spacing = GRID_SIZE / math.sqrt(BATCH_SIZE)  # ~3.1 for 1024 points
+# REPULSION_MARGIN = ideal_spacing * 10.5  # slight buffer above ideal
 
 del batch_imgs, batch_labels, original_imgs  # free up memory from initial batch
 
-all_views = torch.cat([v.float().to(DEVICE,non_blocking=True) / 255.0 for v in views], dim=0)
+#all_views = torch.cat([v.float().to(DEVICE,non_blocking=True) / 255.0 for v in views], dim=0)
 
 
-if not LOAD_CHECKPOINT:
-    ## ---- UNCOMMENT - JUST COMMENTED OUT FORS PEEED
-    z_init, proj_coords_init = initialize_projection_from_batch(
-        backbone, joint_head, all_views, writer, grid_size=GRID_SIZE
-    )
+# if not LOAD_CHECKPOINT:
+#     ## ---- UNCOMMENT - JUST COMMENTED OUT FORS PEEED
+#     z_init, proj_coords_init = initialize_projection_from_batch(
+#         backbone, joint_head, all_views, writer, grid_size=GRID_SIZE
+#     )
 
 #mem_bank.add_candidates(z_init, proj_coords_init)
 
@@ -251,7 +254,7 @@ patch_mask = gaussian_mask(PATCH_SIZE, PATCH_SIZE).to(DEVICE,non_blocking=True)
 for _ in range(10_000):
     for batch_idx, batch_data in tqdm(enumerate(vram_prefetcher)):
         # forward all views → [nviews, B, D]
-        with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=False): ##TODO: don't use it while we're testing / building 
+        with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=False): ##TODO: don't use it while we're testing / building -- did a quick test 15/7 and didn't converge well
             
             # 1. Grab candidate batch if available
             cand_batch = None
@@ -269,7 +272,7 @@ for _ in range(10_000):
                 *cand_views, cand_labels, cand_orig, cand_ids = cand_batch
                 
                 cand_labels = cand_labels.long().to(DEVICE, non_blocking=True)
-                cand_views_gpu = [v.to(DEVICE, non_blocking=True) for v in cand_views]
+                cand_views_gpu = (v.to(DEVICE, non_blocking=True) for v in cand_views)
                 
                 # 4. Fast Vectorized Concat directly on the GPU
                 labels = torch.cat([base_labels, cand_labels], dim=0)
@@ -289,7 +292,7 @@ for _ in range(10_000):
                 ids = base_ids
 
             #imgs = torch.stack(views_gpu, dim=1).flatten(0, 1) / 255.0  # [B*V, C, H, W] #NOTE: THIS WAS VERY WRONG, flattened in the wrong direction
-            imgs = torch.stack(views_gpu, dim=0).flatten(0, 1) / 255.0  # [B*V, C, H, W]
+            imgs = torch.stack(views_gpu, dim=0).flatten(0, 1).float() / 255.0  # [B*V, C, H, W] #Note: move data onto gpu as INT and then convert there to float. this reduces data transfer time and memory usage
 
 
             B = views_gpu[0].shape[0]
@@ -302,7 +305,7 @@ for _ in range(10_000):
                 imgs = imgs * patch_mask.unsqueeze(0).unsqueeze(
                     0
                 )  # broadcast over [B, C, H, W]
-
+ 
             z = backbone(imgs)  # [B*V, D]
             emb, coords, logits = joint_head(z)  # [B*V, ...]
 
@@ -313,7 +316,7 @@ for _ in range(10_000):
             proj_emb = emb.view(V, B, -1)
             proj_coords = coords.view(V, B, -1)
 
-            #-------------- write to sqlite
+            #-------------- write to sqlite - probably research only
             if LOG_EMBEDDINGS_TOSQL:
                 try:
                     enqueue_embeddings_to_db(db_writer, proj_coords, proj_emb, ids)
@@ -343,14 +346,14 @@ for _ in range(10_000):
             coord_contrastive_loss = (1.0 / (dists[mask] + 1e-6)).mean()
 
             # contrastive / prototype losses: support simclr or swav (configurable)
-            if LOSS_TYPE.lower() == "swav":
+            # if LOSS_TYPE.lower() == "swav":
                 # use the learnable prototypes from the joint head for embedding SwAV
-                simclr_emb_loss = swav_loss(proj_emb, prototypes=joint_head.prototypes)
+            simclr_emb_loss = swav_loss(proj_emb, prototypes=joint_head.prototypes) #TODO: please rename as swav loss
                 # for coordinates, keep k-means-based SwAV (prototypes not provided)
                 #simclr_emb_loss_coord = swav_loss(proj_coords)  -- this seems crazy
-            else:
-                simclr_emb_loss = simclr_loss(proj_emb, temperature=0.07)
-                #simclr_emb_loss_coord = simclr_loss(proj_coords, temperature=0.07)
+            # else:
+            #     simclr_emb_loss = simclr_loss(proj_emb, temperature=0.07)
+            #     #simclr_emb_loss_coord = simclr_loss(proj_coords, temperature=0.07)
 
             # flat [nviews*B, D] — drop-in for all existing functions
             proj_emb = proj_emb.view(-1, proj_emb.shape[-1])
@@ -359,7 +362,7 @@ for _ in range(10_000):
             labels = labels.repeat(len(views))
 
 #            spread_loss_val = spread_loss(proj_coords)
-            max_mean_discrepancy_loss = max_mean_discrepancy(proj_coords)
+            rank_uniform_loss_loss = rank_uniform_loss(proj_coords)
             #repulsion_loss_val = repulsion_loss(proj_coords, margin=REPULSION_MARGIN)
             repulsion_loss_val = torch.tensor(0.0, device=DEVICE)  
 
@@ -369,7 +372,7 @@ for _ in range(10_000):
             #proj_emb_norm = F.normalize(proj_emb, dim=1 )  # projects onto unit hypersphere
             proj_emb_norm = proj_emb #normalization was done above --- not name refactoring yet
 
-            semantic_emb_attr_loss, semantic_emb_repel_loss = semantic_head_loss(proj_emb_norm, labels, margin=0.5) #TODO: use this rarity score to better weight points
+            semantic_emb_attr_loss, semantic_emb_repel_loss = semantic_head_loss(proj_emb_norm, labels, margin=0.5) 
             
             semantic_emb_loss = (semantic_emb_attr_loss + semantic_emb_repel_loss)  # report seperately
 
@@ -394,10 +397,10 @@ for _ in range(10_000):
 
             #update DB score
             with torch.no_grad():
-                ids_update, scores_update= compute_weighting_scores(ids,labels,proj_emb,label_tracker.get_class_weights(),nbase_ids)
+                ids_update, scores_update= compute_weighting_scores(ids,labels,proj_emb,label_tracker.get_class_weights(),len(ids)) #AJ: TODO, this is incorrect? nbase_ids should be total first view?
                 print(ids_update,scores_update)
                 if ids_update is not None:
-                    score_writer.enqueue(ids_update+1, niter_total + scores_update) #NOTE: VERY IMPORTANT - IDs are shifted by 1 here because the DB starts at 1 and not at zero, unlike the dataloader
+                    score_writer.enqueue(ids_update+1, niter_total + scores_update) #NOTE: VERY IMPORTANT - IDs are shifted by 1 here because the DB starts at 1 and not at zero, unlike the dataloader   -> XX(niter_total).YYY(scores_update)
 
             total_loss = (
                 COORD_CONSITENCY_LOSS * coord_consistency_loss
@@ -405,7 +408,7 @@ for _ in range(10_000):
                 + SIMCLR_EMB_LOSS * simclr_emb_loss
                 #+ SIMCLR_EMB_LOSS * simclr_emb_loss_coord
                 #                        + SPREAD_LOSS * spread_loss_val
-                + MAX_MEAN_LOSS * max_mean_discrepancy_loss
+                + RANK_UNIFORM_LOSS * rank_uniform_loss_loss #TODO: should be renamed with _lambda
                 # BATCH_BIN_LAMBDA  * occ_loss
                 # + REPULSION_LAMBDA   * repulsion_loss_val
                 # + INTRA_BIN_LAMBDA  * intra_loss
@@ -508,7 +511,7 @@ for _ in range(10_000):
                 "loss/coord_consistency": coord_consistency_loss.item(),
                 "loss/coord_contrastive": coord_contrastive_loss.item(),
                 "loss/simclr_emb": simclr_emb_loss.item(),
-                "loss/max_mean_discrepancy": max_mean_discrepancy_loss.item(),
+                "loss/rank_uniform_loss": rank_uniform_loss_loss.item(),
                 "loss/repulsion": repulsion_loss_val.item(),
                 "loss/neighborhood": neigh_loss.item(),
                 "loss/semantic_coord": semantic_coord_loss.item(),
@@ -526,7 +529,7 @@ for _ in range(10_000):
                 "loss_scaled/coord_consistency": COORD_CONSITENCY_LOSS * coord_consistency_loss.item(),
                 "loss_scaled/coord_contrastive": COORD_CONTRASTIVE_LOSS * coord_contrastive_loss.item(),
                 "loss_scaled/simclr_emb": SIMCLR_EMB_LOSS * simclr_emb_loss.item(),
-                "loss_scaled/max_mean_discrepancy": MAX_MEAN_LOSS * max_mean_discrepancy_loss.item(),
+                "loss_scaled/rank_uniform_loss": RANK_UNIFORM_LOSS * rank_uniform_loss_loss.item(),
                 "loss_scaled/neighborhood": NEIGHBOR_LAMBDA * neigh_loss.item(),
                 "loss_scaled/semantic_coord": SEMANTIC_COORD_LAMBDA * semantic_coord_loss.item(),
                 "loss_scaled/semantic_emb": SEMANTIC_EMB_LAMBDA * semantic_emb_loss.item(),

@@ -5,6 +5,7 @@ import sqlite3
 from typing import Any
 
 import time
+import cv2
 import numpy as np
 import torch
 from albumentations.pytorch import ToTensorV2
@@ -29,7 +30,7 @@ class SQLiteDataset:
         self.fname = fname
         self.table_name = table_name
         self.geom_transform: Any
-        self.photo_transform: Any
+        self.photo_transform: Any #NOTE: merge together now?  -- NO, we still want the anchor to be relatively unmodified so that it can be a good anchor for embedding learning
         self.geom_transform, self.photo_transform = transforms if transforms else (None, None)
         self.nviews = nviews
         self._conn: sqlite3.Connection | None = None
@@ -37,14 +38,27 @@ class SQLiteDataset:
         self._ensure_score_column()
         self.nitems = self._count_rows()
 
-    def _create_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.fname, timeout=30, check_same_thread=False)
+    def _create_connection(self, read_only: bool = False) -> sqlite3.Connection:
+        if read_only:
+            # Workers only read data; mode=ro avoids file-locking conflicts entirely
+            db_uri = f"file:{self.fname}?mode=ro"
+            conn = sqlite3.connect(db_uri, timeout=30, check_same_thread=False, uri=True)
+        else:
+            conn = sqlite3.connect(self.fname, timeout=30, check_same_thread=False)
+            
+        # Performance tuning parameters
         conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")     # Speeds up processing without risking data loss
+        conn.execute("PRAGMA cache_size=-20000;")      # Allocates ~20MB of RAM cache per worker
+        conn.execute("PRAGMA temp_store=MEMORY;")      # Keeps temporary operations in RAM
         return conn
 
     def _get_connection(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = self._create_connection()
+            import cv2
+            cv2.setNumThreads(0)
+
+            self._conn = self._create_connection(read_only=True)
         return self._conn
 
     def _close_connection(self) -> None:
@@ -69,18 +83,18 @@ class SQLiteDataset:
             cursor.execute(f"SELECT COUNT(*) FROM {self.table_name}")
             return int(cursor.fetchone()[0])
 
-    def _ensure_score_column(self) -> None:
+    def _ensure_score_column(self) -> None:  #TODO: -- should be done in production during databset set up. - should not exist in production version (but partial indexes should be made)
         with self._create_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(f"PRAGMA table_info({self.table_name})")
             columns = [row[1] for row in cursor.fetchall()]
-            if "score_timestamp" not in columns:
+            if "score_timestamp" not in columns:   # XX.YYY   XX - > # of times seen and YY is the "rarity" score
                 conn.execute(
                     f"ALTER TABLE {self.table_name} ADD COLUMN score_timestamp REAL DEFAULT NULL"
                 )
             cursor.execute(f"UPDATE {self.table_name} SET score_timestamp = NULL") ##NOTE: This is only done for building/testing the system - in production we definitely want to keep the score
 
-            if "tmp_label" not in columns:
+            if "tmp_label" not in columns: #TODO: in production this should be the* actual ground truth column* as provided by the user
                 conn.execute(
                     f"ALTER TABLE {self.table_name} ADD COLUMN tmp_label INTEGER DEFAULT -1"
                 )
@@ -92,13 +106,13 @@ class SQLiteDataset:
                 WHERE score_timestamp > 0
                 """
             )
-            conn.execute(
-                f"""
-                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_tmp_label_positive
-                ON {self.table_name} (tmp_label)
-                WHERE tmp_label > -1
-                """
-            )
+            # conn.execute(  #TODO: might not need?
+            #     f"""
+            #     CREATE INDEX IF NOT EXISTS idx_{self.table_name}_tmp_label_positive
+            #     ON {self.table_name} (tmp_label)
+            #     WHERE tmp_label > -1
+            #     """
+            # )
 
             conn.commit()
 
@@ -114,13 +128,15 @@ class SQLiteDataset:
 
     def __getitem__(self, index: int) -> tuple[np.ndarray, list, int, np.ndarray, int]:
         row_id = index + 1
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                f"SELECT patch, tmp_label FROM {self.table_name} WHERE id = ?",
-                (row_id,),
-            )
-            row = cursor.fetchone()
+        conn = self._get_connection() #NOTE: this is a singleton - for sqlite a connection pool is not appropriate but for postgres it would be.
+
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT patch, tmp_label FROM {self.table_name} WHERE id = ?",
+            (row_id,),
+        )
+        row = cursor.fetchone()
+        cursor.close()
 
         if row is None:
             raise IndexError(index)
@@ -132,11 +148,11 @@ class SQLiteDataset:
         if self.geom_transform:
             geom_out = self.geom_transform(image=img)
             img_geom = geom_out["image"]
-            anchor = ToTensorV2()(image=img_geom)["image"].float()
+            anchor = ToTensorV2()(image=img_geom)["image"]
 
             if self.photo_transform:
                 views = tuple(
-                    self.photo_transform(image=self.geom_transform(image=img)["image"])["image"].float()
+                    self.photo_transform(image=self.geom_transform(image=img)["image"])["image"]
                     for _ in range(self.nviews - 1)
                 )
                 return anchor, *views, label, img, index
@@ -165,11 +181,11 @@ class GTCandidatePool:
         self._conn: sqlite3.Connection | None = None
 
         self._candidate_index: dict[int, int] = {}
-        self._candidate_ids: np.ndarray = np.empty(self.pool_size, dtype=np.int64)
-        self._candidate_labels: np.ndarray = np.empty(self.pool_size, dtype=np.int64)
+        self._candidate_ids: np.ndarray = np.empty(self.pool_size, dtype=np.int64) #TODO: remove unneeded ones
+        # self._candidate_labels: np.ndarray = np.empty(self.pool_size, dtype=np.int64)
         self._candidate_scores: np.ndarray = np.empty(self.pool_size, dtype=np.float64)
-        self._candidate_weights: np.ndarray = np.empty(self.pool_size, dtype=np.float64)
-        self._candidate_count = 0
+        # self._candidate_weights: np.ndarray = np.empty(self.pool_size, dtype=np.float64)
+        # self._candidate_count = 0
 
         self._load_candidate_pool()
 
@@ -201,13 +217,13 @@ class GTCandidatePool:
     def _load_candidate_pool(self) -> None:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-
+            
+            #score_timestamp = XX.YYY   XX [0.1.2. incremented each time its seen ] is time, YY is rarity [0,.99999] 
             cursor.execute(
                 f"""
                 SELECT 
                     id, 
-                    tmp_label, 
-                    score_timestamp,
+                    -- tmp_label, 
                     -- Self-contained decay calculation: scales automatically to the maximum step in the DB
                     (
                         (score_timestamp - CAST(score_timestamp AS INT)) 
@@ -233,14 +249,14 @@ class GTCandidatePool:
             self._candidate_count = len(rows)
 
             if rows:
-                row_ids, tmp_labels, _, computed_sorting_score = zip(*rows)
+                row_ids, computed_sorting_score = zip(*rows)
                 row_ids_arr = np.array(row_ids, dtype=np.int64)
 
-                labels_arr = np.array([int(l) if l is not None else -1 for l in tmp_labels], dtype=np.int64)
-                scores_arr = np.array([float(s) if s is not None else 0 for s in computed_sorting_score], dtype=np.float64) #AJ - TODO: CORRECT SCORES
+                #labels_arr = np.array([int(l) if l is not None else -1 for l in tmp_labels], dtype=np.int64)
+                scores_arr = np.array([float(s) if s is not None else 0 for s in computed_sorting_score], dtype=np.float64) 
 
                 self._candidate_ids[: self._candidate_count] = row_ids_arr
-                self._candidate_labels[: self._candidate_count] = labels_arr
+                #self._candidate_labels[: self._candidate_count] = labels_arr
                 self._candidate_scores[: self._candidate_count] = scores_arr
 
                 self._candidate_index = {int(rid): idx for idx, rid in enumerate(row_ids)}
@@ -254,7 +270,7 @@ class GTCandidatePool:
         self._load_candidate_pool()
 
 
-    def draw_batch(self, n: int) -> list[tuple[int, int, float, int]]:
+    def draw_batch(self, n: int) -> list[tuple[int, int]]:
         """Weighted sample of n DISTINCT candidates (without replacement)
         for ONE batch. No state persists between calls - duplicates across
         different calls (different batches, or different workers) are fine;
@@ -275,8 +291,8 @@ class GTCandidatePool:
         return [
             (
                 int(self._candidate_ids[idx]),
-                int(self._candidate_labels[idx]),
-                float(self._candidate_scores[idx]),
+#                int(self._candidate_labels[idx]),
+                #float(self._candidate_scores[idx]),
                 int(idx),
             )
             for idx in order
@@ -302,7 +318,7 @@ class GTCandidatePool:
 # and simply round-robins whatever its workers produce - giving you normal
 # DataLoader-level background prefetching/double-buffering for free.
 # ---------------------------------------------------------------------------
-class CandidatePoolIterableDataset(IterableDataset):
+class CandidatePoolIterableDataset(IterableDataset): #TODO: is it possible to have this pull from all shards on that local node instead of on a per shard level
     def __init__(
         self,
         device,
@@ -338,11 +354,11 @@ class CandidatePoolIterableDataset(IterableDataset):
                 pool.refresh()
                 if pool.is_empty:
                     yield None
-                    continue
+                    continue #TODO: depending on speed of database etc - may want to sleep here for a bit to avoid pounding the DB
 
             picks = pool.draw_batch(self.batch_size)
             items = []
-            for row_id, old_label, old_score, candidate_idx in picks:
+            for row_id, candidate_idx in picks:
                 anchor, *views, label, orig, _ = base[row_id - 1]
                 pool.decay_in_memory_score(candidate_idx) 
                 items.append((anchor, *views, label, orig, row_id - 1))
