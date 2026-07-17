@@ -53,7 +53,7 @@ def _save_files(tmpdir: str, subdir: str, filenames: List[str], contents: List[b
 
 def _resolve_path(fsman, relative_path: str, session_id: str) -> str:
     """Resolve a relative path to absolute, detecting session vs nas_read source."""
-    if relative_path.startswith(f"upload_sessions/{session_id}/"):
+    if relative_path.startswith(f"{session_id}/"):
         return fsman.upload.get_full_path(relative_path)
     return fsman.nas_read.relative_to_global(relative_path)
 
@@ -65,24 +65,30 @@ def _validate_mixed(
     mask_folder: str = "",
     patch_csv_folder: str = "",
 ) -> dict:
-    """Glob all available files from the session temp dir and optional server folders, then match masks/patch_csvs by image filename stem.
-
-    A row is valid if at least one of mask or CSV is found for the image.
-    """
+    """Glob all available files from the session temp dir and optional server folders, returning a row per image."""
     images_temp_dir = Path(tmpdir) / "images"
     masks_temp_dir = Path(tmpdir) / "masks"
     patch_csvs_temp_dir = Path(tmpdir) / "patch_csvs"
 
-    # Gather image stems from all sources
-    image_stems: dict[str, Path] = {}  # stem -> image filepath
+    images: list[Path] = []
+    masks: dict[str, Path] = {}
+    csvs: dict[str, Path] = {}
 
     # From session temp dir (file-drop mode)
     if images_temp_dir.is_dir():
         for f in images_temp_dir.iterdir():
             if f.suffix.lower() in _IMAGE_EXTS:
-                image_stems[f.stem] = f
+                images.append(f)
+    if masks_temp_dir.is_dir():
+        for f in masks_temp_dir.iterdir():
+            if f.suffix.lower() == ".geojson":
+                masks[f.stem] = f
+    if patch_csvs_temp_dir.is_dir():
+        for f in patch_csvs_temp_dir.iterdir():
+            if f.suffix.lower() == ".csv":
+                csvs[f.stem] = f
 
-    # From server-side image folder (folder mode)
+    # From server-side folders (folder mode)
     if image_folder:
         img_dir = Path(image_folder)
         if not img_dir.is_dir():
@@ -90,12 +96,34 @@ def _validate_mixed(
         found = False
         for f in img_dir.iterdir():
             if f.suffix.lower() in _IMAGE_EXTS:
-                image_stems[f.stem] = f
+                images.append(f)
                 found = True
         if not found:
             raise Exception(f"No valid images found in image folder: {image_folder}")
+    if mask_folder:
+        mf = Path(mask_folder)
+        if not mf.is_dir():
+            raise Exception(f"Mask folder does not exist: {mask_folder}")
+        found = False
+        for f in mf.iterdir():
+            if f.suffix.lower() == ".geojson":
+                masks[f.stem] = f
+                found = True
+        if not found:
+            raise Exception(f"No valid mask files found in mask folder: {mask_folder}")
+    if patch_csv_folder:
+        pf = Path(patch_csv_folder)
+        if not pf.is_dir():
+            raise Exception(f"Patch CSV folder does not exist: {patch_csv_folder}")
+        found = False
+        for f in pf.iterdir():
+            if f.suffix.lower() == ".csv":
+                csvs[f.stem] = f
+                found = True
+        if not found:
+            raise Exception(f"No valid patch CSV files found in patch CSV folder: {patch_csv_folder}")
 
-    if not image_stems:
+    if not images:
         return {
             "paths": [
                 dict(image="", mask="", csv="", status="error",
@@ -104,100 +132,42 @@ def _validate_mixed(
             "errors": 1,
         }
 
-    # Gather masks from all sources
-    mask_by_stem: dict[str, Path] = {}
-    if masks_temp_dir.is_dir():
-        for f in masks_temp_dir.iterdir():
-            if f.suffix.lower() == ".geojson":
-                mask_by_stem[f.stem] = f
-    if mask_folder:
-        mf = Path(mask_folder)
-        if not mf.is_dir():
-            raise Exception(f"Mask folder does not exist: {mask_folder}")
-        found = False
-        for f in mf.iterdir():
-            if f.suffix.lower() == ".geojson":
-                mask_by_stem[f.stem] = f
-                found = True
-        if not found:
-            raise Exception(f"No valid mask files found in mask folder: {mask_folder}")
-
-    # Gather patch_csvs from all sources
-    csv_by_stem: dict[str, Path] = {}
-    if patch_csvs_temp_dir.is_dir():
-        for f in patch_csvs_temp_dir.iterdir():
-            if f.suffix.lower() == ".csv":
-                csv_by_stem[f.stem] = f
-    if patch_csv_folder:
-        pf = Path(patch_csv_folder)
-        if not pf.is_dir():
-            raise Exception(f"Patch CSV folder does not exist: {patch_csv_folder}")
-        found = False
-        for f in pf.iterdir():
-            if f.suffix.lower() == ".csv":
-                csv_by_stem[f.stem] = f
-                found = True
-        if not found:
-            raise Exception(f"No valid patch CSV files found in patch CSV folder: {patch_csv_folder}")
-
     fsman = FileStoreManager()
     upload_base = fsman.upload.get_full_path()
     rows: list[dict] = []
-    for stem in sorted(image_stems.keys()):
-        img_path = image_stems[stem]
-        if str(img_path).startswith(upload_base):
-            img_rel = "upload_sessions/" + fsman.upload.global_to_relative(str(img_path))
-        else:
-            img_rel = fsman.nas_read.global_to_relative(str(img_path))
-        if stem in mask_by_stem:
-            mask_path = str(mask_by_stem[stem])
-            if mask_path.startswith(upload_base):
-                mask_rel = "upload_sessions/" + fsman.upload.global_to_relative(mask_path)
-            else:
-                mask_rel = fsman.nas_read.global_to_relative(mask_path)
-        else:
-            mask_rel = ""
-        if stem in csv_by_stem:
-            csv_path = str(csv_by_stem[stem])
-            if csv_path.startswith(upload_base):
-                csv_rel = "upload_sessions/" + fsman.upload.global_to_relative(csv_path)
-            else:
-                csv_rel = fsman.nas_read.global_to_relative(csv_path)
-        else:
-            csv_rel = ""
+
+    for img_path in sorted(images, key=lambda p: p.name):
+        stem = img_path.stem
+        img_rel = _make_relative(img_path, fsman, upload_base, session_id)
+        mask_rel = _make_relative(masks[stem], fsman, upload_base, session_id) if stem in masks else ""
+        csv_rel = _make_relative(csvs[stem], fsman, upload_base, session_id) if stem in csvs else ""
 
         base_mag: float | None = None
-        if img_rel:
-            try:
-                ts = large_image.open(str(img_path))
-                base_mag = ts.getMetadata().get("magnification")
-            except Exception:
-                base_mag = None
+        try:
+            ts = large_image.open(str(img_path))
+            base_mag = ts.getMetadata().get("magnification")
+        except Exception:
+            pass
 
-        if not mask_rel and not csv_rel:
-            rows.append(
-                dict(
-                    image=img_rel,
-                    mask=mask_rel,
-                    csv=csv_rel,
-                    status="error",
-                    error=f"No mask or patch CSV found for {img_path.name}",
-                    base_mag=base_mag,
-                )
-            )
-        else:
-            rows.append(
-                dict(
-                    image=img_rel,
-                    mask=mask_rel,
-                    csv=csv_rel,
-                    status="ok",
-                    error="",
-                    base_mag=base_mag,
-                )
-            )
+        has_data = bool(mask_rel or csv_rel)
+        rows.append(dict(
+            image=img_rel,
+            mask=mask_rel,
+            csv=csv_rel,
+            status="ok" if has_data else "error",
+            error="" if has_data else f"No mask or patch CSV found for {img_path.name}",
+            base_mag=base_mag,
+        ))
 
     return {"paths": rows, "errors": sum(1 for r in rows if r["status"] == "error")}
+
+
+def _make_relative(path: Path, fsman: FileStoreManager, upload_base: str, session_id: str) -> str:
+    """Return a relative path string, prefixed with *session_id* if the file lives in the upload store."""
+    p = str(path)
+    if p.startswith(upload_base):
+        return os.path.relpath(p, upload_base)
+    return fsman.nas_read.global_to_relative(p)
 
 
 def _validate_image_csv(csv_content: bytes, session_id: str = "") -> dict:
@@ -213,33 +183,22 @@ def _validate_image_csv(csv_content: bytes, session_id: str = "") -> dict:
         mask = (row.get("mask") or "").strip()
         patch_csv = (row.get("patch_csv") or "").strip()
 
-        def _exists(path: str) -> bool:
-            if not path:
-                return False
-            if session_id and path.startswith(f"upload_sessions/{session_id}/"):
-                return os.path.exists(fsman.upload.get_full_path(path))
-            return os.path.exists(fsman.nas_read.relative_to_global(path))
-
         errors: list[str] = []
-        if img and not _exists(img):
-            errors.append(f"Image not found: {img}")
-        if mask and not _exists(mask):
-            errors.append(f"Mask not found: {mask}")
-        if patch_csv and not _exists(patch_csv):
-            errors.append(f"Patch CSV not found: {patch_csv}")
-
-        base_mag: float | None = None
         if img:
-            if session_id and img.startswith(f"upload_sessions/{session_id}/"):
-                resolved = fsman.upload.get_full_path(img)
+            img_full = fsman.nas_read.relative_to_global(img)
+            if not os.path.exists(img_full):
+                errors.append(f"Image not found: {img}")
             else:
-                resolved = fsman.nas_read.relative_to_global(img)
-            if os.path.exists(resolved):
                 try:
-                    ts = large_image.open(resolved)
+                    ts = large_image.open(img_full)
                     base_mag = ts.getMetadata().get("magnification")
                 except Exception:
-                    base_mag = None
+                        base_mag = None
+
+        if mask and not os.path.exists(fsman.nas_read.relative_to_global(mask)):
+            errors.append(f"Mask not found: {mask}")
+        if patch_csv and not os.path.exists(fsman.nas_read.relative_to_global(patch_csv)):
+            errors.append(f"Patch CSV not found: {patch_csv}")
 
         rows.append(
             dict(
