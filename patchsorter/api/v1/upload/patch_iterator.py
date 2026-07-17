@@ -12,8 +12,8 @@ from shapely.geometry.base import BaseGeometry
 
 
 
-class PatchIterator(ABC):
-    """Abstract base class for iterating over patch geometries."""
+class GeometryIterator(ABC):
+    """Abstract base class producing (geometry, label, uuid) tuples. May be implemented by subclasses that read from different sources (e.g., GeoJSON, CSV)."""
 
     @abstractmethod
     def __iter__(self) -> Iterator[tuple[BaseGeometry, int | None, uuid.UUID | None]]:
@@ -26,7 +26,7 @@ class PatchIterator(ABC):
         ...
 
 
-class GeojsonPatchIterator(PatchIterator):
+class GeojsonGeometryIterator(GeometryIterator):
     """Iterates over features in a GeoJSON file."""
 
     def __init__(self, geojson_path: str) -> None:
@@ -45,9 +45,9 @@ class GeojsonPatchIterator(PatchIterator):
             if not geom.is_valid or geom.geom_type != "Polygon":
                 geom_type_name = geom.geom_type
                 raise ValueError(
-                    f"GeojsonPatchIterator only supports Polygon geometries, "
+                    f"GeojsonGeometryIterator only supports Polygon geometries, "
                     f"but feature FID={feature.GetFID()} has geometry type '{geom_type_name}'. "
-                    f"Use CsvPatchIterator for point-based coordinates."
+                    f"Use CsvGeometryIterator for point-based coordinates."
                 )
 
             # Extract label from feature properties
@@ -66,7 +66,7 @@ class GeojsonPatchIterator(PatchIterator):
             yield (geom, label, patch_uuid)
 
 
-class CsvPatchIterator(PatchIterator):
+class CsvGeometryIterator(GeometryIterator):
     """Iterates over rows in a CSV file containing x, y coordinates."""
 
     def __init__(self, csv_path: str) -> None:
@@ -93,7 +93,7 @@ class CsvPatchIterator(PatchIterator):
             yield (geometry, label, patch_uuid)
 
 
-class HybridPatchIterator(PatchIterator):
+class HybridPatchIterator(GeometryIterator):
     """Iterates over a GeoJSON file, looking up UUIDs and labels from a CSV."""
 
     def __init__(self, geojson_path: str, csv_path: str) -> None:
@@ -132,7 +132,7 @@ class HybridPatchIterator(PatchIterator):
                 raise ValueError(
                     f"HybridPatchIterator only supports Polygon geometries, "
                     f"but feature FID={feature.GetFID()} has geometry type '{geom_type_name}'. "
-                    f"Use CsvPatchIterator for point-based coordinates."
+                    f"Use CsvGeometryIterator for point-based coordinates."
                 )
 
             wkb_bytes = geom.ExportToWkb()

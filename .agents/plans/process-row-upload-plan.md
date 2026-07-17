@@ -54,7 +54,7 @@
 - **Attributes**:
   - `self.nas_write = NASWriteStore()`
   - `self.nas_read = NASReadStore()`
-  - `self.upload_store = UploadStore()`
+  - `self.upload = UploadStore()`
 
 ### Path structure
 
@@ -199,7 +199,7 @@ def process_row(
 
 ### Execution flow
 1. **Get store manager**: `fsman = FileStoreManager()`
-2. **Resolve image path**: `image_path = fsman.upload_store.get_image_path(session_id, process_row_arg.image)`
+2. **Resolve image path**: `image_path = fsman.upload.get_image_path(session_id, process_row_arg.image)`
 3. **Open image**: `ts = large_image.open(image_path)`
 4. **Determine base_mag**:
    - If `process_row_arg.base_mag` is provided → use it
@@ -252,7 +252,7 @@ class UploadSessionActor:
 ### Updated `__init__`
 - Remove `tempfile.TemporaryDirectory`
 - Instantiate `fsman = FileStoreManager()` and store as `self._fsman`
-- Call `self._fsman.upload_store.create_session_dirs(session_id)` to create the session directory structure on disk
+- Call `self._fsman.upload.create_session_dirs(session_id)` to create the session directory structure on disk
 - Load project settings from the DB at actor startup:
   ```python
   with get_client().get_session() as session:
@@ -261,13 +261,13 @@ class UploadSessionActor:
   Store as `self._settings: dict` with keys: `patch_size`, `patch_extraction_method`, `object_radius`
 
 ### Updated `__ray_shutdown__`
-- Replace `self._tmpdir.cleanup()` with `self._fsman.upload_store.cleanup_session(self._session_id)`
+- Replace `self._tmpdir.cleanup()` with `self._fsman.upload.cleanup_session(self._session_id)`
 
 ### Updated `save_images` / `save_masks` / `save_patch_csvs`
 - Replace `os.path.join(self._tmpdir.name, subdir, filename)` with appropriate `UploadStore` path methods
 
 ### Updated `validate_mixed` / `validate_image_csv`
-- Pass `self._fsman.upload_store.get_session_dir(self._session_id)` as the tmpdir argument instead of `self._tmpdir.name`
+- Pass `self._fsman.upload.get_session_dir(self._session_id)` as the tmpdir argument instead of `self._tmpdir.name`
 
 ### Updated `process(self, paths: list[dict]) -> dict`
 ```python

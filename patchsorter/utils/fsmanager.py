@@ -82,7 +82,7 @@ class UploadStore(FileStore):
     """Per-upload-session temporary storage."""
 
     def __init__(self) -> None:
-        super().__init__(os.path.join("nas_write", "tmp", "upload_sessions"))
+        super().__init__(os.path.join("nas_write", "upload_sessions"))
 
     def get_session_dir(self, session_id: str) -> str:
         return os.path.join(self.full_path, session_id)
@@ -125,4 +125,4 @@ class FileStoreManager:
     def __init__(self) -> None:
         self.nas_write = NASWriteStore()
         self.nas_read = NASReadStore()
-        self.upload_store = UploadStore()
+        self.upload = UploadStore()

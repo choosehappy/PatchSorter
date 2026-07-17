@@ -10,15 +10,14 @@ from typing import List
 import ray
 import large_image
 
-from patchsorter.api.v1.upload.fsmanager import FileStoreManager
+from patchsorter.utils.fsmanager import FileStoreManager
 from patchsorter.api.v1.upload.models import ProcessRow
 from patchsorter.api.v1.upload.patch_iterator import (
-    CsvPatchIterator,
-    GeojsonPatchIterator,
+    CsvGeometryIterator,
+    GeojsonGeometryIterator,
     HybridPatchIterator,
-    PatchIterator,
+    GeometryIterator,
 )
-from patchsorter.config import constants
 from patchsorter.db.head_client import get_client
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.image import ImageStore
@@ -52,8 +51,16 @@ def _save_files(tmpdir: str, subdir: str, filenames: List[str], contents: List[b
     return f"Uploaded {len(filenames)} {subdir.rstrip('s')}(s)"
 
 
+def _resolve_path(fsman, relative_path: str, session_id: str) -> str:
+    """Resolve a relative path to absolute, detecting session vs nas_read source."""
+    if relative_path.startswith(f"upload_sessions/{session_id}/"):
+        return fsman.upload.get_full_path(relative_path)
+    return fsman.nas_read.relative_to_global(relative_path)
+
+
 def _validate_mixed(
     tmpdir: str,
+    session_id: str,
     image_folder: str = "",
     mask_folder: str = "",
     patch_csv_folder: str = "",
@@ -62,16 +69,16 @@ def _validate_mixed(
 
     A row is valid if at least one of mask or CSV is found for the image.
     """
-    images_dir = Path(tmpdir) / "images"
-    masks_dir = Path(tmpdir) / "masks"
-    patch_csvs_dir = Path(tmpdir) / "patch_csvs"
+    images_temp_dir = Path(tmpdir) / "images"
+    masks_temp_dir = Path(tmpdir) / "masks"
+    patch_csvs_temp_dir = Path(tmpdir) / "patch_csvs"
 
     # Gather image stems from all sources
     image_stems: dict[str, Path] = {}  # stem -> image filepath
 
     # From session temp dir (file-drop mode)
-    if images_dir.is_dir():
-        for f in images_dir.iterdir():
+    if images_temp_dir.is_dir():
+        for f in images_temp_dir.iterdir():
             if f.suffix.lower() in _IMAGE_EXTS:
                 image_stems[f.stem] = f
 
@@ -99,8 +106,8 @@ def _validate_mixed(
 
     # Gather masks from all sources
     mask_by_stem: dict[str, Path] = {}
-    if masks_dir.is_dir():
-        for f in masks_dir.iterdir():
+    if masks_temp_dir.is_dir():
+        for f in masks_temp_dir.iterdir():
             if f.suffix.lower() == ".geojson":
                 mask_by_stem[f.stem] = f
     if mask_folder:
@@ -117,8 +124,8 @@ def _validate_mixed(
 
     # Gather patch_csvs from all sources
     csv_by_stem: dict[str, Path] = {}
-    if patch_csvs_dir.is_dir():
-        for f in patch_csvs_dir.iterdir():
+    if patch_csvs_temp_dir.is_dir():
+        for f in patch_csvs_temp_dir.iterdir():
             if f.suffix.lower() == ".csv":
                 csv_by_stem[f.stem] = f
     if patch_csv_folder:
@@ -133,12 +140,31 @@ def _validate_mixed(
         if not found:
             raise Exception(f"No valid patch CSV files found in patch CSV folder: {patch_csv_folder}")
 
+    fsman = FileStoreManager()
+    upload_base = fsman.upload.get_full_path()
     rows: list[dict] = []
     for stem in sorted(image_stems.keys()):
         img_path = image_stems[stem]
-        img_rel = os.path.relpath(str(img_path), constants.MOUNTS_PATH)
-        mask_rel = os.path.relpath(str(mask_by_stem[stem]), constants.MOUNTS_PATH) if stem in mask_by_stem else ""
-        csv_rel = os.path.relpath(str(csv_by_stem[stem]), constants.MOUNTS_PATH) if stem in csv_by_stem else ""
+        if str(img_path).startswith(upload_base):
+            img_rel = "upload_sessions/" + fsman.upload.global_to_relative(str(img_path))
+        else:
+            img_rel = fsman.nas_read.global_to_relative(str(img_path))
+        if stem in mask_by_stem:
+            mask_path = str(mask_by_stem[stem])
+            if mask_path.startswith(upload_base):
+                mask_rel = "upload_sessions/" + fsman.upload.global_to_relative(mask_path)
+            else:
+                mask_rel = fsman.nas_read.global_to_relative(mask_path)
+        else:
+            mask_rel = ""
+        if stem in csv_by_stem:
+            csv_path = str(csv_by_stem[stem])
+            if csv_path.startswith(upload_base):
+                csv_rel = "upload_sessions/" + fsman.upload.global_to_relative(csv_path)
+            else:
+                csv_rel = fsman.nas_read.global_to_relative(csv_path)
+        else:
+            csv_rel = ""
 
         base_mag: float | None = None
         if img_rel:
@@ -174,28 +200,40 @@ def _validate_mixed(
     return {"paths": rows, "errors": sum(1 for r in rows if r["status"] == "error")}
 
 
-def _validate_image_csv(csv_content: bytes) -> dict:
+def _validate_image_csv(csv_content: bytes, session_id: str = "") -> dict:
     """Parse an image manifest CSV and validate that each path exists on the server."""
     text = csv_content.decode("utf-8-sig")  # handle BOM
     reader = csv.DictReader(io.StringIO(text))
 
+    fsman = FileStoreManager()
+    upload_base = fsman.upload.get_full_path() if session_id else ""
     rows: list[dict] = []
     for row in reader:
         img = (row.get("image") or "").strip()
         mask = (row.get("mask") or "").strip()
         patch_csv = (row.get("patch_csv") or "").strip()
 
+        def _exists(path: str) -> bool:
+            if not path:
+                return False
+            if session_id and path.startswith(f"upload_sessions/{session_id}/"):
+                return os.path.exists(fsman.upload.get_full_path(path))
+            return os.path.exists(fsman.nas_read.relative_to_global(path))
+
         errors: list[str] = []
-        if img and not os.path.exists(os.path.join(constants.MOUNTS_PATH, img)):
+        if img and not _exists(img):
             errors.append(f"Image not found: {img}")
-        if mask and not os.path.exists(os.path.join(constants.MOUNTS_PATH, mask)):
+        if mask and not _exists(mask):
             errors.append(f"Mask not found: {mask}")
-        if patch_csv and not os.path.exists(os.path.join(constants.MOUNTS_PATH, patch_csv)):
+        if patch_csv and not _exists(patch_csv):
             errors.append(f"Patch CSV not found: {patch_csv}")
 
         base_mag: float | None = None
         if img:
-            resolved = os.path.join(constants.MOUNTS_PATH, img)
+            if session_id and img.startswith(f"upload_sessions/{session_id}/"):
+                resolved = fsman.upload.get_full_path(img)
+            else:
+                resolved = fsman.nas_read.relative_to_global(img)
             if os.path.exists(resolved):
                 try:
                     ts = large_image.open(resolved)
@@ -255,10 +293,10 @@ def process_row(
     fsman = FileStoreManager()
 
     # Resolve paths: ProcessRow fields are paths relative to MOUNTS_PATH
-    image_path = os.path.join(constants.MOUNTS_PATH, process_row_arg.image)
+    image_path = _resolve_path(fsman, process_row_arg.image, session_id)
     image_filename = os.path.basename(image_path)
-    mask_path = os.path.join(constants.MOUNTS_PATH, process_row_arg.mask) if process_row_arg.mask else None
-    csv_path = os.path.join(constants.MOUNTS_PATH, process_row_arg.csv) if process_row_arg.csv else None
+    mask_path = _resolve_path(fsman, process_row_arg.mask, session_id) if process_row_arg.mask else None
+    csv_path = _resolve_path(fsman, process_row_arg.csv, session_id) if process_row_arg.csv else None
 
     # Open image tile source
     ts = large_image.open(image_path)
@@ -284,9 +322,9 @@ def process_row(
     has_csv = csv_path is not None and os.path.exists(csv_path)
 
     if has_mask and not has_csv:
-        iterator: PatchIterator = GeojsonPatchIterator(mask_path)
+        iterator: GeometryIterator = GeojsonGeometryIterator(mask_path)
     elif has_csv and not has_mask:
-        iterator = CsvPatchIterator(csv_path)
+        iterator = CsvGeometryIterator(csv_path)
     elif has_mask and has_csv:
         iterator = HybridPatchIterator(mask_path, csv_path)
     else:
@@ -394,7 +432,7 @@ class UploadSessionActor:
         self._project_id = project_id
         self._session_id = session_id
         self._fsman = FileStoreManager()
-        self._fsman.upload_store.create_session_dirs(session_id)
+        self._fsman.upload.create_session_dirs(session_id)
 
         # Load project settings from the DB at actor startup
         with get_client().get_session() as session:
@@ -402,7 +440,7 @@ class UploadSessionActor:
 
     def __ray_shutdown__(self) -> None:
         try:
-            self._fsman.upload_store.cleanup_session(self._session_id)
+            self._fsman.upload.cleanup_session(self._session_id)
         except Exception:
             pass
 
@@ -411,15 +449,15 @@ class UploadSessionActor:
     # ------------------------------------------------------------------
 
     def save_images(self, filenames: List[str], contents: List[bytes]) -> str:
-        tmpdir = self._fsman.upload_store.get_session_dir(self._session_id)
+        tmpdir = self._fsman.upload.get_session_dir(self._session_id)
         return _save_files(tmpdir, "images", filenames, contents)
 
     def save_masks(self, filenames: List[str], contents: List[bytes]) -> str:
-        tmpdir = self._fsman.upload_store.get_session_dir(self._session_id)
+        tmpdir = self._fsman.upload.get_session_dir(self._session_id)
         return _save_files(tmpdir, "masks", filenames, contents)
 
     def save_patch_csvs(self, filenames: List[str], contents: List[bytes]) -> str:
-        tmpdir = self._fsman.upload_store.get_session_dir(self._session_id)
+        tmpdir = self._fsman.upload.get_session_dir(self._session_id)
         return _save_files(tmpdir, "patch_csvs", filenames, contents)
 
     # ------------------------------------------------------------------
@@ -432,14 +470,13 @@ class UploadSessionActor:
         mask_folder: str = "",
         patch_csv_folder: str = "",
     ) -> dict:
-        tmpdir = self._fsman.upload_store.get_session_dir(self._session_id)
+        tmpdir = self._fsman.upload.get_session_dir(self._session_id)
         return _validate_mixed(
-            tmpdir,
-            image_folder, mask_folder, patch_csv_folder,
+            tmpdir, self._session_id, image_folder, mask_folder, patch_csv_folder,
         )
 
     def validate_image_csv(self, csv_content: bytes) -> dict:
-        return _validate_image_csv(csv_content)
+        return _validate_image_csv(csv_content, self._session_id)
 
     # ------------------------------------------------------------------
     # Processing
