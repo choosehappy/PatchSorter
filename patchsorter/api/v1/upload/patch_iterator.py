@@ -6,9 +6,10 @@ from typing import Iterator
 
 import pandas as pd
 from osgeo import ogr
-from shapely import wkb
-from shapely.geometry import Point
+from shapely import wkb, wkt
+from shapely.geometry import Point, shape
 from shapely.geometry.base import BaseGeometry
+
 
 
 class PatchIterator(ABC):
@@ -38,21 +39,16 @@ class GeojsonPatchIterator(PatchIterator):
 
         layer = datasource.GetLayer(0)
         for feature in layer:
-            geom = feature.GetGeometryRef()
-            geom_type = geom.GetGeometryType()
+            geom = wkt.loads(feature.GetGeometryRef().ExportToWkt())
 
             # Check if geometry is a Polygon
-            if geom_type != ogr.wkbPolygon:
-                geom_type_name = geom.GetGeometryName()
+            if not geom.is_valid or geom.geom_type != "Polygon":
+                geom_type_name = geom.geom_type
                 raise ValueError(
                     f"GeojsonPatchIterator only supports Polygon geometries, "
                     f"but feature FID={feature.GetFID()} has geometry type '{geom_type_name}'. "
                     f"Use CsvPatchIterator for point-based coordinates."
                 )
-
-            # Convert OGR geometry to shapely geometry
-            wkb_bytes = geom.ExportToWkb()
-            geometry = wkb.loads(wkb_bytes)
 
             # Extract label from feature properties
             props = feature.items()
@@ -67,7 +63,7 @@ class GeojsonPatchIterator(PatchIterator):
             if "uid" in props and props["uid"] is not None:
                 patch_uuid = uuid.UUID(str(props["uid"]))
 
-            yield (geometry, label, patch_uuid)
+            yield (geom, label, patch_uuid)
 
 
 class CsvPatchIterator(PatchIterator):

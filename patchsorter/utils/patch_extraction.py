@@ -299,6 +299,14 @@ def extract_patch_from_geometry(
         scale={"magnification": magnification},
         format=large_image.tilesource.TILE_FORMAT_PIL,
     )
+
+    if region is None or region.size[0] == 0 or region.size[1] == 0:
+        raise ValueError(
+            f"Empty region extracted for centroid=({centroid.x}, {centroid.y}), "
+            f"qmagnification={magnification}. "
+            "The requested crop likely falls outside the tile source bounds."
+        )
+    
     buf = io.BytesIO()
     if region.mode == "RGBA":
         region = region.convert("RGB")
