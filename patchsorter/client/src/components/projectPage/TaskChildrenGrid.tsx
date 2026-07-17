@@ -99,8 +99,7 @@ export default function TaskChildrenGrid({ parentTaskId, containerId, onCompleti
                 sortable: true,
                 minWidth: 120,
                 customTooltip: {
-                    useRegularTooltip: true,
-                    useRegularTooltipFromCellTextOnly: true,
+                    useRegularTooltip: false,
                 },
             },
             {
@@ -111,8 +110,7 @@ export default function TaskChildrenGrid({ parentTaskId, containerId, onCompleti
                 minWidth: 60,
                 formatter: stateFormatter,
                 customTooltip: {
-                    useRegularTooltip: true,
-                    useRegularTooltipFromCellTextOnly: true,
+                    useRegularTooltip: false,
                 },
             },
         ]
