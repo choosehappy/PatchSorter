@@ -64,51 +64,35 @@ def _validate_mixed(
 
     fsman = FileStoreManager()
 
-    # SCAN SESSION TEMP DIRS
-    images_session_dir = fsman.upload.get_images_dir(session_id)
-    masks_session_dir = fsman.upload.get_masks_dir(session_id)
-    csvs_session_dir = fsman.upload.get_patch_csvs_dir(session_id)
+    # Define sources to scan.
+    sources = [
+        ("image", fsman.upload.get_images_dir(session_id), image_folder, IMAGE_EXTS),
+        ("mask", fsman.upload.get_masks_dir(session_id), mask_folder, MASK_EXTS),
+        ("patch CSV", fsman.upload.get_patch_csvs_dir(session_id), patch_csv_folder, PATCH_CSV_EXTS),
+    ]
 
-    images = list(scan_folder(images_session_dir, IMAGE_EXTS).values())
-    masks: dict[str, Path] = {}
-    csvs: dict[str, Path] = {}
-    if masks_session_dir.is_dir():
-        for stem, fname in scan_folder(masks_session_dir, MASK_EXTS).items():
-            masks[stem] = fname
-    if csvs_session_dir.is_dir():
-        for stem, fname in scan_folder(csvs_session_dir, PATCH_CSV_EXTS).items():
-            csvs[stem] = fname
+    results: dict[str, dict[str, Path]] = {}
 
-    # Merge server-side folders (server takes priority for images; overwrites for masks/csvs)
-    server_images: dict[str, Path] = {}
-    server_masks: dict[str, Path] = {}
-    server_csvs: dict[str, Path] = {}
-    if image_folder:
-        image_folder_fullpath = fsman.nas_read.relative_to_global(image_folder)
-        server_images = scan_folder(image_folder_fullpath, IMAGE_EXTS)
+    for label, session_dir, server_folder, exts in sources:
+        merged: dict[str, Path] = {}
 
-        if not server_images:
-            raise Exception(f"No valid images found in image folder: {image_folder}")
+        # SCAN SESSION TEMP DIR
+        if session_dir.is_dir():
+            merged.update(scan_folder(session_dir, exts))
 
-        images = list(server_images.values())
-    if mask_folder:
-        mask_folder_fullpath = fsman.nas_read.relative_to_global(mask_folder)
-        server_masks = scan_folder(mask_folder_fullpath, MASK_EXTS)
+        # SCAN OPTIONAL SERVER FOLDER
+        if server_folder:
+            folder_fullpath = fsman.nas_read.relative_to_global(server_folder)
+            server_files = scan_folder(folder_fullpath, exts)
 
-        if not server_masks:
-            raise Exception(f"No valid mask files found in mask folder: {mask_folder}")
-        
-        for stem, fname in server_masks.items():
-            masks[stem] = fname
-    if patch_csv_folder:
-        patch_csv_folder_fullpath = fsman.nas_read.relative_to_global(patch_csv_folder)
-        server_csvs = scan_folder(patch_csv_folder_fullpath, PATCH_CSV_EXTS)
+            if not server_files:
+                raise Exception(f"No valid {label} files found in {label} folder: {server_folder}")
 
-        if not server_csvs:
-            raise Exception(f"No valid patch CSV files found in patch CSV folder: {patch_csv_folder}")
-        
-        for stem, fname in server_csvs.items():
-            csvs[stem] = fname
+            merged.update(server_files)
+
+        results[label] = merged
+
+    images, masks, csvs = results["image"], results["mask"], results["patch CSV"]
             
     if not images:
         return {
@@ -122,18 +106,18 @@ def _validate_mixed(
     upload_base = fsman.upload.get_full_path()
     rows: list[dict] = []
 
-    for img_path in sorted(images):
+    for stem in sorted(images):
+        img_path = images[stem]
         stem = img_path.stem
         img_rel = _make_relative(img_path, fsman, upload_base, session_id)
         mask_rel = _make_relative(masks[stem], fsman, upload_base, session_id) if stem in masks else ""
         csv_rel = _make_relative(csvs[stem], fsman, upload_base, session_id) if stem in csvs else ""
 
-        base_mag: float | None = None
         try:
             ts = large_image.open(str(img_path))
             base_mag = ts.getMetadata().get("magnification")
         except Exception:
-            pass
+            base_mag = None
 
         has_data = bool(mask_rel or csv_rel)
         rows.append(dict(
