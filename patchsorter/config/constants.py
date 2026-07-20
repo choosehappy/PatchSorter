@@ -21,7 +21,7 @@ class SettingType(StrEnum):
     INTEGER = "integer"
 
 
-IMAGE_EXTS = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+IMAGE_EXTS = {".tif", ".tiff", ".png", ".jpg", ".jpeg", ".svs", ".ndpi", ".vms", ".vmu", ".scn", ".mrxs", ".tif.gz"}
 MASK_EXTS = {".geojson"}
 PATCH_CSV_EXTS = {".csv"}
 

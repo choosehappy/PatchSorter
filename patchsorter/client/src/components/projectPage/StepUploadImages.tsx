@@ -7,7 +7,7 @@ interface StepUploadImagesProps {
     onAddFiles: (files: File[]) => void
     isFolder: boolean
     onToggleFolder: (isFolder: boolean) => void
-    serverPath: string
+    serverPath: string | null
     onServerPathChange: (path: string) => void
 }
 
@@ -99,12 +99,12 @@ export default function StepUploadImages({
                     <Form.Label>Server directory path for scan images</Form.Label>
                     <Form.Control
                         type="text"
-                        placeholder="/absolute/path/to/images/"
-                        value={serverPath}
+                        placeholder="/relative/path/to/images/"
+                        value={serverPath ?? ''}
                         onChange={e => onServerPathChange(e.target.value)}
                     />
                     <Form.Text className="text-muted">
-                        Absolute path to a directory on the server. All matching image files inside
+                        Relative path to a directory on the server. All matching image files inside
                         will be imported.
                     </Form.Text>
                 </Form.Group>

@@ -47,7 +47,7 @@ class FileStore:
         Returns:
             A **relative path string** relative to ``base_path``.
         """
-        return os.path.relpath(path, self.base_path)
+        return os.path.relpath(path, self.full_path)
 
     def relative_to_global(self, path: str | Path) -> Path:
         """Convert a **relative path** to a **full path**.
@@ -58,7 +58,7 @@ class FileStore:
         Returns:
             A **full (absolute) Path**.
         """
-        return self.base_path / str(path)
+        return self.full_path / str(path)
 
 def scan_folder(folder_path: str | Path, valid_exts: set[str]) -> dict[str, Path]:
     """Scan *folder_path* for files with *valid_exts*.

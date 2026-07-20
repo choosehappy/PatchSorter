@@ -56,9 +56,9 @@ def _resolve_path(fsman, relative_path: str, session_id: str) -> Path:
 
 def _validate_mixed(
     session_id: str,
-    image_folder: str = "",
-    mask_folder: str = "",
-    patch_csv_folder: str = "",
+    image_folder: str | None = None,
+    mask_folder: str | None = None,
+    patch_csv_folder: str | None = None,
 ) -> dict:
     """Glob all available files from the session dir and optional server folders, returning a row per image."""
 
@@ -81,7 +81,7 @@ def _validate_mixed(
             merged.update(scan_folder(session_dir, exts))
 
         # SCAN OPTIONAL SERVER FOLDER
-        if server_folder:
+        if server_folder is not None:
             folder_fullpath = fsman.nas_read.relative_to_global(server_folder)
             server_files = scan_folder(folder_fullpath, exts)
 
@@ -97,7 +97,7 @@ def _validate_mixed(
     if not images:
         return {
             "paths": [
-                dict(image="", mask="", csv="", status="error",
+                dict(image=None, mask=None, csv=None, status="error",
                      error="No images found in session temp dir or image_folder"),
             ],
             "errors": 1,
@@ -110,8 +110,8 @@ def _validate_mixed(
         img_path = images[stem]
         stem = img_path.stem
         img_rel = _make_relative(img_path, fsman, upload_base, session_id)
-        mask_rel = _make_relative(masks[stem], fsman, upload_base, session_id) if stem in masks else ""
-        csv_rel = _make_relative(csvs[stem], fsman, upload_base, session_id) if stem in csvs else ""
+        mask_rel = _make_relative(masks[stem], fsman, upload_base, session_id) if stem in masks else None
+        csv_rel = _make_relative(csvs[stem], fsman, upload_base, session_id) if stem in csvs else None
 
         try:
             ts = large_image.open(str(img_path))
@@ -125,7 +125,7 @@ def _validate_mixed(
             mask=mask_rel,
             csv=csv_rel,
             status="ok" if has_data else "error",
-            error="" if has_data else f"No mask or patch CSV found for {img_path.name}",
+            error=None if has_data else f"No mask or patch CSV found for {img_path.name}",
             base_mag=base_mag,
         ))
 
@@ -183,7 +183,7 @@ def _validate_image_csv(csv_content: bytes, session_id: str = "") -> dict:
 
     if not rows:
         rows.append(
-            dict(image="", mask="", csv="", status="error", error="CSV file contains no data rows")
+            dict(image=None, mask=None, csv=None, status="error", error="CSV file contains no data rows")
         )
 
     return {"paths": rows, "errors": sum(1 for r in rows if r["status"] == "error")}
@@ -395,9 +395,9 @@ class UploadSessionActor:
 
     def validate_mixed(
         self,
-        image_folder: str = "",
-        mask_folder: str = "",
-        patch_csv_folder: str = "",
+        image_folder: str | None = None,
+        mask_folder: str | None = None,
+        patch_csv_folder: str | None = None,
     ) -> dict:
         return _validate_mixed(self._session_id, image_folder, mask_folder, patch_csv_folder)
 

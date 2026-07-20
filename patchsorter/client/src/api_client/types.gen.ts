@@ -311,15 +311,15 @@ export type ProcessRow = {
     /**
      * Image
      */
-    image: string;
+    image: string | null;
     /**
      * Mask
      */
-    mask: string;
+    mask: string | null;
     /**
      * Csv
      */
-    csv: string;
+    csv: string | null;
     /**
      * Base Mag
      */
@@ -393,15 +393,15 @@ export type ReviewRow = {
     /**
      * Image
      */
-    image: string;
+    image: string | null;
     /**
      * Mask
      */
-    mask: string;
+    mask: string | null;
     /**
      * Csv
      */
-    csv: string;
+    csv: string | null;
     /**
      * Status
      */
@@ -478,15 +478,15 @@ export type ValidateRequest = {
     /**
      * Image Folder
      */
-    image_folder?: string;
+    image_folder?: string | null;
     /**
      * Mask Folder
      */
-    mask_folder?: string;
+    mask_folder?: string | null;
     /**
      * Patch Csv Folder
      */
-    patch_csv_folder?: string;
+    patch_csv_folder?: string | null;
 };
 
 /**

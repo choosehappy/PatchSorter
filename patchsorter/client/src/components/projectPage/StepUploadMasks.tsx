@@ -6,7 +6,7 @@ interface StepUploadMasksProps {
     onAddFiles: (files: File[]) => void
     isFolder: boolean
     onToggleFolder: (isFolder: boolean) => void
-    serverPath: string
+    serverPath: string | null
     onServerPathChange: (path: string) => void
     includeMasks: boolean
     onToggleInclude: (include: boolean) => void
@@ -118,12 +118,12 @@ export default function StepUploadMasks({
                             <Form.Label>Server directory path for mask files</Form.Label>
                             <Form.Control
                                 type="text"
-                                placeholder="/absolute/path/to/masks/"
-                                value={serverPath}
+                                placeholder="/relative/path/to/masks/"
+                                value={serverPath ?? ''}
                                 onChange={e => onServerPathChange(e.target.value)}
                             />
                             <Form.Text className="text-muted">
-                                Absolute path to a directory on the server containing .geojson mask files.
+                                Relative path to a directory on the server containing .geojson mask files.
                             </Form.Text>
                         </Form.Group>
                     )}

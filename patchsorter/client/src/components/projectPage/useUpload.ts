@@ -68,7 +68,7 @@ export interface UseUploadReturn {
     disabledMask: boolean
     disabledPatchCsv: boolean
     isFolderByType: Record<UploadType, boolean>
-    pathsByType: Record<UploadType, string>
+    pathsByType: Record<UploadType, string | null>
     uploadedFileCounts: Record<UploadType, number>
     currentFlow: readonly Step[]
 
@@ -111,10 +111,10 @@ export function useUpload(projectId: number): UseUploadReturn {
         mask: false,
         patch_csv: false,
     })
-    const [pathsByType, setPathsByType] = useState<Record<UploadType, string>>({
-        image: '',
-        mask: '',
-        patch_csv: '',
+    const [pathsByType, setPathsByType] = useState<Record<UploadType, string | null>>({
+        image: null,
+        mask: null,
+        patch_csv: null,
     })
     const [uploadedFileCounts, setUploadedFileCounts] = useState<Record<UploadType, number>>({
         image: 0,

@@ -15,24 +15,24 @@ class UploadFilesResponse(BaseModel):
 
 class ValidateRequest(BaseModel):
     """Unified validation request — all sources are globbed from the session temp dir."""
-    image_folder: str = ""
-    mask_folder: str = ""
-    patch_csv_folder: str = ""
+    image_folder: str | None = None
+    mask_folder: str | None = None
+    patch_csv_folder: str | None = None
 
 
 class ReviewRow(BaseModel):
-    image: str
-    mask: str
-    csv: str
+    image: str | None
+    mask: str | None
+    csv: str | None
     status: str  # 'ok' | 'error'
-    error: str
+    error: str | None
     base_mag: float | None = None
 
 
 class ProcessRow(BaseModel):
-    image: str
-    mask: str
-    csv: str
+    image: str | None
+    mask: str | None
+    csv: str | None
     base_mag: float | None = None
 
 

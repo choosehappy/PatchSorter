@@ -141,9 +141,9 @@ export default function UploadWizardModal({
                 const res = await validateUpload({
                     path: { project_id: projectId, session_id: session },
                     body: {
-                        image_folder: isFolderByType['image'] ? pathsByType['image'] : '',
-                        mask_folder: isFolderByType['mask'] ? pathsByType['mask'] : '',
-                        patch_csv_folder: isFolderByType['patch_csv'] ? pathsByType['patch_csv'] : '',
+                        image_folder: isFolderByType['image'] ? pathsByType['image'] : null,
+                        mask_folder: isFolderByType['mask'] ? pathsByType['mask'] : null,
+                        patch_csv_folder: isFolderByType['patch_csv'] ? pathsByType['patch_csv'] : null,
                     },
                 })
                 if (res.error) {
@@ -311,19 +311,19 @@ export default function UploadWizardModal({
         if (approach === Approach.StepByStep) {
             if (currentStep === Step.UploadImages) {
                 return isFolderByType['image']
-                    ? pathsByType['image'].trim().length > 0
+                    ? pathsByType['image'] !== null && pathsByType['image'].trim().length > 0
                     : uploadedFileCounts['image'] > 0
             }
             if (currentStep === Step.UploadMasks) {
                 if (!includeMasks) return true
                 return isFolderByType['mask']
-                    ? pathsByType['mask'].trim().length > 0
+                    ? pathsByType['mask'] !== null && pathsByType['mask'].trim().length > 0
                     : uploadedFileCounts['mask'] > 0
             }
             if (currentStep === Step.UploadPatchCsv) {
                 if (!includePatchCsv) return true
                 return isFolderByType['patch_csv']
-                    ? pathsByType['patch_csv'].trim().length > 0
+                    ? pathsByType['patch_csv'] !== null && pathsByType['patch_csv'].trim().length > 0
                     : uploadedFileCounts['patch_csv'] > 0
             }
         }

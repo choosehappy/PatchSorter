@@ -6,7 +6,7 @@ interface StepUploadPatchCsvProps {
     onAddFiles: (files: File[]) => void
     isFolder: boolean
     onToggleFolder: (isFolder: boolean) => void
-    serverPath: string
+    serverPath: string | null
     onServerPathChange: (path: string) => void
     includePatchCsv: boolean
     onToggleInclude: (include: boolean) => void
@@ -118,12 +118,12 @@ export default function StepUploadPatchCsv({
                             <Form.Label>Server directory path for patch CSV files</Form.Label>
                             <Form.Control
                                 type="text"
-                                placeholder="/absolute/path/to/patch_csv/"
-                                value={serverPath}
+                                placeholder="/relative/path/to/patch_csv/"
+                                value={serverPath ?? ''}
                                 onChange={e => onServerPathChange(e.target.value)}
                             />
                             <Form.Text className="text-muted">
-                                Absolute path to a directory on the server containing .csv files with columns: patch_uuid (optional, relates CSV rows to GeoJSON features), gt_label (optional, stores the patch's ground truth label), centroid_x (optional, stores the patch's x coordinate within the image), centroid_y (optional, stores the patch's y coordinate).
+                                Relative path to a directory on the server containing .csv files with columns: patch_uuid (optional, relates CSV rows to GeoJSON features), gt_label (optional, stores the patch's ground truth label), centroid_x (optional, stores the patch's x coordinate within the image), centroid_y (optional, stores the patch's y coordinate).
                             </Form.Text>
                         </Form.Group>
                     )}
