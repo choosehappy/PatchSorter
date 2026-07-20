@@ -64,23 +64,12 @@ def _validate_mixed(
 
     fsman = FileStoreManager()
 
+    # SCAN SESSION TEMP DIRS
     images_session_dir = fsman.upload.get_images_dir(session_id)
     masks_session_dir = fsman.upload.get_masks_dir(session_id)
     csvs_session_dir = fsman.upload.get_patch_csvs_dir(session_id)
 
-    # Validate server-side folders exist before scanning
-    if image_folder and not Path(image_folder).is_dir():
-        raise Exception(f"Image folder does not exist: {image_folder}")
-    if mask_folder and not Path(mask_folder).is_dir():
-        raise Exception(f"Mask folder does not exist: {mask_folder}")
-    if patch_csv_folder and not Path(patch_csv_folder).is_dir():
-        raise Exception(f"Patch CSV folder does not exist: {patch_csv_folder}")
-
-    # Scan session dir (only when no server image_folder is provided)
-    if image_folder:
-        images: list[Path] = []
-    else:
-        images = list(scan_folder(images_session_dir, IMAGE_EXTS).values())
+    images = list(scan_folder(images_session_dir, IMAGE_EXTS).values())
     masks: dict[str, Path] = {}
     csvs: dict[str, Path] = {}
     if masks_session_dir.is_dir():
@@ -95,25 +84,32 @@ def _validate_mixed(
     server_masks: dict[str, Path] = {}
     server_csvs: dict[str, Path] = {}
     if image_folder:
-        server_images = scan_folder(image_folder, IMAGE_EXTS)
+        image_folder_fullpath = fsman.nas_read.relative_to_global(image_folder)
+        server_images = scan_folder(image_folder_fullpath, IMAGE_EXTS)
+
+        if not server_images:
+            raise Exception(f"No valid images found in image folder: {image_folder}")
+
         images = list(server_images.values())
     if mask_folder:
-        server_masks = scan_folder(mask_folder, MASK_EXTS)
+        mask_folder_fullpath = fsman.nas_read.relative_to_global(mask_folder)
+        server_masks = scan_folder(mask_folder_fullpath, MASK_EXTS)
+
+        if not server_masks:
+            raise Exception(f"No valid mask files found in mask folder: {mask_folder}")
+        
         for stem, fname in server_masks.items():
             masks[stem] = fname
     if patch_csv_folder:
-        server_csvs = scan_folder(patch_csv_folder, PATCH_CSV_EXTS)
+        patch_csv_folder_fullpath = fsman.nas_read.relative_to_global(patch_csv_folder)
+        server_csvs = scan_folder(patch_csv_folder_fullpath, PATCH_CSV_EXTS)
+
+        if not server_csvs:
+            raise Exception(f"No valid patch CSV files found in patch CSV folder: {patch_csv_folder}")
+        
         for stem, fname in server_csvs.items():
             csvs[stem] = fname
-
-    # Validate no-valid-files for server-side folders
-    if image_folder and not server_images:
-        raise Exception(f"No valid images found in image folder: {image_folder}")
-    if mask_folder and not server_masks:
-        raise Exception(f"No valid mask files found in mask folder: {mask_folder}")
-    if patch_csv_folder and not server_csvs:
-        raise Exception(f"No valid patch CSV files found in patch CSV folder: {patch_csv_folder}")
-
+            
     if not images:
         return {
             "paths": [
