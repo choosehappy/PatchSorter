@@ -19,3 +19,10 @@ class SettingType(StrEnum):
     STRING = "string"
     BOOLEAN = "boolean"
     INTEGER = "integer"
+
+
+IMAGE_EXTS = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+MASK_EXTS = {".geojson"}
+PATCH_CSV_EXTS = {".csv"}
+
+PATCH_BATCH_SIZE = 1000

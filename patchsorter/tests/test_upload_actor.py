@@ -68,7 +68,6 @@ def test_folder_mode_all_labels(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         image_folder=str(server_img),
         mask_folder=str(server_mask),
         patch_csv_folder=str(server_csv),
@@ -95,7 +94,6 @@ def test_folder_mode_only_mask(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         image_folder=str(server_img),
         mask_folder=str(server_mask),
     )
@@ -117,7 +115,6 @@ def test_folder_mode_only_csv(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         image_folder=str(server_img),
         patch_csv_folder=str(server_csv),
     )
@@ -137,7 +134,6 @@ def test_folder_mode_neither_label(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         image_folder=str(server_img),
     )
 
@@ -154,7 +150,6 @@ def test_folder_mode_empty_image_folder(tmp_path):
     with pytest.raises(Exception, match="No valid images found in image folder"):
         _validate_mixed(
             str(session),
-            session_id,
             image_folder=str(empty_img),
         )
 
@@ -166,7 +161,6 @@ def test_folder_mode_missing_image_folder(tmp_path):
     with pytest.raises(Exception, match="Image folder does not exist"):
         _validate_mixed(
             str(session),
-            session_id,
             image_folder="/nonexistent/path",
         )
 
@@ -186,7 +180,6 @@ def test_folder_mode_multiple_images_partial_labels(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         image_folder=str(server_img),
         mask_folder=str(server_mask),
         patch_csv_folder=str(server_csv),
@@ -213,7 +206,6 @@ def test_folder_mode_stem_matching_case_insensitive(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         image_folder=str(server_img),
         mask_folder=str(server_mask),
     )
@@ -238,7 +230,7 @@ def test_file_drop_all_labels(tmp_path):
     _write_csv(session, "img1")
     _write_csv(session, "img2")
 
-    result = _validate_mixed(str(session), session_id)
+    result = _validate_mixed(str(session))
 
     assert result["errors"] == 0
     assert len(result["paths"]) == 2
@@ -256,7 +248,7 @@ def test_file_drop_only_mask(tmp_path):
     _write_image(session, "img1.tif")
     _write_mask(session, "img1")
 
-    result = _validate_mixed(str(session), session_id)
+    result = _validate_mixed(str(session))
 
     assert result["errors"] == 0
     assert result["paths"][0]["status"] == "ok"
@@ -270,7 +262,7 @@ def test_file_drop_only_csv(tmp_path):
     _write_image(session, "img1.tif")
     _write_csv(session, "img1")
 
-    result = _validate_mixed(str(session), session_id)
+    result = _validate_mixed(str(session))
 
     assert result["errors"] == 0
     assert result["paths"][0]["status"] == "ok"
@@ -283,7 +275,7 @@ def test_file_drop_neither_label(tmp_path):
     session, session_id = _create_session_dirs(tmp_path)
     _write_image(session, "img1.tif")
 
-    result = _validate_mixed(str(session), session_id)
+    result = _validate_mixed(str(session))
 
     assert result["errors"] == 1
     assert "No mask or patch CSV found" in result["paths"][0]["error"]
@@ -295,7 +287,7 @@ def test_file_drop_no_images(tmp_path):
     _write_mask(session, "img1")
     _write_csv(session, "img1")
 
-    result = _validate_mixed(str(session), session_id)
+    result = _validate_mixed(str(session))
 
     assert result["errors"] == 1
     assert "No images found" in result["paths"][0]["error"]
@@ -309,7 +301,7 @@ def test_file_drop_unequal_lists(tmp_path):
     _write_mask(session, "img1")
     _write_mask(session, "img3")  # no matching image
 
-    result = _validate_mixed(str(session), session_id)
+    result = _validate_mixed(str(session))
 
     assert result["errors"] == 1  # img2 has no labels
     assert len(result["paths"]) == 2  # only 2 images
@@ -331,7 +323,6 @@ def test_mixed_file_drop_images_server_mask(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         mask_folder=str(server_mask),
     )
 
@@ -353,7 +344,6 @@ def test_mixed_file_drop_images_server_csv(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         patch_csv_folder=str(server_csv),
     )
 
@@ -377,7 +367,6 @@ def test_mixed_file_drop_images_both_server_labels(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         mask_folder=str(server_mask),
         patch_csv_folder=str(server_csv),
     )
@@ -401,7 +390,6 @@ def test_mixed_server_images_file_drop_masks(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         image_folder=str(server_img),
     )
 
@@ -425,7 +413,6 @@ def test_mixed_partial_server_match(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         mask_folder=str(server_mask),
         patch_csv_folder=str(server_csv),
     )
@@ -446,7 +433,7 @@ def test_empty_all_inputs(tmp_path):
     """No images, no folders — returns error."""
     session, session_id = _create_session_dirs(tmp_path)
 
-    result = _validate_mixed(str(session), session_id)
+    result = _validate_mixed(str(session))
 
     assert result["errors"] == 1
     assert "No images found" in result["paths"][0]["error"]
@@ -458,7 +445,7 @@ def test_whitespace_filenames(tmp_path):
     _write_image(session, "  img1  .tif")
     _write_mask(session, "  img1  ")
 
-    result = _validate_mixed(str(session), session_id)
+    result = _validate_mixed(str(session))
 
     assert result["errors"] == 0
     assert result["paths"][0]["status"] == "ok"
@@ -480,7 +467,6 @@ def test_duplicate_stems_server_overwrites(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         image_folder=str(server_img),
         mask_folder=str(server_mask),
     )
@@ -498,7 +484,7 @@ def test_no_mask_no_csv_folder(tmp_path):
     _write_mask(session, "img1")
     _write_csv(session, "img1")
 
-    result = _validate_mixed(str(session), session_id)
+    result = _validate_mixed(str(session))
 
     assert result["errors"] == 0
     assert result["paths"][0]["mask"] != ""
@@ -516,7 +502,6 @@ def test_only_mask_folder_no_csv_folder(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         image_folder=str(server_img),
         mask_folder=str(server_mask),
     )
@@ -537,7 +522,6 @@ def test_only_csv_folder_no_mask_folder(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         image_folder=str(server_img),
         patch_csv_folder=str(server_csv),
     )
@@ -560,7 +544,6 @@ def test_both_folders_empty(tmp_path):
     with pytest.raises(Exception, match="No valid images found in image folder"):
         _validate_mixed(
             str(session),
-            session_id,
             image_folder=str(empty_img),
             mask_folder=str(empty_mask),
             patch_csv_folder=str(empty_csv),
@@ -580,7 +563,6 @@ def test_mixed_both_sources_same_stem(tmp_path):
 
     result = _validate_mixed(
         str(session),
-        session_id,
         image_folder=str(server_img),
         mask_folder=str(server_mask),
     )
@@ -600,7 +582,6 @@ def test_nonexistent_mask_folder_raises(tmp_path):
     with pytest.raises(Exception, match="Mask folder does not exist"):
         _validate_mixed(
             str(session),
-            session_id,
             mask_folder="/nonexistent/mask/folder",
         )
 
@@ -614,7 +595,6 @@ def test_nonexistent_csv_folder_raises(tmp_path):
     with pytest.raises(Exception, match="Patch CSV folder does not exist"):
         _validate_mixed(
             str(session),
-            session_id,
             patch_csv_folder="/nonexistent/csv/folder",
         )
 
@@ -625,7 +605,7 @@ def test_many_images_sorted(tmp_path):
     for name in ["z.tif", "a.tif", "m.tif"]:
         _write_image(session, name)
 
-    result = _validate_mixed(str(session), session_id)
+    result = _validate_mixed(str(session))
 
     assert result["errors"] == 3  # no labels for any image
     assert len(result["paths"]) == 3
@@ -646,7 +626,6 @@ def test_missing_image_folder_raises(tmp_path):
     with pytest.raises(Exception, match="Image folder does not exist"):
         _validate_mixed(
             str(session),
-            session_id,
             image_folder="/nonexistent/image/folder",
         )
 
@@ -661,7 +640,6 @@ def test_empty_image_folder_raises(tmp_path):
     with pytest.raises(Exception, match="No valid images found in image folder"):
         _validate_mixed(
             str(session),
-            session_id,
             image_folder=str(server_img),
         )
 
@@ -675,7 +653,6 @@ def test_missing_mask_folder_raises(tmp_path):
     with pytest.raises(Exception, match="Mask folder does not exist"):
         _validate_mixed(
             str(session),
-            session_id,
             image_folder=str(server_img),
             mask_folder="/nonexistent/mask/folder",
         )
@@ -693,7 +670,6 @@ def test_empty_mask_folder_raises(tmp_path):
     with pytest.raises(Exception, match="No valid mask files found in mask folder"):
         _validate_mixed(
             str(session),
-            session_id,
             image_folder=str(server_img),
             mask_folder=str(server_mask),
         )
@@ -708,7 +684,6 @@ def test_missing_csv_folder_raises(tmp_path):
     with pytest.raises(Exception, match="Patch CSV folder does not exist"):
         _validate_mixed(
             str(session),
-            session_id,
             image_folder=str(server_img),
             patch_csv_folder="/nonexistent/csv/folder",
         )
@@ -726,7 +701,6 @@ def test_empty_csv_folder_raises(tmp_path):
     with pytest.raises(Exception, match="No valid patch CSV files found in patch CSV folder"):
         _validate_mixed(
             str(session),
-            session_id,
             image_folder=str(server_img),
             patch_csv_folder=str(server_csv),
         )
