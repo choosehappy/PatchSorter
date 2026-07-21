@@ -64,6 +64,8 @@ class GeojsonGeometryIterable(GeometryIterable):
             patch_uuid: uuid.UUID | None = None
             if "uid" in props and props["uid"] is not None:
                 patch_uuid = uuid.UUID(str(props["uid"]))
+            if patch_uuid is None:
+                patch_uuid = uuid.uuid4()
 
             yield (geom, label, patch_uuid)
 
@@ -91,6 +93,8 @@ class CsvGeometryIterable(GeometryIterable):
             patch_uuid: uuid.UUID | None = None
             if "uuid" in row and row["uuid"] is not None:
                 patch_uuid = uuid.UUID(str(row["uuid"]))
+            if patch_uuid is None:
+                patch_uuid = uuid.uuid4()
 
             yield (geometry, label, patch_uuid)
 

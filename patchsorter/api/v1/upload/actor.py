@@ -325,7 +325,8 @@ def process_row(
             total_patches += len(batch)
 
     # Move image to permanent storage after the DB session commits cleanly
-    fsman.nas_write.move_to_permanent(session_id, project_id, image_id, image_filename)
+    if process_row_arg.image.startswith(f"{session_id}/"):
+        fsman.nas_write.move_to_permanent(session_id, project_id, image_id, image_filename)
 
     return {"image_id": image_id, "patch_count": total_patches}
 

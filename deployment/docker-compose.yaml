@@ -50,7 +50,7 @@ services:
             count: all
             capabilities: [gpu]
     volumes:
-      - /data/jjaco34:/opt/PatchSorter/mounts
+      - /data/jjaco34:/opt/PatchSorter/mounts/nas_read
 
 networks:
   ps_net:
