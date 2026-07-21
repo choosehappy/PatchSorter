@@ -59,7 +59,7 @@ export default function LabelClassesTable({ labelClasses, isLoading, selectedIds
     return (
         <section>
             <h5>Label Classes</h5>
-            <div id="label-classes-container" style={{ height }}>
+            <div id="label-classes-container" style={{ height, overflow: 'hidden' }}>
                 <SlickgridReact
                     gridId="label-classes-grid"
                     columns={columns}

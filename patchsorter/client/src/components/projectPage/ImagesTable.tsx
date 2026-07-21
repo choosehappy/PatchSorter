@@ -131,7 +131,7 @@ export default function ImagesTable({ projectId, images, labelClasses, isLoading
     return (
         <section>
             <h5>Images</h5>
-            <div id="images-container" style={{ height }}>
+            <div id="images-container" style={{ height, overflow: 'hidden' }}>
                 <SlickgridReact
                     gridId="images-grid"
                     columns={buildColumns()}
