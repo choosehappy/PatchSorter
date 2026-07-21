@@ -11,17 +11,18 @@ from shapely import wkb, wkt
 from shapely.geometry import Point, shape
 from shapely.geometry.base import BaseGeometry
 
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID
 
 
 class GeometryIterable(ABC):
     """Abstract base class producing (geometry, label, uuid) tuples. May be implemented by subclasses that read from different sources (e.g., GeoJSON, CSV)."""
 
     @abstractmethod
-    def __iter__(self) -> Iterator[tuple[BaseGeometry, int | None, uuid.UUID | None]]:
+    def __iter__(self) -> Iterator[tuple[BaseGeometry, int, uuid.UUID | None]]:
         """Yields (geometry, label, uuid) tuples.
 
         - geometry: shapely Polygon or Point
-        - label: int label class ID or None
+        - label: int label class ID
         - uuid: user-provided UUID or None (generated later)
         """
         ...
@@ -33,7 +34,7 @@ class GeojsonGeometryIterable(GeometryIterable):
     def __init__(self, geojson_path: str) -> None:
         self.geojson_path = geojson_path
 
-    def __iter__(self) -> Iterator[tuple[BaseGeometry, int | None, uuid.UUID | None]]:
+    def __iter__(self) -> Iterator[tuple[BaseGeometry, int, uuid.UUID | None]]:
         datasource = ogr.Open(self.geojson_path)
         if datasource is None:
             raise RuntimeError(f"Failed to open OGR datasource: {self.geojson_path}")
@@ -53,7 +54,7 @@ class GeojsonGeometryIterable(GeometryIterable):
 
             # Extract label from feature properties
             props = feature.items()
-            label: int | None = None
+            label: int = UNASSIGNED_CLASS_ID
             for key in ("label", "class_id", "label_class_id"):
                 if key in props and props[key] is not None:
                     label = int(props[key])
@@ -73,7 +74,7 @@ class CsvGeometryIterable(GeometryIterable):
     def __init__(self, csv_path: str) -> None:
         self.csv_path = csv_path
 
-    def __iter__(self) -> Iterator[tuple[BaseGeometry, int | None, uuid.UUID | None]]:
+    def __iter__(self) -> Iterator[tuple[BaseGeometry, int, uuid.UUID | None]]:
         df = pd.read_csv(self.csv_path)
 
         for _, row in df.iterrows():
@@ -82,7 +83,7 @@ class CsvGeometryIterable(GeometryIterable):
             geometry = Point(x, y)
 
             # Extract label from row if available
-            label: int | None = None
+            label: int = UNASSIGNED_CLASS_ID
             if "label" in row and row["label"] is not None:
                 label = int(row["label"])
 
@@ -101,19 +102,19 @@ class HybridPatchIterable(GeometryIterable):
         self.geojson_path = geojson_path
         self.csv_path = csv_path
 
-    def __iter__(self) -> Iterator[tuple[BaseGeometry, int | None, uuid.UUID | None]]:
+    def __iter__(self) -> Iterator[tuple[BaseGeometry, int, uuid.UUID | None]]:
         # Read CSV and set uuid column as index for O(1) lookup
         df = pd.read_csv(self.csv_path)
         if "uuid" not in df.columns:
             raise ValueError("CSV file must contain a 'uuid' column for hybrid mode")
 
         # Build lookup: uid (from geojson) -> (uuid, label)
-        uid_label_map: dict[str, tuple[str, int | None]] = {}
+        uid_label_map: dict[str, tuple[str, int]] = {}
         for _, row in df.iterrows():
             uid = row.get("uid", row.get("id", ""))
             if uid is not None and uid != "":
                 csv_uuid = str(row["uuid"])
-                csv_label: int | None = None
+                csv_label: int = UNASSIGNED_CLASS_ID
                 if "label" in row and row["label"] is not None:
                     csv_label = int(row["label"])
                 uid_label_map[str(uid)] = (csv_uuid, csv_label)
@@ -144,7 +145,7 @@ class HybridPatchIterable(GeometryIterable):
 
             # Look up in CSV
             patch_uuid: uuid.UUID | None = None
-            label: int | None = None
+            label: int = UNASSIGNED_CLASS_ID
 
             if uid is not None and str(uid) in uid_label_map:
                 csv_uuid_str, csv_label = uid_label_map[str(uid)]
