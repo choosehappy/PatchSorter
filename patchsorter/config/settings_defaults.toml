@@ -63,11 +63,13 @@ type = "integer"
 
 [settings.patch_extraction_method]
 scope          = "project"
-default        = "use estimated object size"
+default        = "use manual object radius"
 type           = "enum"
 allowed_values = ["use estimated object size", "use manual object radius", "fit all objects"]
 
 [settings.object_radius]
+# This setting is only used when patch_extraction_method is "use manual object radius"
+# Should be set to the radius of the object in microns
 scope   = "project"
 default = "10.0"
 type    = "string"
