@@ -165,7 +165,7 @@ def create_patch_iterator(mask_path: Path = None, csv_path: Path = None) -> Geom
 
     Args:
         mask_path: Path to the mask file.
-        csv_path: Optional path to the CSV file for hybrid mode.
+        csv_path: Path to the CSV file for hybrid mode.
 
     Returns:
         An instance of a subclass of GeometryIterable.

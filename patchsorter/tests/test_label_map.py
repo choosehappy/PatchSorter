@@ -2,8 +2,9 @@
 
 import pytest
 
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID
 from patchsorter.db.head_client.models import LabelClass
-from patchsorter.dl.training import LabelMap, _UNASSIGNED_CLASS_ID
+from patchsorter.dl.training import LabelMap
 
 
 def _make_label_class(label_class_id: int, name: str = "Class", project_id: int = 1) -> LabelClass:

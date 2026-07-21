@@ -26,3 +26,5 @@ MASK_EXTS = {".geojson"}
 PATCH_CSV_EXTS = {".csv"}
 
 PATCH_BATCH_SIZE = 1000
+
+UNASSIGNED_CLASS_ID = 1
