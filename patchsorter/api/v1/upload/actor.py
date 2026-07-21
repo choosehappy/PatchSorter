@@ -38,6 +38,19 @@ from patchsorter.utils.patch_extraction import (
 # The actor delegates to these; tests call them directly with a tmpdir.
 # ------------------------------------------------------------------
 
+def _check_image_duplicate(project_id: int, image_name: str) -> str | None:
+    """Check if an image with *image_name* already exists in *project_id*.
+
+    Returns an error message string if a duplicate is found, ``None`` otherwise.
+    Skips the check when *project_id* is ``0`` (e.g. in tests without a DB).
+    """
+    if project_id == 0:
+        return None
+    with get_client().get_session() as s:
+        existing = ImageStore(s).get_by_project_and_name(project_id, image_name)
+    return f"Image '{image_name}' already exists in project" if existing else None
+
+
 def _save_files(tmpdir: str | Path, subdir: str, filenames: List[str], contents: List[bytes]) -> str:
     """Save files to *subdir* inside *tmpdir*. Returns a count message."""
     dest = Path(tmpdir) / subdir
@@ -62,6 +75,7 @@ def _resolve_path(fsman, relative_path: str, session_id: str) -> Path:
 
 def _validate_mixed(
     session_id: str,
+    project_id: int = 0,
     image_folder: str | None = None,
     mask_folder: str | None = None,
     patch_csv_folder: str | None = None,
@@ -119,6 +133,18 @@ def _validate_mixed(
         mask_rel = _make_relative(masks[stem], fsman, upload_base, session_id) if stem in masks else None
         csv_rel = _make_relative(csvs[stem], fsman, upload_base, session_id) if stem in csvs else None
 
+        duplicate_error = _check_image_duplicate(project_id, img_path.name)
+        if duplicate_error:
+            rows.append(dict(
+                image=img_rel,
+                mask=mask_rel,
+                csv=csv_rel,
+                status="error",
+                error=duplicate_error,
+                base_mag=None,
+            ))
+            continue
+
         try:
             ts = large_image.open(str(img_path))
             base_mag = ts.getMetadata().get("magnification")
@@ -147,7 +173,7 @@ def _make_relative(path: Path, fsman: FileStoreManager, upload_base: Path, sessi
         return fsman.nas_read.global_to_relative(path)
 
 
-def _validate_image_csv(csv_content: bytes, session_id: str = "") -> dict:
+def _validate_image_csv(csv_content: bytes, session_id: str = "", project_id: int = 0) -> dict:
     """Parse an image manifest CSV and validate that each path exists on the server."""
     text = csv_content.decode("utf-8-sig")  # handle BOM
     reader = csv.DictReader(io.StringIO(text))
@@ -163,15 +189,20 @@ def _validate_image_csv(csv_content: bytes, session_id: str = "") -> dict:
         base_mag = None
 
         if img:
-            img_full = fsman.nas_read.relative_to_global(img)
-            if not img_full.exists():
-                errors.append(f"Image not found: {img}")
+            img_name = Path(img).name
+            duplicate_error = _check_image_duplicate(project_id, img_name)
+            if duplicate_error:
+                errors.append(duplicate_error)
             else:
-                try:
-                    ts = large_image.open(str(img_full))
-                    base_mag = ts.getMetadata().get("magnification")
-                except Exception:
-                    base_mag = None
+                img_full = fsman.nas_read.relative_to_global(img)
+                if not img_full.exists():
+                    errors.append(f"Image not found: {img}")
+                else:
+                    try:
+                        ts = large_image.open(str(img_full))
+                        base_mag = ts.getMetadata().get("magnification")
+                    except Exception:
+                        base_mag = None
 
         mask_full = fsman.nas_read.relative_to_global(mask) if mask else None
         if mask and not mask_full.exists():
@@ -392,10 +423,10 @@ class UploadSessionActor:
         mask_folder: str | None = None,
         patch_csv_folder: str | None = None,
     ) -> dict:
-        return _validate_mixed(self._session_id, image_folder, mask_folder, patch_csv_folder)
+        return _validate_mixed(self._session_id, self._project_id, image_folder, mask_folder, patch_csv_folder)
 
     def validate_image_csv(self, csv_content: bytes) -> dict:
-        return _validate_image_csv(csv_content, self._session_id)
+        return _validate_image_csv(csv_content, self._session_id, self._project_id)
 
     # ------------------------------------------------------------------
     # Processing
