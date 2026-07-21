@@ -44,8 +44,6 @@ def _check_image_duplicate(project_id: int, image_name: str) -> str | None:
     Returns an error message string if a duplicate is found, ``None`` otherwise.
     Skips the check when *project_id* is ``0`` (e.g. in tests without a DB).
     """
-    if project_id == 0:
-        return None
     with get_client().get_session() as s:
         existing = ImageStore(s).get_by_project_and_name(project_id, image_name)
     return f"Image '{image_name}' already exists in project" if existing else None
