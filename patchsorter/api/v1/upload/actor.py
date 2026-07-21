@@ -160,6 +160,8 @@ def _validate_image_csv(csv_content: bytes, session_id: str = "") -> dict:
         patch_csv = (row.get("patch_csv") or "").strip()
 
         errors: list[str] = []
+        base_mag = None
+
         if img:
             img_full = fsman.nas_read.relative_to_global(img)
             if not img_full.exists():
@@ -169,12 +171,20 @@ def _validate_image_csv(csv_content: bytes, session_id: str = "") -> dict:
                     ts = large_image.open(str(img_full))
                     base_mag = ts.getMetadata().get("magnification")
                 except Exception:
-                        base_mag = None
+                    base_mag = None
 
-        if mask and not fsman.nas_read.relative_to_global(mask).exists():
+        mask_full = fsman.nas_read.relative_to_global(mask) if mask else None
+        if mask and not mask_full.exists():
             errors.append(f"Mask not found: {mask}")
-        if patch_csv and not fsman.nas_read.relative_to_global(patch_csv).exists():
+
+        patch_csv_full = fsman.nas_read.relative_to_global(patch_csv) if patch_csv else None
+        if patch_csv and not patch_csv_full.exists():
             errors.append(f"Patch CSV not found: {patch_csv}")
+
+        # Add row error when image exists but has no matching mask or patch_csv
+        has_data = bool(mask or patch_csv)
+        if img and not has_data:
+            errors.append(f"No mask or patch CSV found for {img}")
 
         rows.append(
             dict(
@@ -182,15 +192,13 @@ def _validate_image_csv(csv_content: bytes, session_id: str = "") -> dict:
                 mask=mask,
                 csv=patch_csv,
                 status="error" if errors else "ok",
-                error="; ".join(errors),
+                error="; ".join(errors) if errors else None,
                 base_mag=base_mag,
             )
         )
 
     if not rows:
-        rows.append(
-            dict(image=None, mask=None, csv=None, status="error", error="CSV file contains no data rows")
-        )
+        return {"paths": [], "errors": 1, "error": "CSV file contains no data rows"}
 
     return {"paths": rows, "errors": sum(1 for r in rows if r["status"] == "error")}
 

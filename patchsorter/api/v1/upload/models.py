@@ -39,6 +39,7 @@ class ProcessRow(BaseModel):
 class ValidateResponse(BaseModel):
     paths: List[ReviewRow]
     errors: int
+    error: str | None = None
 
 
 class ProcessRequest(BaseModel):

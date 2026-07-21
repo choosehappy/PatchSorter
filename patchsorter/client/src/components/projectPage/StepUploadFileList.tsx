@@ -72,7 +72,7 @@ export default function StepUploadFileList({ file, onFile }: StepUploadFileListP
         <div>
             <p className="text-muted mb-3" style={{ fontSize: '0.9rem' }}>
                 Upload a CSV file with a header row <code>image,mask,patch_csv</code>. Each subsequent row should
-                contain absolute server paths for the scan image, mask file (optional), and patch CSV
+                contain server paths relative to the <code>nas_read</code> mount on the server for the scan image, mask file (optional), and patch CSV
                 (optional). The patch CSV files store: patch_uuid (optional, relates CSV rows to GeoJSON features), gt_label (optional, stores the patch's ground truth label), centroid_x (optional, stores the patch's x coordinate within the image), centroid_y (optional, stores the patch's y coordinate). Leave a column empty if not applicable.
             </p>
 

@@ -136,8 +136,17 @@ export default function UploadWizardModal({
                     path: { project_id: projectId, session_id: session },
                     body: { csv_file: csvFile.current! },
                 })
+                if (res.error) {
+                    const detail = (res.error as any)?.detail
+                    toast.error(detail ? `Validation error: ${detail}` : 'Failed to validate paths. Please check your input and try again.')
+                    return
+                }
                 if (!res.data) throw new Error('Validate CSV failed')
                 response = res.data
+                if (response.error) {
+                    toast.error(response.error)
+                    return
+                }
             } else {
                 const res = await validateUpload({
                     path: { project_id: projectId, session_id: session },

@@ -104,7 +104,7 @@ export default function StepUploadImages({
                         onChange={e => onServerPathChange(e.target.value)}
                     />
                     <Form.Text className="text-muted">
-                        Relative path to a directory on the server. All matching image files inside
+                        Relative path to the <code>nas_read</code> mount on the server. All matching image files inside
                         will be imported.
                     </Form.Text>
                 </Form.Group>

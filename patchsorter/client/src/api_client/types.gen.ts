@@ -409,7 +409,7 @@ export type ReviewRow = {
     /**
      * Error
      */
-    error: string;
+    error: string | null;
     /**
      * Base Mag
      */
@@ -501,6 +501,10 @@ export type ValidateResponse = {
      * Errors
      */
     errors: number;
+    /**
+     * Error
+     */
+    error?: string | null;
 };
 
 /**
