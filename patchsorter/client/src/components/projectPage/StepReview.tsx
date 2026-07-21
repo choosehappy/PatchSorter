@@ -11,10 +11,12 @@ interface StepReviewProps {
     isLoading: boolean
     onRowChange: (index: number, updates: Partial<ReviewRow>) => void
     allHaveBaseMag: boolean
-    onAllBaseMagChange: (value: number | null) => void
+    onAllBaseMagChange: (value: number | null, indices: Set<number>) => void
+    selectedIndices: Set<number>
+    onSelectionChange: (indices: Set<number>) => void
 }
 
-export default function StepReview({ reviewData, isLoading, approach: _approach, onRowChange, allHaveBaseMag, onAllBaseMagChange }: StepReviewProps) {
+export default function StepReview({ reviewData, isLoading, approach: _approach, onRowChange, allHaveBaseMag, onAllBaseMagChange, selectedIndices, onSelectionChange }: StepReviewProps) {
     const gridRef = useRef<SlickgridReactInstance | null>(null)
 
     const errorCount = useMemo(() => reviewData?.filter(r => r.status === 'error').length ?? 0, [reviewData])
@@ -86,7 +88,9 @@ export default function StepReview({ reviewData, isLoading, approach: _approach,
 
     const gridOptions: GridOption = {
         enableAutoResize: true,
+        enableCheckboxSelector: true,
         enableSelection: true,
+        checkboxSelector: { hideInFilterHeaderRow: false },
         rowHeight: 32,
         forceFitColumns: true,
         autoResize: { container: '#upload-review-container' },
@@ -101,9 +105,21 @@ export default function StepReview({ reviewData, isLoading, approach: _approach,
         gridRef.current = reactGrid
     }, [])
 
+    const handleSelectedRowsChanged = useCallback((e: CustomEvent<{ eventData: unknown; args: { rows: number[] } }>) => {
+        const rows = e.detail.args.rows ?? []
+        if (gridRef.current) {
+            const indices = new Set(rows)
+            onSelectionChange(indices)
+        }
+    }, [onSelectionChange])
+
     useEffect(() => {
         if (gridRef.current) {
             gridRef.current.slickGrid.invalidate()
+            if (dataset.length > 0) {
+                const allRows = dataset.map((_, i) => i)
+                gridRef.current.slickGrid.setSelectedRows(allRows)
+            }
         }
     }, [dataset])
 
@@ -128,7 +144,7 @@ export default function StepReview({ reviewData, isLoading, approach: _approach,
         <div>
             {errorCount > 0 && (
                 <div className="alert alert-warning py-2 mb-2" style={{ fontSize: '0.875rem' }}>
-                    {errorCount} row{errorCount !== 1 ? 's have' : ' has'} errors. Consider fixing the issues before processing.
+                    Deselect rows with errors before you can proceed.
                 </div>
             )}
             {!allHaveBaseMag && (
@@ -137,14 +153,17 @@ export default function StepReview({ reviewData, isLoading, approach: _approach,
                 </div>
             )}
             <div className="mb-2 d-flex align-items-center gap-2">
-                <label className="col-form-label mb-0" style={{ fontSize: '0.875rem' }}>Assign base magnification to all:</label>
+                <label className="col-form-label mb-0" style={{ fontSize: '0.875rem' }}>
+                    Assign base magnification to {selectedIndices.size} selected row{selectedIndices.size !== 1 ? 's' : ''}:
+                </label>
                 <select
                     className="form-select form-select-sm"
                     style={{ width: 'auto' }}
                     defaultValue=""
+                    disabled={selectedIndices.size === 0}
                     onChange={e => {
                         const val = e.target.value
-                        onAllBaseMagChange(val === '' ? null : Number(val))
+                        onAllBaseMagChange(val === '' ? null : Number(val), selectedIndices)
                     }}
                 >
                     <option value="">—</option>
@@ -168,8 +187,14 @@ export default function StepReview({ reviewData, isLoading, approach: _approach,
                             const val = dataContext?.base_mag
                             onRowChange(id, { base_mag: val != null && val !== '' ? Number(val) : null })
                         }}
+                        onSelectedRowsChanged={handleSelectedRowsChanged}
                     />
                 </div>
+            )}
+            {selectedIndices.size > 0 && (
+                <small className="text-muted mt-1 d-block">
+                    {selectedIndices.size} row{selectedIndices.size > 1 ? 's' : ''} selected
+                </small>
             )}
         </div>
     )

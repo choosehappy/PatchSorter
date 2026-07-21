@@ -115,6 +115,7 @@ export default function UploadWizardModal({
     const [isProcessing, setIsProcessing] = useState(false)
     const [isUploading, setIsUploading] = useState(false)
     const [childTaskId, setChildTaskId] = useState<string | null>(null)
+    const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set())
 
     // Notify parent when session is created
     useEffect(() => {
@@ -196,9 +197,11 @@ export default function UploadWizardModal({
     )
 
     const handleAllBaseMagChange = useCallback(
-        (value: number | null) => {
+        (value: number | null, indices: Set<number>) => {
             setReviewData(prev =>
-                prev ? prev.map(row => ({ ...row, base_mag: value })) : prev
+                prev ? prev.map((row, i) =>
+                    indices.has(i) ? { ...row, base_mag: value } : row
+                ) : prev
             )
         },
         [],
@@ -249,10 +252,10 @@ export default function UploadWizardModal({
         if (!session || !reviewData) return
         setIsProcessing(true)
         try {
-            const okRows = reviewData.filter(r => r.status === 'ok')
+            const selectedRows = reviewData.filter((_, i) => selectedIndices.has(i))
             const res = await processUpload({
                 path: { project_id: projectId, session_id: session },
-                body: { paths: okRows.map(r => ({ image: r.image, mask: r.mask, csv: r.csv, base_mag: r.base_mag ?? null })) },
+                body: { paths: selectedRows.map(r => ({ image: r.image, mask: r.mask, csv: r.csv, base_mag: r.base_mag ?? null })) },
             })
             if (res.error) {
                 const detail = (res.error as any)?.detail
@@ -287,7 +290,7 @@ export default function UploadWizardModal({
         } finally {
             setIsProcessing(false)
         }
-    }, [session, reviewData, projectId, nextStep])
+    }, [session, reviewData, selectedIndices, projectId, nextStep])
 
     // ----- Derived UI values -------------------------------------------------
 
@@ -344,10 +347,13 @@ export default function UploadWizardModal({
         csvFile,
     ])
 
+    const hasErrorsInSelection = reviewData !== null && selectedIndices.size > 0 && 
+        [...selectedIndices].some(i => reviewData[i]?.status === 'error')
+
     const canProcess =
         reviewData !== null &&
-        reviewData.length > 0 &&
-        reviewData.some(r => r.status === 'ok') &&
+        selectedIndices.size > 0 &&
+        !hasErrorsInSelection &&
         reviewData.every(r => r.base_mag != null)
 
     // Disable the label toggle that would leave zero label sources
@@ -429,6 +435,8 @@ export default function UploadWizardModal({
                         onRowChange={handleRowChange}
                         allHaveBaseMag={reviewData !== null && reviewData.length > 0 && reviewData.every(r => r.base_mag != null)}
                         onAllBaseMagChange={handleAllBaseMagChange}
+                        selectedIndices={selectedIndices}
+                        onSelectionChange={setSelectedIndices}
                     />
                 )}
 
@@ -490,7 +498,7 @@ export default function UploadWizardModal({
                                         Processing…
                                     </>
                                 ) : (
-                                    'Process'
+                                    `Process ${selectedIndices.size} row${selectedIndices.size !== 1 ? 's' : ''}`
                                 )}
                             </Button>
                         </>
