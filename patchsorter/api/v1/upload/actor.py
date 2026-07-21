@@ -13,10 +13,11 @@ from patchsorter.config.constants import IMAGE_EXTS, MASK_EXTS, PATCH_CSV_EXTS, 
 from patchsorter.utils.fsmanager import FileStoreManager, scan_folder
 from patchsorter.api.v1.upload.models import ProcessRow
 from patchsorter.api.v1.upload.patch_iterator import (
-    CsvGeometryIterator,
-    GeojsonGeometryIterator,
-    HybridPatchIterator,
-    GeometryIterator,
+    CsvGeometryIterable,
+    GeojsonGeometryIterable,
+    HybridPatchIterable,
+    GeometryIterable,
+    create_patch_iterator,
 )
 from patchsorter.db.head_client import get_client
 from patchsorter.db.head_client.patch import PatchStore
@@ -50,8 +51,13 @@ def _save_files(tmpdir: str | Path, subdir: str, filenames: List[str], contents:
 def _resolve_path(fsman, relative_path: str, session_id: str) -> Path:
     """Resolve a relative path to absolute, detecting session vs nas_read source."""
     if relative_path.startswith(f"{session_id}/"):
-        return fsman.upload.get_full_path(relative_path)
-    return fsman.nas_read.relative_to_global(relative_path)
+        path = fsman.upload.get_full_path(relative_path)
+    else:
+        path = fsman.nas_read.relative_to_global(relative_path)
+
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {relative_path} (resolved to {path})")
+    return path
 
 
 def _validate_mixed(
@@ -246,18 +252,8 @@ def process_row(
     base_height = ts.getMetadata().get("height", 0)
     deepzoom_tilesize = ts.getMetadata().get("tileWidth", 256)
 
-    # Determine iterator based on which files are present
-    has_mask = mask_path is not None and mask_path.exists()
-    has_csv = csv_path is not None and csv_path.exists()
-
-    if has_mask and not has_csv:
-        iterator: GeometryIterator = GeojsonGeometryIterator(str(mask_path))
-    elif has_csv and not has_mask:
-        iterator = CsvGeometryIterator(str(csv_path))
-    elif has_mask and has_csv:
-        iterator = HybridPatchIterator(str(mask_path), str(csv_path))
-    else:
-        raise ValueError("No mask or CSV file found for image")
+    # Get patch iterator based on available mask and/or CSV
+    iterator: GeometryIterable = create_patch_iterator(mask_path, csv_path)
 
     # Load settings (passed from UploadSessionActor — no extra DB round-trip needed)
     patch_size: int = int(settings.get("patch_size", 64))
@@ -268,21 +264,7 @@ def process_row(
     # Determine downsample strategy
     mm_per_pixel = mm_per_pixel_at_base(base_mag)
 
-    # Collect all geometries upfront (required to estimate object size from first 5 polygons)
-    geometries: list = []
-    for geometry, label, patch_uuid in iterator:
-        geometries.append((geometry, label, patch_uuid))
-
-    # Determine downsample approach from project setting
-    if patch_extraction_method == "use estimated object size":
-        if not geometries:
-            raise ValueError("No geometries found in iterator")
-        avg_radius = estimate_object_radius_from_polygons([g for g, _, _ in geometries])
-        avg_radius_microns = avg_radius * mm_per_pixel * 1000
-        downsample = compute_downsample_factor(avg_radius_microns, base_mag, patch_size, mm_per_pixel)
-        per_patch_downsample = False
-
-    elif patch_extraction_method == "use manual object radius":
+    if patch_extraction_method == "use manual object radius": # TODO: compare setting with an enum.
         if object_radius is None:
             raise ValueError("object_radius setting is required when patch_extraction_method is 'use manual object radius'")
         downsample = compute_downsample_factor(object_radius, base_mag, patch_size, mm_per_pixel)
@@ -311,7 +293,7 @@ def process_row(
         batch: list[tuple] = []
         total_patches = 0
 
-        for geometry, label, patch_uuid in geometries:
+        for geometry, label, patch_uuid in iterator:
             if per_patch_downsample:
                 radius_pixels = get_polygon_radius_in_pixels(geometry)
                 radius_microns = radius_pixels * mm_per_pixel * 1000
@@ -323,8 +305,10 @@ def process_row(
 
             if geometry.geom_type == "Polygon":
                 centroid = geometry.centroid
-            else:
+            elif geometry.geom_type == "Point":
                 centroid = geometry
+            else:
+                raise ValueError(f"Unsupported geometry type: {geometry.geom_type}")
 
             batch.append((
                 patch_uuid, label, image_id, computed_downsample,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import uuid
 from abc import ABC, abstractmethod
 from typing import Iterator
@@ -12,7 +13,7 @@ from shapely.geometry.base import BaseGeometry
 
 
 
-class GeometryIterator(ABC):
+class GeometryIterable(ABC):
     """Abstract base class producing (geometry, label, uuid) tuples. May be implemented by subclasses that read from different sources (e.g., GeoJSON, CSV)."""
 
     @abstractmethod
@@ -26,7 +27,7 @@ class GeometryIterator(ABC):
         ...
 
 
-class GeojsonGeometryIterator(GeometryIterator):
+class GeojsonGeometryIterable(GeometryIterable):
     """Iterates over features in a GeoJSON file."""
 
     def __init__(self, geojson_path: str) -> None:
@@ -45,7 +46,7 @@ class GeojsonGeometryIterator(GeometryIterator):
             if not geom.is_valid or geom.geom_type != "Polygon":
                 geom_type_name = geom.geom_type
                 raise ValueError(
-                    f"GeojsonGeometryIterator only supports Polygon geometries, "
+                    f"GeojsonGeometryIterable only supports Polygon geometries, "
                     f"but feature FID={feature.GetFID()} has geometry type '{geom_type_name}'. "
                     f"Use CsvGeometryIterator for point-based coordinates."
                 )
@@ -66,7 +67,7 @@ class GeojsonGeometryIterator(GeometryIterator):
             yield (geom, label, patch_uuid)
 
 
-class CsvGeometryIterator(GeometryIterator):
+class CsvGeometryIterable(GeometryIterable):
     """Iterates over rows in a CSV file containing x, y coordinates."""
 
     def __init__(self, csv_path: str) -> None:
@@ -93,7 +94,7 @@ class CsvGeometryIterator(GeometryIterator):
             yield (geometry, label, patch_uuid)
 
 
-class HybridPatchIterator(GeometryIterator):
+class HybridPatchIterable(GeometryIterable):
     """Iterates over a GeoJSON file, looking up UUIDs and labels from a CSV."""
 
     def __init__(self, geojson_path: str, csv_path: str) -> None:
@@ -158,3 +159,24 @@ class HybridPatchIterator(GeometryIterator):
                         break
 
             yield (geometry, label, patch_uuid)
+
+def create_patch_iterator(mask_path: Path = None, csv_path: Path = None) -> GeometryIterable:
+    """Factory function to create the appropriate GeometryIterable based on input files.
+
+    Args:
+        mask_path: Path to the mask file.
+        csv_path: Optional path to the CSV file for hybrid mode.
+
+    Returns:
+        An instance of a subclass of GeometryIterable.
+    """
+
+    match (mask_path is not None, csv_path is not None):
+        case (True, True):
+            return HybridPatchIterable(str(mask_path), str(csv_path))
+        case (True, False):
+            return GeojsonGeometryIterable(str(mask_path))
+        case (False, True):
+            return CsvGeometryIterable(str(csv_path))
+        case (False, False):
+            raise ValueError("At least one of mask_path or csv_path must be provided.")
