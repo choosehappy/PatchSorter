@@ -118,7 +118,7 @@ export default function StepUploadPatchCsv({
                             <Form.Label>Server directory path for patch CSV files</Form.Label>
                             <Form.Control
                                 type="text"
-                                placeholder="/relative/path/to/patch_csv/"
+                                placeholder="relative/path/to/patch_csv/"
                                 value={serverPath ?? ''}
                                 onChange={e => onServerPathChange(e.target.value)}
                             />

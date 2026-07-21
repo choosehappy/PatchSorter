@@ -118,7 +118,7 @@ export default function StepUploadMasks({
                             <Form.Label>Server directory path for mask files</Form.Label>
                             <Form.Control
                                 type="text"
-                                placeholder="/relative/path/to/masks/"
+                                placeholder="relative/path/to/masks/"
                                 value={serverPath ?? ''}
                                 onChange={e => onServerPathChange(e.target.value)}
                             />

@@ -99,7 +99,7 @@ export default function StepUploadImages({
                     <Form.Label>Server directory path for scan images</Form.Label>
                     <Form.Control
                         type="text"
-                        placeholder="/relative/path/to/images/"
+                        placeholder="relative/path/to/images/"
                         value={serverPath ?? ''}
                         onChange={e => onServerPathChange(e.target.value)}
                     />
