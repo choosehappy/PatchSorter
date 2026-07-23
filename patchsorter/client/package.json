@@ -13,12 +13,14 @@
   "dependencies": {
     "@hey-api/openapi-ts": "^0.97.1",
     "@tanstack/react-query": "^5.100.10",
+    "bootstrap": "^5.3.8",
     "react": "^19.2.6",
     "react-bootstrap": "^2.10.10",
     "react-bootstrap-icons": "^1.11.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.15.1",
-    "react-split": "^2.0.14"
+    "react-split": "^2.0.14",
+    "react-toastify": "^11.0.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

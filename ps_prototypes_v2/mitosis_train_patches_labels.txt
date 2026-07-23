@@ -1,0 +1,15 @@
+17/6/2026
+
+JC's labels: label_jc 
+-1 : not seen by him
+0 : not mitosis
+1: mitosis
+2 : not sure
+3 : mitosis elsewhere
+4 : garbage
+
+My labels: label_mdy
+-1 : not seen by me / phh3 negative
+0 : not mitosis
+1: mitosis
+2 : not sure

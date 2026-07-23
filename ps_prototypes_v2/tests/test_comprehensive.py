@@ -36,8 +36,8 @@ def test_labeled_rate_tracker_initialization():
     """Test LabeledRateTracker initialization"""
     tracker = LabeledRateTracker(nclasses=3, momentum=0.9)
     assert tracker.rate is None
-    assert tracker.class_weights.shape == (3,)
-    assert tracker.pseudo_class_weights.shape == (3,)
+    assert tracker.class_freq.shape == (3,)
+    assert tracker.pseudo_class_freq.shape == (3,)
 
 
 def test_labeled_rate_tracker_update():
