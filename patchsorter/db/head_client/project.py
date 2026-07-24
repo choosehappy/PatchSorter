@@ -79,7 +79,7 @@ class ProjectStore:
         if not set_clauses:
             return self.get(project_id)
         query = text(
-            f"UPDATE project SET {', '.join(set_clauses)}, creation_ts = NOW() "
+            f"UPDATE project SET {', '.join(set_clauses)} "
             "WHERE project_id = :project_id "
             "RETURNING project_id, project_name, description, creation_ts"
         )
