@@ -392,8 +392,6 @@ export default function LabelingPage() {
                             onIntervalChange={setRefreshIntervalMs}
                             onTick={() => setRefreshTick(t => t + 1)}
                         />
-                    </div>
-                    <div className="control-row flattened">
                         <label className="toggle-label">
                             <input
                                 type="checkbox"
@@ -402,9 +400,6 @@ export default function LabelingPage() {
                             />
                             Show Patch Grid
                         </label>
-                    </div>
-
-                    <div className="control-row flattened">
                         <div className="control-group">
                             <label>Query Range: {queryRange}</label>
                             <input
@@ -416,19 +411,17 @@ export default function LabelingPage() {
                                 onChange={e => setQueryRange(Number(e.target.value))}
                             />
                         </div>
-                        {showPatches && (
-                            <div className="control-group">
-                                <label>Num Samples: {numSamples}</label>
-                                <input
-                                    type="range"
-                                    min={5}
-                                    max={50}
-                                    step={1}
-                                    value={numSamples}
-                                    onChange={e => setNumSamples(Number(e.target.value))}
-                                />
-                            </div>
-                        )}
+                        <div className="control-group">
+                            <label>Num Samples: {numSamples}</label>
+                            <input
+                                type="range"
+                                min={5}
+                                max={50}
+                                step={1}
+                                value={numSamples}
+                                onChange={e => setNumSamples(Number(e.target.value))}
+                            />
+                        </div>
                     </div>
                 </div>
 
