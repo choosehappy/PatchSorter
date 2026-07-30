@@ -139,6 +139,7 @@ def assign_labels_by_polygon(
     return LabelAssignResponse(updated=updated)
 
 
+# TODO: deprecated
 @router.get("/projects/{project_id}/sample/by-bbox/patches/", response_model=List[PatchResponse])
 def sample_patches_by_bbox(
     project_id: int,
@@ -163,6 +164,7 @@ def sample_patches_by_bbox(
     return [PatchResponse(**r) for r in rows]
 
 
+# TODO: deprecated
 @router.get("/projects/{project_id}/sample/by-point/patches/", response_model=List[PatchResponse])
 def sample_patches_by_point(
     project_id: int,

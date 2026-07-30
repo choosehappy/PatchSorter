@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { client } from '../api_client/client.gen'
-import { type ServeTileProjectsProjectIdTilesZxyPngGetData, type GetPatchImageProjectsProjectIdPatchesPatchIdImageGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet } from '../api_client'
+import { type ServeTileProjectsProjectIdTilesZxyPngGetData, type GetPatchImageProjectsProjectIdPatchesPatchIdImageGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, listPatchesProjectsProjectIdPatchesGet } from '../api_client'
 
 type PatchResponseGroup = PatchResponse[]
 
@@ -242,20 +242,23 @@ export default function Viewport({
         mapRef.current.draw()
     }
 
-    function buildQuadData(groups: PatchResponseGroup[], zoom: number) {
-        const half = QUAD_HALF * Math.pow(2, -zoom)
+    function buildQuadData(groups: PatchResponseGroup[]) {
+        const worldCorner = mapRef.current.displayToWorld({ x: QUAD_HALF, y: QUAD_HALF })
+        const worldOrigin = mapRef.current.displayToWorld({ x: 0, y: 0 })
+        const scaled_half = worldCorner.x - worldOrigin.x
         const result: { ul: { x: number; y: number }; lr: { x: number; y: number }; image: string }[] = []
         for (const group of groups) {
             const anchor = group[0]
             if (anchor.grid_cell_i == null || anchor.grid_cell_j == null) continue
+            const baseI = anchor.grid_cell_i
+            const baseJ = anchor.grid_cell_j
             for (let i = 0; i < group.length; i++) {
                 const p = group[i]
-                if (p.grid_cell_i == null || p.grid_cell_j == null) continue
                 const col = i % 3
                 const row = Math.floor(i / 3)
                 result.push({
-                    ul: { x: p.grid_cell_i! + col * 2 * half, y: p.grid_cell_j! + row * 2 * half - 2 * half },
-                    lr: { x: p.grid_cell_i! + col * 2 * half + 2 * half, y: p.grid_cell_j! + row * 2 * half },
+                    ul: { x: baseI + col * 2 * scaled_half, y: baseJ + row * 2 * scaled_half },
+                    lr: { x: baseI + col * 2 * scaled_half + 2 * scaled_half, y: baseJ + row * 2 * scaled_half + 2 * scaled_half },
                     image: buildPatchImageUrl(p.patch_id),
                 })
             }
@@ -263,7 +266,7 @@ export default function Viewport({
         return result
     }
 
-    function renderPatchData(groups: PatchResponseGroup[], zoom: number) {
+    function renderPatchData(groups: PatchResponseGroup[]) {
         const flat = groups.flatMap(g => g)
         if (patchFeatureRef.current) {
             patchFeatureRef.current.data(flat)
@@ -280,7 +283,7 @@ export default function Viewport({
             patchLayerRef.current?.draw()
         }
         if (quadFeatureRef.current) {
-            quadFeatureRef.current.data(buildQuadData(groups, zoom))
+            quadFeatureRef.current.data(buildQuadData(groups))
             quadFeatureRef.current.modified()
             quadLayerRef.current?.draw()
         }
@@ -288,7 +291,6 @@ export default function Viewport({
 
     function sampleAndRenderProgressive(
         bounds: MapBounds,
-        zoom: number,
         lp: string[] | undefined,
         signal: AbortSignal,
     ) {
@@ -314,7 +316,7 @@ export default function Viewport({
         function flush() {
             if (signal.aborted) return
             pendingFlush = false
-            renderPatchData(accumulated, zoom)
+            renderPatchData(accumulated)
         }
 
         function scheduleFlush() {
@@ -323,16 +325,17 @@ export default function Viewport({
             requestAnimationFrame(flush)
         }
 
+        const halfRange = Math.floor(PATCH_QUERY_RANGE / 2)
         points.forEach(({ x, y }) => {
-            samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet({
+            listPatchesProjectsProjectIdPatchesGet({
                 client,
                 path: { project_id: projectId },
-                query: { x, y, lp, limit: 9, patch_query_range: PATCH_QUERY_RANGE, grid_origin: 'bottom_left' },
+                query: { x_min: x - halfRange, y_min: y - halfRange, x_max: x + halfRange, y_max: y + halfRange, lp, limit: 9 },
                 signal,
             })
                 .then(({ data }) => {
                     if (signal.aborted) return
-                    if (!data) return
+                    if (!data || data.length === 0) return
                     accumulated.push(data as PatchResponseGroup)
                     scheduleFlush()
                 })
@@ -461,11 +464,12 @@ export default function Viewport({
                 const lp = buildLpQuery()
                 const zoom = Math.round(mapRef.current.zoom())
                 const queryRange = Math.max(2, Math.round(PATCH_QUERY_RANGE_POINT * Math.pow(2, -zoom)))
+                const halfRange = Math.floor(queryRange / 2)
 
-                samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet({
+                listPatchesProjectsProjectIdPatchesGet({
                     client,
                     path: { project_id: projectId },
-                    query: { x: evt.geo.x, y: evt.geo.y, lp: lp, patch_query_range: queryRange, limit: 9, grid_origin: 'bottom_left' },
+                    query: { x_min: evt.geo.x - halfRange, y_min: evt.geo.y - halfRange, x_max: evt.geo.x + halfRange, y_max: evt.geo.y + halfRange, lp: lp, limit: 9 },
                 }).then(({ data, error }) => {
                     if (error || !data || data.length === 0) {
                         hoverQuadFeatureRef.current?.data([]).modified()
@@ -473,7 +477,7 @@ export default function Viewport({
                         onHoverPatch(null)
                         return
                     }
-                    hoverQuadFeatureRef.current.data(buildQuadData([data as PatchResponseGroup], zoom)).modified()
+                    hoverQuadFeatureRef.current.data(buildQuadData([data as PatchResponseGroup])).modified()
                     quadLayerRef.current.draw()
                     onHoverPatch(data[0])
                 }).catch(err => {
@@ -604,8 +608,7 @@ export default function Viewport({
         bboxAbortRef.current = new AbortController()
         const signal = bboxAbortRef.current.signal
 
-        const zoom = Math.round(mapRef.current.zoom())
-        sampleAndRenderProgressive(bounds, zoom, lp, signal)
+        sampleAndRenderProgressive(bounds, lp, signal)
 
         let panZoomClearTimeout: ReturnType<typeof setTimeout> | null = null
         function onZoomStart() {
@@ -616,13 +619,12 @@ export default function Viewport({
             if (panZoomClearTimeout) clearTimeout(panZoomClearTimeout)
             panZoomClearTimeout = setTimeout(async () => {
                 if (!mapRef.current || !quadFeatureRef.current || !quadLayerRef.current) return
-                const zoom = Math.round(mapRef.current.zoom())
                 const bounds = mapRef.current.bounds()
                 const lp = buildLpQuery()
                 bboxAbortRef.current?.abort()
                 bboxAbortRef.current = new AbortController()
                 const sig = bboxAbortRef.current.signal
-                sampleAndRenderProgressive(bounds, zoom, lp, sig)
+                sampleAndRenderProgressive(bounds, lp, sig)
             }, 200)
         }
         mapRef.current.geoOn(geo.event.zoom, onZoomStart)

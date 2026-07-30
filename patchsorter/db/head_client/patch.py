@@ -722,6 +722,7 @@ class PatchStore:
             label_pairs=label_pairs
         )
 
+    # TODO: deprecated
     def get_patches_by_points(
         self,
         points: Union[Tuple[float, float], List[Tuple[float, float]]],
