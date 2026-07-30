@@ -44,6 +44,8 @@ export default function LabelingPage() {
     const [pickedLabelClassId, setPickedLabelClassId] = useState<number | null>(null)
     const [gallerySelectAll, setGallerySelectAll] = useState(false)
     const [showPatches, setShowPatches] = useState(true)
+    const [queryRange, setQueryRange] = useState(16)
+    const [numSamples, setNumSamples] = useState(20)
 
     useEffect(() => {
         infoProjectsProjectIdInfoGet({ path: { project_id: projectId } })
@@ -349,6 +351,8 @@ export default function LabelingPage() {
                     worldInfo={worldInfo}
                     refreshTick={refreshTick}
                     showPatches={showPatches}
+                    queryRange={queryRange}
+                    numSamples={numSamples}
                     labelClasses={sortedLabelClasses}
                     onBoundsChange={setBounds}
                     onZoomChange={handleZoomChange}
@@ -396,8 +400,35 @@ export default function LabelingPage() {
                                 checked={showPatches}
                                 onChange={e => setShowPatches(e.target.checked)}
                             />
-                            Show Patches
+                            Show Patch Grid
                         </label>
+                    </div>
+
+                    <div className="control-row flattened">
+                        <div className="control-group">
+                            <label>Query Range: {queryRange}</label>
+                            <input
+                                type="range"
+                                min={2}
+                                max={64}
+                                step={2}
+                                value={queryRange}
+                                onChange={e => setQueryRange(Number(e.target.value))}
+                            />
+                        </div>
+                        {showPatches && (
+                            <div className="control-group">
+                                <label>Num Samples: {numSamples}</label>
+                                <input
+                                    type="range"
+                                    min={5}
+                                    max={50}
+                                    step={1}
+                                    value={numSamples}
+                                    onChange={e => setNumSamples(Number(e.target.value))}
+                                />
+                            </div>
+                        )}
                     </div>
                 </div>
 

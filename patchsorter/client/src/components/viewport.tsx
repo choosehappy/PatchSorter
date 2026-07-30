@@ -9,7 +9,7 @@ interface PatchResponseGroup extends Array<PatchResponse> {
 // GeoJS loaded via CDN in index.html
 declare const geo: any
 
-import { WORLD_SIZE, PATCH_NUM_SAMPLES, PATCH_QUERY_RANGE, PATCH_QUERY_RANGE_POINT, QUAD_HALF, HOVER_TIMEOUT_MS } from '../constants'
+import { WORLD_SIZE, QUAD_HALF, HOVER_TIMEOUT_MS } from '../constants'
 
 export interface MapBounds {
     left: number
@@ -36,6 +36,8 @@ interface ViewportProps {
     selectedPatches: PatchResponse[]
     hoveredPatch: PatchResponse | null
     showPatches: boolean
+    queryRange: number
+    numSamples: number
     labelClasses: LabelClassResponse[]
 }
 
@@ -57,6 +59,8 @@ export default function Viewport({
     selectedPatches,
     hoveredPatch,
     showPatches,
+    queryRange,
+    numSamples,
     labelClasses,
 }: ViewportProps) {
     const osmZoomOffset = worldInfo?.osm_zoom_offset ?? 8
@@ -83,6 +87,9 @@ export default function Viewport({
     const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const bboxAbortRef = useRef<AbortController | null>(null)
     const [isCtrlHeld, setIsCtrlHeld] = useState(false)
+
+    const queryRangeRef = useRef(queryRange)
+    queryRangeRef.current = queryRange
 
     function buildLpQuery() {
         if (filterBy !== 'all' || selectedCells.size < numClasses * numClasses) {
@@ -247,6 +254,12 @@ export default function Viewport({
         mapRef.current.draw()
     }
 
+    function getWorldUnitsPerPixel(): number {
+        const origin = mapRef.current.displayToWorld({ x: 0, y: 0 })
+        const onePixel = mapRef.current.displayToWorld({ x: 1, y: 0 })
+        return onePixel.x - origin.x
+    }
+
     function bboxToRing(xMin: number, yMin: number, xMax: number, yMax: number): number[][] {
         return [
             [xMin, yMin],
@@ -258,9 +271,7 @@ export default function Viewport({
     }
 
     function buildQuadData(groups: PatchResponseGroup[]) {
-        const worldCorner = mapRef.current.displayToWorld({ x: QUAD_HALF, y: QUAD_HALF })
-        const worldOrigin = mapRef.current.displayToWorld({ x: 0, y: 0 })
-        const scaled_half = worldCorner.x - worldOrigin.x
+        const scaled_half = QUAD_HALF * getWorldUnitsPerPixel()
         const result: { ul: { x: number; y: number }; lr: { x: number; y: number }; image: string }[] = []
         for (const group of groups) {
             const anchorI = group.query_bbox.x_max
@@ -310,11 +321,13 @@ export default function Viewport({
         const accumulated: PatchResponseGroup[] = []
         let pendingFlush = false
 
-        const PATCH_GRID_COLS = 5;
-        const PATCH_GRID_ROWS = 5;
-
         const width = bounds.right - bounds.left;
         const height = bounds.bottom - bounds.top;
+        const aspectRatio = width / height;
+        const rawCols = Math.sqrt(numSamples * aspectRatio);
+        const rawRows = numSamples / rawCols;
+        const PATCH_GRID_COLS = Math.max(1, Math.round(rawCols));
+        const PATCH_GRID_ROWS = Math.max(1, Math.round(rawRows));
 
         const points = Array.from({ length: PATCH_GRID_ROWS * PATCH_GRID_COLS }, (_, i) => {
             const row = Math.floor(i / PATCH_GRID_COLS);
@@ -337,8 +350,8 @@ export default function Viewport({
             pendingFlush = true
             requestAnimationFrame(flush)
         }
-
-        const halfRange = Math.floor(PATCH_QUERY_RANGE / 2)
+        // const worldUnitsPerPixel = getWorldUnitsPerPixel()
+        const halfRange = Math.floor(queryRange / 2)
         const bboxRings: number[][][] = points.map(({ x, y }) =>
             bboxToRing(x - halfRange, y - halfRange, x + halfRange, y + halfRange)
         )
@@ -520,11 +533,8 @@ export default function Viewport({
             if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
             hoverTimeoutRef.current = setTimeout(() => {
                 const lp = buildLpQuery()
-                const bounds = mapRef.current.bounds()
-                const { width: displayWidth } = mapRef.current.size()
-                const worldWidth = bounds.right - bounds.left
-                const queryRange = Math.max(2, Math.round(PATCH_QUERY_RANGE_POINT * (displayWidth / worldWidth)))
-                const halfRange = Math.floor(queryRange / 2)
+                const queryRangeVal = Math.max(2, Math.round(queryRangeRef.current))
+                const halfRange = Math.floor(queryRangeVal / 2)
 
                 const hoverRing = bboxToRing(
                     evt.geo.x - halfRange, evt.geo.y - halfRange,
@@ -715,7 +725,7 @@ export default function Viewport({
             bboxAbortRef.current?.abort()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showPatches, projectId, selectedCells])
+    }, [showPatches, projectId, selectedCells, queryRange, numSamples])
 
     // Update patch layer bounds when map bounds change
     useEffect(() => {
