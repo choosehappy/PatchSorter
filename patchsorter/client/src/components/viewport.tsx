@@ -264,6 +264,54 @@ export default function Viewport({
         }
     }
 
+    function sampleAndRenderProgressive(
+        bounds: MapBounds,
+        zoom: number,
+        lp: string[] | undefined,
+        signal: AbortSignal,
+    ) {
+        const seen = new Set<number>()
+        const accumulated: PatchResponse[] = []
+        let pendingFlush = false
+
+        const points = Array.from({ length: PATCH_NUM_SAMPLES }, () => ({
+            x: bounds.left + Math.random() * (bounds.right - bounds.left),
+            y: bounds.top + Math.random() * (bounds.bottom - bounds.top),
+        }))
+
+        function flush() {
+            if (signal.aborted) return
+            pendingFlush = false
+            renderPatchData(accumulated, zoom)
+        }
+
+        function scheduleFlush() {
+            if (pendingFlush) return
+            pendingFlush = true
+            requestAnimationFrame(flush)
+        }
+
+        points.forEach(({ x, y }) => {
+            samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet({
+                client,
+                path: { project_id: projectId },
+                query: { x, y, lp },
+                signal,
+            })
+                .then(({ data }) => {
+                    if (signal.aborted) return
+                    const p = data?.[0]
+                    if (!p || seen.has(p.patch_id)) return
+                    seen.add(p.patch_id)
+                    accumulated.push(p)
+                    scheduleFlush()
+                })
+                .catch((err) => {
+                    if (err?.name !== 'AbortError') console.error('[sample] fetch error:', err)
+                })
+        })
+    }
+
     // Initialise the GeoJS map once the div is mounted
     useEffect(() => {
         if (!mapDivRef.current) return
@@ -526,34 +574,8 @@ export default function Viewport({
         bboxAbortRef.current = new AbortController()
         const signal = bboxAbortRef.current.signal
 
-        const points = Array.from({ length: PATCH_NUM_SAMPLES }, () => ({
-            x: bounds.left + Math.random() * (bounds.right - bounds.left),
-            y: bounds.top + Math.random() * (bounds.bottom - bounds.top),
-        }))
-        Promise.all(
-            points.map(({ x, y }) =>
-                samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet({
-                    client,
-                    path: { project_id: projectId },
-                    query: { x, y, lp },
-                    signal,
-                }).then(({ data }) => data?.[0] ?? null).catch(() => null)
-            )
-        ).then(results => {
-            if (signal.aborted) return
-            const seen = new Set<number>()
-            const patches = results.filter((p): p is PatchResponse => {
-                if (!p || seen.has(p.patch_id)) return false
-                seen.add(p.patch_id)
-                return true
-            })
-            const zoom = Math.round(mapRef.current.zoom())
-            renderPatchData(patches, zoom)
-        }).catch(err => {
-            if (err.name !== 'AbortError') {
-                console.error('[patchLayer] fetch error:', err)
-            }
-        })
+        const zoom = Math.round(mapRef.current.zoom())
+        sampleAndRenderProgressive(bounds, zoom, lp, signal)
 
         let panZoomClearTimeout: ReturnType<typeof setTimeout> | null = null
         function onZoomStart() {
@@ -570,29 +592,7 @@ export default function Viewport({
                 bboxAbortRef.current?.abort()
                 bboxAbortRef.current = new AbortController()
                 const sig = bboxAbortRef.current.signal
-                const pts = Array.from({ length: PATCH_NUM_SAMPLES }, () => ({
-                    x: bounds.left + Math.random() * (bounds.right - bounds.left),
-                    y: bounds.top + Math.random() * (bounds.bottom - bounds.top),
-                }))
-                const rawResults = await Promise.all(
-                    pts.map(({ x, y }) =>
-                        samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet({
-                            client,
-                            path: { project_id: projectId },
-                            query: { x, y, lp },
-                            signal: sig,
-                        }).then(({ data }) => data?.[0] ?? null).catch(() => null)
-                    )
-                )
-                if (sig.aborted) return
-                const seen = new Set<number>()
-                const patches = rawResults.filter((p): p is PatchResponse => {
-                    if (!p || seen.has(p.patch_id)) return false
-                    seen.add(p.patch_id)
-                    return true
-                })
-                if (patches.length === 0) return
-                renderPatchData(patches, zoom)
+                sampleAndRenderProgressive(bounds, zoom, lp, sig)
             }, 200)
         }
         mapRef.current.geoOn(geo.event.zoom, onZoomStart)
