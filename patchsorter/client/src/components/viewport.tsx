@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { client } from '../api_client/client.gen'
-import { type ServeTileApiV1ProjectsProjectIdTilesZxyPngGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet } from '../api_client'
+import { type ServeTileProjectsProjectIdTilesZxyPngGetData, type GetPatchImageProjectsProjectIdPatchesPatchIdImageGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet } from '../api_client'
+
+type PatchResponseGroup = PatchResponse[]
 
 // GeoJS loaded via CDN in index.html
 declare const geo: any
@@ -186,12 +188,21 @@ export default function Viewport({
 
     const cacheKeyRef = useRef(Date.now())
 
+    function buildPatchImageUrl(patchId: number): string {
+        const options = {
+            path: { project_id: projectId, patch_id: patchId },
+            url: '/projects/{project_id}/patches/{patch_id}/image' satisfies GetPatchImageProjectsProjectIdPatchesPatchIdImageGetData['url'],
+        } as GetPatchImageProjectsProjectIdPatchesPatchIdImageGetData
+
+        return client.buildUrl(options)
+    }
+
     function buildTileUrl(x: number, y: number, z: number): string {
         const { colorBy, filterBy, selectedCells, numClasses, classIds } = tileStateRef.current
         const sumOver = colorBy !== 'gt' ? 'gt' : 'pred'
         const bounds = mapRef.current.bounds()
 
-        const tile_url = '/api/v1/projects/{project_id}/tiles/{z}/{x}/{y}.png' satisfies ServeTileApiV1ProjectsProjectIdTilesZxyPngGetData['url']
+        const tile_url = '/projects/{project_id}/tiles/{z}/{x}/{y}.png' satisfies ServeTileProjectsProjectIdTilesZxyPngGetData['url']
 
         const query: Record<string, any> = {
             sum_over: sumOver,
@@ -216,7 +227,7 @@ export default function Viewport({
             path: { z, x, y, project_id: projectId },
             query,
             url: tile_url
-        } as ServeTileApiV1ProjectsProjectIdTilesZxyPngGetData
+        } as ServeTileProjectsProjectIdTilesZxyPngGetData
 
         return client.buildUrl(options)
     }
@@ -231,20 +242,31 @@ export default function Viewport({
         mapRef.current.draw()
     }
 
-    function buildQuadData(data: PatchResponse[], zoom: number) {
+    function buildQuadData(groups: PatchResponseGroup[], zoom: number) {
         const half = QUAD_HALF * Math.pow(2, -zoom)
-        return data
-            .filter(p => p.grid_cell_i != null && p.grid_cell_j != null)
-            .map(p => ({
-                ul: { x: p.grid_cell_i!, y: p.grid_cell_j! - 2 * half },
-                lr: { x: p.grid_cell_i! + 2 * half, y: p.grid_cell_j! },
-                image: `/api/v1/projects/${projectId}/patches/${p.patch_id}/image`,
-            }))
+        const result: { ul: { x: number; y: number }; lr: { x: number; y: number }; image: string }[] = []
+        for (const group of groups) {
+            const anchor = group[0]
+            if (anchor.grid_cell_i == null || anchor.grid_cell_j == null) continue
+            for (let i = 0; i < group.length; i++) {
+                const p = group[i]
+                if (p.grid_cell_i == null || p.grid_cell_j == null) continue
+                const col = i % 3
+                const row = Math.floor(i / 3)
+                result.push({
+                    ul: { x: p.grid_cell_i! + col * 2 * half, y: p.grid_cell_j! + row * 2 * half - 2 * half },
+                    lr: { x: p.grid_cell_i! + col * 2 * half + 2 * half, y: p.grid_cell_j! + row * 2 * half },
+                    image: buildPatchImageUrl(p.patch_id),
+                })
+            }
+        }
+        return result
     }
 
-    function renderPatchData(data: PatchResponse[], zoom: number) {
+    function renderPatchData(groups: PatchResponseGroup[], zoom: number) {
+        const flat = groups.flatMap(g => g)
         if (patchFeatureRef.current) {
-            patchFeatureRef.current.data(data)
+            patchFeatureRef.current.data(flat)
             patchFeatureRef.current.style('fillColor', (p: PatchResponse) => {
                 if (p.label_class_id != null) {
                     const lc = labelClasses.find(l => l.label_class_id === p.label_class_id)
@@ -258,7 +280,7 @@ export default function Viewport({
             patchLayerRef.current?.draw()
         }
         if (quadFeatureRef.current) {
-            quadFeatureRef.current.data(buildQuadData(data, zoom))
+            quadFeatureRef.current.data(buildQuadData(groups, zoom))
             quadFeatureRef.current.modified()
             quadLayerRef.current?.draw()
         }
@@ -270,14 +292,24 @@ export default function Viewport({
         lp: string[] | undefined,
         signal: AbortSignal,
     ) {
-        const seen = new Set<number>()
-        const accumulated: PatchResponse[] = []
+        const accumulated: PatchResponseGroup[] = []
         let pendingFlush = false
 
-        const points = Array.from({ length: PATCH_NUM_SAMPLES }, () => ({
-            x: bounds.left + Math.random() * (bounds.right - bounds.left),
-            y: bounds.top + Math.random() * (bounds.bottom - bounds.top),
-        }))
+        const PATCH_GRID_COLS = 5;
+        const PATCH_GRID_ROWS = 5;
+
+        const width = bounds.right - bounds.left;
+        const height = bounds.bottom - bounds.top;
+
+        const points = Array.from({ length: PATCH_GRID_ROWS * PATCH_GRID_COLS }, (_, i) => {
+            const row = Math.floor(i / PATCH_GRID_COLS);
+            const col = i % PATCH_GRID_COLS;
+
+            return {
+                x: bounds.left + ((col + 0.5) / PATCH_GRID_COLS) * width,
+                y: bounds.top + ((row + 0.5) / PATCH_GRID_ROWS) * height,
+            };
+        });
 
         function flush() {
             if (signal.aborted) return
@@ -292,18 +324,16 @@ export default function Viewport({
         }
 
         points.forEach(({ x, y }) => {
-            samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet({
+            samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet({
                 client,
                 path: { project_id: projectId },
-                query: { x, y, lp },
+                query: { x, y, lp, limit: 9, patch_query_range: PATCH_QUERY_RANGE, grid_origin: 'bottom_left' },
                 signal,
             })
                 .then(({ data }) => {
                     if (signal.aborted) return
-                    const p = data?.[0]
-                    if (!p || seen.has(p.patch_id)) return
-                    seen.add(p.patch_id)
-                    accumulated.push(p)
+                    if (!data) return
+                    accumulated.push(data as PatchResponseGroup)
                     scheduleFlush()
                 })
                 .catch((err) => {
@@ -432,10 +462,10 @@ export default function Viewport({
                 const zoom = Math.round(mapRef.current.zoom())
                 const queryRange = Math.max(2, Math.round(PATCH_QUERY_RANGE_POINT * Math.pow(2, -zoom)))
 
-                samplePatchesByPointApiV1ProjectsProjectIdSampleByPointPatchesGet({
+                samplePatchesByPointProjectsProjectIdSampleByPointPatchesGet({
                     client,
                     path: { project_id: projectId },
-                    query: { x: evt.geo.x, y: evt.geo.y, lp: lp, patch_query_range: queryRange },
+                    query: { x: evt.geo.x, y: evt.geo.y, lp: lp, patch_query_range: queryRange, limit: 9, grid_origin: 'bottom_left' },
                 }).then(({ data, error }) => {
                     if (error || !data || data.length === 0) {
                         hoverQuadFeatureRef.current?.data([]).modified()
@@ -443,7 +473,7 @@ export default function Viewport({
                         onHoverPatch(null)
                         return
                     }
-                    hoverQuadFeatureRef.current.data(buildQuadData(data, zoom)).modified()
+                    hoverQuadFeatureRef.current.data(buildQuadData([data as PatchResponseGroup], zoom)).modified()
                     quadLayerRef.current.draw()
                     onHoverPatch(data[0])
                 }).catch(err => {

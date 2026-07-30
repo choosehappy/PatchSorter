@@ -170,11 +170,13 @@ def sample_patches_by_point(
     y: float = Query(...),
     lp: Optional[List[str]] = Query(default=None, description="Label pair filter: repeat for each pair as 'gt,pred' (e.g. lp=0,1&lp=2,2)"),
     patch_query_range: int = Query(default=16, description="Range in grid cells around the query point for patch sampling"),
+    limit: int = Query(default=1, ge=1),
+    grid_origin: str = Query(default="center", description="Grid alignment: 'center' or 'bottom_left'"),
 ) -> List[PatchResponse]:
     label_pairs = _parse_label_pairs(lp)
     client = get_head_client()
     with client.get_session() as session:
         store = PatchStore(project_id, session)
-        rows = store.get_patches_by_points((x, y), patch_query_range=patch_query_range, label_pairs=label_pairs)
+        rows = store.get_patches_by_points((x, y), patch_query_range=patch_query_range, label_pairs=label_pairs, limit=limit, grid_origin=grid_origin)
     return [PatchResponse(**r) for r in rows]
 

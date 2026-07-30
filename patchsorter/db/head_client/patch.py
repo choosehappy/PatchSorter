@@ -728,6 +728,8 @@ class PatchStore:
         *,
         patch_query_range: int,
         label_pairs: Optional[List[Tuple[int, int]]] = None,
+        limit: int = 1,
+        grid_origin: str = "center",
     ) -> List[Dict[str, Any]]:
         """Return patches whose predictions fall within *patch_query_range*
         grid cells of any of the given world-coordinate points.
@@ -744,6 +746,10 @@ class PatchStore:
                 such pairs.
             patch_query_range: Range in grid cells around the query point.
             label_pairs: Optional ``(gt, pred)`` filter applied in SQL.
+            limit: Maximum number of patches to return per point.
+            grid_origin: Grid alignment for sampling. 'center' uses a symmetric
+                range around the query point. 'bottom_left' uses an asymmetric
+                range starting at the query point's cell and extending positively.
 
         Returns:
             A list of flat dicts (same shape as
@@ -774,10 +780,16 @@ class PatchStore:
         i_vals = np.array([c.i for c in cells])
         j_vals = np.array([c.j for c in cells])
 
-        i_min = np.maximum(0, i_vals - half_range)
-        i_max = i_vals + half_range
-        j_min = np.maximum(0, j_vals - half_range)
-        j_max = j_vals + half_range
+        if grid_origin == "bottom_left":
+            i_min = i_vals
+            i_max = i_vals + patch_query_range - 1
+            j_min = j_vals
+            j_max = j_vals + patch_query_range - 1
+        else:
+            i_min = np.maximum(0, i_vals - half_range)
+            i_max = i_vals + half_range
+            j_min = np.maximum(0, j_vals - half_range)
+            j_max = j_vals + half_range
 
         cell_ranges = list(zip(i_min, i_max, j_min, j_max))
 
@@ -789,7 +801,7 @@ class PatchStore:
                 j_min=j_min,
                 j_max=j_max,
                 cursor=0,
-                limit=1,  # Large limit to fetch all matches within the cell range
+                limit=limit,
                 include_image=False,
                 label_pairs=label_pairs,
             )
