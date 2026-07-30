@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { client } from '../api_client/client.gen'
 import { type ServeTileProjectsProjectIdTilesZxyPngGetData, type GetPatchImageProjectsProjectIdPatchesPatchIdImageGetData, type WorldInfo, type PatchResponse, type LabelClassResponse, listPatchesProjectsProjectIdPatchesGet } from '../api_client'
 
-type PatchResponseGroup = PatchResponse[]
+interface PatchResponseGroup extends Array<PatchResponse> {
+    query_bbox: { x_min: number; y_min: number; x_max: number; y_max: number }
+}
 
 // GeoJS loaded via CDN in index.html
 declare const geo: any
@@ -72,6 +74,9 @@ export default function Viewport({
     const quadLayerRef = useRef<any>(null)
     const quadFeatureRef = useRef<any>(null)
     const hoverQuadFeatureRef = useRef<any>(null)
+    const queryBboxLayerRef = useRef<any>(null)
+    const queryBboxFeatureRef = useRef<any>(null)
+    const hoverQueryBboxFeatureRef = useRef<any>(null)
     const isDrawingRef = useRef(false)
     const justCompletedRef = useRef(false)
     const isCtrlHeldRef = useRef(false)
@@ -242,23 +247,31 @@ export default function Viewport({
         mapRef.current.draw()
     }
 
+    function bboxToRing(xMin: number, yMin: number, xMax: number, yMax: number): number[][] {
+        return [
+            [xMin, yMin],
+            [xMax, yMin],
+            [xMax, yMax],
+            [xMin, yMax],
+            [xMin, yMin],
+        ]
+    }
+
     function buildQuadData(groups: PatchResponseGroup[]) {
         const worldCorner = mapRef.current.displayToWorld({ x: QUAD_HALF, y: QUAD_HALF })
         const worldOrigin = mapRef.current.displayToWorld({ x: 0, y: 0 })
         const scaled_half = worldCorner.x - worldOrigin.x
         const result: { ul: { x: number; y: number }; lr: { x: number; y: number }; image: string }[] = []
         for (const group of groups) {
-            const anchor = group[0]
-            if (anchor.grid_cell_i == null || anchor.grid_cell_j == null) continue
-            const baseI = anchor.grid_cell_i
-            const baseJ = anchor.grid_cell_j
+            const anchorI = group.query_bbox.x_max
+            const anchorJ = group.query_bbox.y_max
             for (let i = 0; i < group.length; i++) {
                 const p = group[i]
                 const col = i % 3
                 const row = Math.floor(i / 3)
                 result.push({
-                    ul: { x: baseI + col * 2 * scaled_half, y: baseJ + row * 2 * scaled_half },
-                    lr: { x: baseI + col * 2 * scaled_half + 2 * scaled_half, y: baseJ + row * 2 * scaled_half + 2 * scaled_half },
+                    ul: { x: anchorI + col * 2 * scaled_half, y: anchorJ + row * 2 * scaled_half },
+                    lr: { x: anchorI + (col + 1) * 2 * scaled_half, y: anchorJ + (row + 1) * 2 * scaled_half },
                     image: buildPatchImageUrl(p.patch_id),
                 })
             }
@@ -326,17 +339,38 @@ export default function Viewport({
         }
 
         const halfRange = Math.floor(PATCH_QUERY_RANGE / 2)
+        const bboxRings: number[][][] = points.map(({ x, y }) =>
+            bboxToRing(x - halfRange, y - halfRange, x + halfRange, y + halfRange)
+        )
+        queryBboxFeatureRef.current?.data(bboxRings).modified()
+        queryBboxLayerRef.current?.draw()
+        const query_bbox = {
+            x_min: Infinity,
+            y_min: Infinity,
+            x_max: -Infinity,
+            y_max: -Infinity,
+        }
         points.forEach(({ x, y }) => {
+            const x_min = x - halfRange
+            const y_min = y - halfRange
+            const x_max = x + halfRange
+            const y_max = y + halfRange
+            if (x_min < query_bbox.x_min) query_bbox.x_min = x_min
+            if (y_min < query_bbox.y_min) query_bbox.y_min = y_min
+            if (x_max > query_bbox.x_max) query_bbox.x_max = x_max
+            if (y_max > query_bbox.y_max) query_bbox.y_max = y_max
             listPatchesProjectsProjectIdPatchesGet({
                 client,
                 path: { project_id: projectId },
-                query: { x_min: x - halfRange, y_min: y - halfRange, x_max: x + halfRange, y_max: y + halfRange, lp, limit: 9 },
+                query: { x_min: x_min, y_min: y_min, x_max: x_max, y_max: y_max, lp, limit: 9 },
                 signal,
             })
                 .then(({ data }) => {
                     if (signal.aborted) return
                     if (!data || data.length === 0) return
-                    accumulated.push(data as PatchResponseGroup)
+                    const group = data as PatchResponseGroup
+                    group.query_bbox = { x_min: x_min, y_min: y_min, x_max: x_max, y_max: y_max }
+                    accumulated.push(group)
                     scheduleFlush()
                 })
                 .catch((err) => {
@@ -447,6 +481,30 @@ export default function Viewport({
             .data([])
         quadLayerRef.current.draw()
 
+        // Create query bounding-box layer (mirrors quad layer structure)
+        queryBboxLayerRef.current = map.createLayer('feature', { zIndex: 2.5 })
+        queryBboxFeatureRef.current = queryBboxLayerRef.current
+            .createFeature('polygon')
+            .position((d: number[]) => ({ x: d[0], y: d[1] }))
+            .polygon((a: number[][]) => ({ outer: a, inner: [] }))
+            .data([])
+            .style('fill', false)
+            .style('stroke', true)
+            .style('strokeColor', 'lime')
+            .style('strokeWidth', 1)
+            .style('strokeOpacity', 0.6)
+        hoverQueryBboxFeatureRef.current = queryBboxLayerRef.current
+            .createFeature('polygon')
+            .position((d: number[]) => ({ x: d[0], y: d[1] }))
+            .polygon((a: number[][]) => ({ outer: a, inner: [] }))
+            .data([])
+            .style('fill', false)
+            .style('stroke', true)
+            .style('strokeColor', 'magenta')
+            .style('strokeWidth', 1.5)
+            .style('strokeOpacity', 0.9)
+        queryBboxLayerRef.current.draw()
+
         // Register annotation completion event listener
         annotationLayerRef.current.geoOn(geo.event.annotation.state, handleNewAnnotation)
 
@@ -462,14 +520,27 @@ export default function Viewport({
             if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
             hoverTimeoutRef.current = setTimeout(() => {
                 const lp = buildLpQuery()
-                const zoom = Math.round(mapRef.current.zoom())
-                const queryRange = Math.max(2, Math.round(PATCH_QUERY_RANGE_POINT * Math.pow(2, -zoom)))
+                const bounds = mapRef.current.bounds()
+                const { width: displayWidth } = mapRef.current.size()
+                const worldWidth = bounds.right - bounds.left
+                const queryRange = Math.max(2, Math.round(PATCH_QUERY_RANGE_POINT * (displayWidth / worldWidth)))
                 const halfRange = Math.floor(queryRange / 2)
 
+                const hoverRing = bboxToRing(
+                    evt.geo.x - halfRange, evt.geo.y - halfRange,
+                    evt.geo.x + halfRange, evt.geo.y + halfRange
+                )
+                hoverQueryBboxFeatureRef.current?.data([hoverRing]).modified()
+                queryBboxLayerRef.current?.draw()
+
+                const x_min = evt.geo.x - halfRange
+                const y_min = evt.geo.y - halfRange
+                const x_max = evt.geo.x + halfRange
+                const y_max = evt.geo.y + halfRange
                 listPatchesProjectsProjectIdPatchesGet({
                     client,
                     path: { project_id: projectId },
-                    query: { x_min: evt.geo.x - halfRange, y_min: evt.geo.y - halfRange, x_max: evt.geo.x + halfRange, y_max: evt.geo.y + halfRange, lp: lp, limit: 9 },
+                    query: { x_min: x_min, y_min: y_min, x_max: x_max, y_max: y_max, lp: lp, limit: 9 },
                 }).then(({ data, error }) => {
                     if (error || !data || data.length === 0) {
                         hoverQuadFeatureRef.current?.data([]).modified()
@@ -477,7 +548,9 @@ export default function Viewport({
                         onHoverPatch(null)
                         return
                     }
-                    hoverQuadFeatureRef.current.data(buildQuadData([data as PatchResponseGroup])).modified()
+                    const group = data as PatchResponseGroup
+                    group.query_bbox = { x_min, y_min, x_max, y_max }
+                    hoverQuadFeatureRef.current.data(buildQuadData([group])).modified()
                     quadLayerRef.current.draw()
                     onHoverPatch(data[0])
                 }).catch(err => {
@@ -528,6 +601,8 @@ export default function Viewport({
         return () => {
             resizeObserver.disconnect()
             hoverQuadFeatureRef.current?.data([]).modified()
+            queryBboxFeatureRef.current?.data([]).modified()
+            hoverQueryBboxFeatureRef.current?.data([]).modified()
             annotationLayerRef.current?.geoOff(geo.event.annotation.state, handleNewAnnotation)
             featureLayerRef.current?.geoOff(geo.event.mousedown, handleMousedown)
             map.geoOff(geo.event.mousemove, handleMouseMove)
@@ -597,6 +672,8 @@ export default function Viewport({
                 quadFeatureRef.current.data([])
                 quadLayerRef.current?.draw()
             }
+            queryBboxFeatureRef.current?.data([]).modified()
+            queryBboxLayerRef.current?.draw()
             return
         }
 
@@ -616,6 +693,8 @@ export default function Viewport({
                 quadFeatureRef.current.data([])
                 quadLayerRef.current?.draw()
             }
+            queryBboxFeatureRef.current?.data([]).modified()
+            queryBboxLayerRef.current?.draw()
             if (panZoomClearTimeout) clearTimeout(panZoomClearTimeout)
             panZoomClearTimeout = setTimeout(async () => {
                 if (!mapRef.current || !quadFeatureRef.current || !quadLayerRef.current) return
