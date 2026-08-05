@@ -9,7 +9,7 @@ interface PatchResponseGroup extends Array<PatchResponse> {
 // GeoJS loaded via CDN in index.html
 declare const geo: any
 
-import { WORLD_SIZE, QUAD_HALF } from '../constants'
+import { WORLD_SIZE, QUAD_HALF, QUAD_PADDING } from '../constants'
 
 export interface MapBounds {
     left: number
@@ -271,6 +271,7 @@ export default function Viewport({
 
     function buildQuadData(groups: PatchResponseGroup[]) {
         const scaled_half = QUAD_HALF * getWorldUnitsPerPixel()
+        const scaled_padding = QUAD_PADDING * getWorldUnitsPerPixel()
         const result: { ul: { x: number; y: number }; lr: { x: number; y: number }; image: string }[] = []
         for (const group of groups) {
             const anchorI = group.query_bbox.x_max
@@ -280,8 +281,8 @@ export default function Viewport({
                 const col = i % 3
                 const row = Math.floor(i / 3)
                 result.push({
-                    ul: { x: anchorI + col * 2 * scaled_half, y: anchorJ + row * 2 * scaled_half },
-                    lr: { x: anchorI + (col + 1) * 2 * scaled_half, y: anchorJ + (row + 1) * 2 * scaled_half },
+                    ul: { x: anchorI + col * 2 * scaled_half + scaled_padding, y: anchorJ + row * 2 * scaled_half + scaled_padding },
+                    lr: { x: anchorI + (col + 1) * 2 * scaled_half - scaled_padding, y: anchorJ + (row + 1) * 2 * scaled_half - scaled_padding },
                     image: buildPatchImageUrl(p.patch_id),
                 })
             }
