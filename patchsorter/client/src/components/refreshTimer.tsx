@@ -1,12 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-
-const OPTIONS: { label: string; ms: number | null }[] = [
-    { label: '1s', ms: 1000 },
-    { label: '5s', ms: 5000 },
-    { label: '10s', ms: 10000 },
-    { label: '30s', ms: 30000 },
-    { label: 'Off', ms: null },
-]
+import { REFRESH_INTERVAL_OPTIONS } from '../constants'
 
 const RADIUS = 9
 const STROKE_WIDTH = 2.5
@@ -64,7 +57,7 @@ export default function RefreshTimer({ intervalMs, onIntervalChange, onTick }: R
                         onIntervalChange(v === 'off' ? null : Number(v))
                     }}
                 >
-                    {OPTIONS.map(o => (
+                    {REFRESH_INTERVAL_OPTIONS.map(o => (
                         <option key={o.label} value={o.ms ?? 'off'}>{o.label}</option>
                     ))}
                 </select>

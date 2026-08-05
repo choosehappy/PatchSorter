@@ -9,6 +9,7 @@ import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
 import LabelPicker from '../components/LabelPicker'
 import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, assignLabelsByIdsProjectsProjectIdPatchesPost, assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
+import { DEFAULT_REFRESH_INTERVAL_MS } from '../constants'
 
 
 
@@ -34,7 +35,7 @@ export default function LabelingPage() {
     const [zoomInfo, setZoomInfo] = useState<string>('')
     const [worldInfo, setWorldInfo] = useState<WorldInfo | null>(null)
     const [refreshTick, setRefreshTick] = useState(0)
-    const [refreshIntervalMs, setRefreshIntervalMs] = useState<number | null>(5000)
+    const [refreshIntervalMs, setRefreshIntervalMs] = useState<number | null>(DEFAULT_REFRESH_INTERVAL_MS)
     const [pageSize, setPageSize] = useState(24)
     const [lassoPolygon, setLassoPolygon] = useState<number[][] | null>(null)
     const [activePage, setActivePage] = useState(0)
