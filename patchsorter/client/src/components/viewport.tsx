@@ -9,7 +9,7 @@ interface PatchResponseGroup extends Array<PatchResponse> {
 // GeoJS loaded via CDN in index.html
 declare const geo: any
 
-import { WORLD_SIZE, QUAD_HALF, HOVER_TIMEOUT_MS } from '../constants'
+import { WORLD_SIZE, QUAD_HALF } from '../constants'
 
 export interface MapBounds {
     left: number
@@ -77,14 +77,13 @@ export default function Viewport({
     const patchFeatureRef = useRef<any>(null)
     const quadLayerRef = useRef<any>(null)
     const quadFeatureRef = useRef<any>(null)
-    const hoverQuadFeatureRef = useRef<any>(null)
+    const clickQuadFeatureRef = useRef<any>(null)
     const queryBboxLayerRef = useRef<any>(null)
     const queryBboxFeatureRef = useRef<any>(null)
-    const hoverQueryBboxFeatureRef = useRef<any>(null)
+    const clickQueryBboxFeatureRef = useRef<any>(null)
     const isDrawingRef = useRef(false)
     const justCompletedRef = useRef(false)
     const isCtrlHeldRef = useRef(false)
-    const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const bboxAbortRef = useRef<AbortController | null>(null)
     const [isCtrlHeld, setIsCtrlHeld] = useState(false)
 
@@ -489,7 +488,7 @@ export default function Viewport({
             .data([])
 
         // Create hover quad feature (independent of main quad feature)
-        hoverQuadFeatureRef.current = quadLayerRef.current
+        clickQuadFeatureRef.current = quadLayerRef.current
             .createFeature('quad')
             .data([])
         quadLayerRef.current.draw()
@@ -506,7 +505,7 @@ export default function Viewport({
             .style('strokeColor', 'lime')
             .style('strokeWidth', 1)
             .style('strokeOpacity', 0.6)
-        hoverQueryBboxFeatureRef.current = queryBboxLayerRef.current
+        clickQueryBboxFeatureRef.current = queryBboxLayerRef.current
             .createFeature('polygon')
             .position((d: number[]) => ({ x: d[0], y: d[1] }))
             .polygon((a: number[][]) => ({ outer: a, inner: [] }))
@@ -529,50 +528,47 @@ export default function Viewport({
         }
         featureLayerRef.current.geoOn(geo.event.mousedown, handleMousedown)
 
-        function handleMouseMove(evt: any) {
-            if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
-            hoverTimeoutRef.current = setTimeout(() => {
-                const lp = buildLpQuery()
-                const queryRangeVal = Math.max(2, Math.round(queryRangeRef.current))
-                const halfRange = Math.floor(queryRangeVal / 2)
+        function handleClick(evt: any) {
+            const lp = buildLpQuery()
+            const queryRangeVal = Math.max(2, Math.round(queryRangeRef.current))
+            const halfRange = Math.floor(queryRangeVal / 2)
 
-                const hoverRing = bboxToRing(
-                    evt.geo.x - halfRange, evt.geo.y - halfRange,
-                    evt.geo.x + halfRange, evt.geo.y + halfRange
-                )
-                hoverQueryBboxFeatureRef.current?.data([hoverRing]).modified()
-                queryBboxLayerRef.current?.draw()
+            const clickRing = bboxToRing(
+                evt.geo.x - halfRange, evt.geo.y - halfRange,
+                evt.geo.x + halfRange, evt.geo.y + halfRange
+            )
+            clickQueryBboxFeatureRef.current?.data([clickRing]).modified()
+            queryBboxLayerRef.current?.draw()
 
-                const x_min = evt.geo.x - halfRange
-                const y_min = evt.geo.y - halfRange
-                const x_max = evt.geo.x + halfRange
-                const y_max = evt.geo.y + halfRange
-                listPatchesProjectsProjectIdPatchesGet({
-                    client,
-                    path: { project_id: projectId },
-                    query: { x_min: x_min, y_min: y_min, x_max: x_max, y_max: y_max, lp: lp, limit: 9 },
-                }).then(({ data, error }) => {
-                    if (error || !data || data.length === 0) {
-                        hoverQuadFeatureRef.current?.data([]).modified()
-                        quadLayerRef.current?.draw()
-                        onHoverPatch(null)
-                        return
-                    }
-                    const group = data as PatchResponseGroup
-                    group.query_bbox = { x_min, y_min, x_max, y_max }
-                    hoverQuadFeatureRef.current.data(buildQuadData([group])).modified()
-                    quadLayerRef.current.draw()
-                    onHoverPatch(data[0])
-                }).catch(err => {
-                    hoverQuadFeatureRef.current?.data([]).modified()
+            const x_min = evt.geo.x - halfRange
+            const y_min = evt.geo.y - halfRange
+            const x_max = evt.geo.x + halfRange
+            const y_max = evt.geo.y + halfRange
+            listPatchesProjectsProjectIdPatchesGet({
+                client,
+                path: { project_id: projectId },
+                query: { x_min: x_min, y_min: y_min, x_max: x_max, y_max: y_max, lp: lp, limit: 9 },
+            }).then(({ data, error }) => {
+                if (error || !data || data.length === 0) {
+                    clickQuadFeatureRef.current?.data([]).modified()
                     quadLayerRef.current?.draw()
-                    console.error('[sampleByPoint] fetch error:', err)
                     onHoverPatch(null)
-                })
-            }, HOVER_TIMEOUT_MS)
+                    return
+                }
+                const group = data as PatchResponseGroup
+                group.query_bbox = { x_min, y_min, x_max, y_max }
+                clickQuadFeatureRef.current.data(buildQuadData([group])).modified()
+                quadLayerRef.current.draw()
+                onHoverPatch(data[0])
+            }).catch(err => {
+                clickQuadFeatureRef.current?.data([]).modified()
+                quadLayerRef.current?.draw()
+                console.error('[sampleByPoint] fetch error:', err)
+                onHoverPatch(null)
+            })
         }
 
-        map.geoOn(geo.event.mousemove, handleMouseMove)
+        map.geoOn(geo.event.mouseclick, handleClick)
 
         map.geoOn(geo.event.zoom, () => {
             const z = Math.round(map.zoom())
@@ -610,12 +606,12 @@ export default function Viewport({
 
         return () => {
             resizeObserver.disconnect()
-            hoverQuadFeatureRef.current?.data([]).modified()
+            clickQuadFeatureRef.current?.data([]).modified()
             queryBboxFeatureRef.current?.data([]).modified()
-            hoverQueryBboxFeatureRef.current?.data([]).modified()
+            clickQueryBboxFeatureRef.current?.data([]).modified()
             annotationLayerRef.current?.geoOff(geo.event.annotation.state, handleNewAnnotation)
             featureLayerRef.current?.geoOff(geo.event.mousedown, handleMousedown)
-            map.geoOff(geo.event.mousemove, handleMouseMove)
+            map.geoOff(geo.event.mouseclick, handleClick)
             map.geoOff(geo.event.zoom)
             map.geoOff(geo.event.pan, onMapIdle)
             document.removeEventListener('keydown', handleKeyDown)
