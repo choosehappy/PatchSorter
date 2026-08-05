@@ -291,24 +291,32 @@ export default function Viewport({
 
     function renderPatchData(groups: PatchResponseGroup[]) {
         const flat = groups.flatMap(g => g)
-        if (patchFeatureRef.current) {
-            patchFeatureRef.current.data(flat)
-            patchFeatureRef.current.style('fillColor', (p: PatchResponse) => {
-                if (p.label_class_id != null) {
-                    const lc = labelClasses.find(l => l.label_class_id === p.label_class_id)
-                    return lc?.color_code ?? '#888888'
-                }
-                return '#888888'
-            })
-            patchFeatureRef.current.style('fillOpacity', 0.6)
-            patchFeatureRef.current.style('radius', 3)
-            patchFeatureRef.current.modified()
-            patchLayerRef.current?.draw()
+
+        if (patchLayerRef.current && patchFeatureRef.current) {
+            patchLayerRef.current.deleteFeature(patchFeatureRef.current)
+            patchFeatureRef.current = patchLayerRef.current
+                .createFeature('point', { primitiveShape: 'circle' })
+                .data(flat)
+                .position((p: PatchResponse) => ({ x: p.grid_cell_i!, y: p.grid_cell_j! }))
+                .style('fillColor', (p: PatchResponse) => {
+                    if (p.label_class_id != null) {
+                        const lc = labelClasses.find(l => l.label_class_id === p.label_class_id)
+                        return lc?.color_code ?? '#888888'
+                    }
+                    return '#888888'
+                })
+                .style('fillOpacity', 0.6)
+                .style('radius', 3)
+                .style('stroke', false)
+            patchLayerRef.current.draw()
         }
-        if (quadFeatureRef.current) {
-            quadFeatureRef.current.data(buildQuadData(groups))
-            quadFeatureRef.current.modified()
-            quadLayerRef.current?.draw()
+
+        if (quadLayerRef.current && quadFeatureRef.current) {
+            quadLayerRef.current.deleteFeature(quadFeatureRef.current)
+            quadFeatureRef.current = quadLayerRef.current
+                .createFeature('quad')
+                .data(buildQuadData(groups))
+            quadLayerRef.current.draw()
         }
     }
 
