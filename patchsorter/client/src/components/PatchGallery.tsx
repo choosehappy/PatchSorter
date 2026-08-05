@@ -2,11 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import PatchImage from './PatchImage'
 import './patchGallery.css'
 import type { PatchResponse, LabelClassResponse } from '../api_client'
-
-const PAGE_SIZE_OPTIONS = [12, 24, 48, 96]
-const MIN_PATCH_SIZE = 40
-const MAX_PATCH_SIZE = 120
-const DEFAULT_PATCH_SIZE = 80
+import { PAGE_SIZE_OPTIONS, MIN_PATCH_SIZE, MAX_PATCH_SIZE, DEFAULT_PATCH_SIZE } from '../constants'
 
 interface SelectionRect {
     left: number

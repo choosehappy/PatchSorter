@@ -18,3 +18,9 @@ export const REFRESH_INTERVAL_OPTIONS: { label: string; ms: number | null }[] = 
 ]
 
 export const DEFAULT_REFRESH_INTERVAL_MS = REFRESH_INTERVAL_OPTIONS[2].ms
+
+export const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
+
+export const MIN_PATCH_SIZE = 40
+export const MAX_PATCH_SIZE = 300
+export const DEFAULT_PATCH_SIZE = 80
