@@ -9,7 +9,7 @@ interface PatchResponseGroup extends Array<PatchResponse> {
 // GeoJS loaded via CDN in index.html
 declare const geo: any
 
-import { WORLD_SIZE, QUAD_HALF, QUAD_PADDING } from '../constants'
+import { WORLD_SIZE, QUAD_HALF, QUAD_PADDING, FIXED_SPACING_WORLD_UNITS, FIXED_MOUSEDOWN_LIMIT } from '../constants'
 
 export interface MapBounds {
     left: number
@@ -37,7 +37,6 @@ interface ViewportProps {
     hoveredPatch: PatchResponse | null
     showPatches: boolean
     queryRange: number
-    numSamples: number
     limit: number
     labelClasses: LabelClassResponse[]
 }
@@ -61,7 +60,6 @@ export default function Viewport({
     hoveredPatch,
     showPatches,
     queryRange,
-    numSamples,
     limit,
     labelClasses,
 }: ViewportProps) {
@@ -271,17 +269,18 @@ export default function Viewport({
         ]
     }
 
-    function buildQuadData(groups: PatchResponseGroup[]) {
+    function buildQuadData(groups: PatchResponseGroup[], gridLimit: number = limit) {
         const scaled_half = QUAD_HALF * getWorldUnitsPerPixel()
         const scaled_padding = QUAD_PADDING * getWorldUnitsPerPixel()
+        const sqrtLimit = Math.sqrt(gridLimit)
         const result: { ul: { x: number; y: number }; lr: { x: number; y: number }; image: string }[] = []
         for (const group of groups) {
             const anchorI = group.query_bbox.x_max
             const anchorJ = group.query_bbox.y_max
             for (let i = 0; i < group.length; i++) {
                 const p = group[i]
-                const col = i % 3
-                const row = Math.floor(i / 3)
+                const col = i % Math.round(sqrtLimit)
+                const row = Math.floor(i / sqrtLimit)
                 result.push({
                     ul: { x: anchorI + col * 2 * scaled_half + scaled_padding, y: anchorJ + row * 2 * scaled_half + scaled_padding },
                     lr: { x: anchorI + (col + 1) * 2 * scaled_half - scaled_padding, y: anchorJ + (row + 1) * 2 * scaled_half - scaled_padding },
@@ -333,21 +332,21 @@ export default function Viewport({
 
         const width = bounds.right - bounds.left;
         const height = bounds.bottom - bounds.top;
-        const aspectRatio = width / height;
-        const rawCols = Math.sqrt(numSamples * aspectRatio);
-        const rawRows = numSamples / rawCols;
-        const PATCH_GRID_COLS = Math.max(1, Math.round(rawCols));
-        const PATCH_GRID_ROWS = Math.max(1, Math.round(rawRows));
+        const pixelSize = getWorldUnitsPerPixel()
+        const sqrtLimit = Math.sqrt(limit)
+        const spacing = sqrtLimit * (QUAD_HALF * pixelSize * 2) + FIXED_SPACING_WORLD_UNITS
+        const numCols = Math.max(1, Math.ceil(width / spacing))
+        const numRows = Math.max(1, Math.ceil(height / spacing))
 
-        const points = Array.from({ length: PATCH_GRID_ROWS * PATCH_GRID_COLS }, (_, i) => {
-            const row = Math.floor(i / PATCH_GRID_COLS);
-            const col = i % PATCH_GRID_COLS;
-
-            return {
-                x: bounds.left + ((col + 0.5) / PATCH_GRID_COLS) * width,
-                y: bounds.top + ((row + 0.5) / PATCH_GRID_ROWS) * height,
-            };
-        });
+        const points: { x: number; y: number }[] = []
+        for (let row = 0; row < numRows; row++) {
+            for (let col = 0; col < numCols; col++) {
+                points.push({
+                    x: bounds.left + ((col + 0.5) / numCols) * width,
+                    y: bounds.top + ((row + 0.5) / numRows) * height,
+                })
+            }
+        }
 
         function flush() {
             if (signal.aborted) return
@@ -568,7 +567,7 @@ export default function Viewport({
                 }
                 const group = data as PatchResponseGroup
                 group.query_bbox = { x_min, y_min, x_max, y_max }
-                clickQuadFeatureRef.current.data(buildQuadData([group])).modified()
+                clickQuadFeatureRef.current.data(buildQuadData([group], FIXED_MOUSEDOWN_LIMIT)).modified()
                 quadLayerRef.current.draw()
                 onHoverPatch(data[0])
             }).catch(err => {
@@ -732,7 +731,7 @@ export default function Viewport({
             bboxAbortRef.current?.abort()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showPatches, projectId, selectedCells, limit, numSamples])
+    }, [showPatches, projectId, selectedCells, limit])
 
     // Update patch layer bounds when map bounds change
     useEffect(() => {

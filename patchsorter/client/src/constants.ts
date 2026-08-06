@@ -30,16 +30,16 @@ export const DEFAULT_SAMPLING_DENSITY = 50
 export const MIN_SAMPLING_DENSITY = 0
 export const MAX_SAMPLING_DENSITY = 100
 
-// NumSamples range (few regions, deep sampling at density=0 → many regions, shallow sampling at density=100)
-export const DEFAULT_NUM_SAMPLES = 20
-export const MIN_NUM_SAMPLES = 5
-export const MAX_NUM_SAMPLES = 200
-
 // QueryRange (inverted: density=0 → large query box, density=100 → small query box)
 export const DEFAULT_QUERY_RANGE = 16
 export const MIN_QUERY_RANGE = 2
 export const MAX_QUERY_RANGE = 64
 
-// Limit range (inverted: density=0 → high limit, density=100 → low limit)
-export const MIN_LIMIT = 1
-export const MAX_LIMIT = 50
+// Limit constrained to perfect squares
+export const PERFECT_SQUARE_LIMITS = [1, 4, 9, 16, 25, 36, 49]
+
+// Fixed spacing between sample points in world units
+export const FIXED_SPACING_WORLD_UNITS = 10
+
+// Fixed limit for mouse-down hover grid (3x3)
+export const FIXED_MOUSEDOWN_LIMIT = 9

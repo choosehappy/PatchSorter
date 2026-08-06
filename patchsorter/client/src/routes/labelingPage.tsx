@@ -9,7 +9,7 @@ import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
 import LabelPicker from '../components/LabelPicker'
 import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, assignLabelsByIdsProjectsProjectIdPatchesPost, assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
-import { DEFAULT_SAMPLING_DENSITY, MAX_SAMPLING_DENSITY, DEFAULT_REFRESH_INTERVAL_MS, MIN_NUM_SAMPLES, MAX_NUM_SAMPLES, DEFAULT_QUERY_RANGE, MIN_LIMIT, MAX_LIMIT } from '../constants'
+import { DEFAULT_SAMPLING_DENSITY, MAX_SAMPLING_DENSITY, DEFAULT_REFRESH_INTERVAL_MS, DEFAULT_QUERY_RANGE, PERFECT_SQUARE_LIMITS } from '../constants'
 
 
 
@@ -47,8 +47,8 @@ export default function LabelingPage() {
     const [showPatches, setShowPatches] = useState(true)
     const [samplingDensity, setSamplingDensity] = useState(DEFAULT_SAMPLING_DENSITY)
 
-    const numSamples = MIN_NUM_SAMPLES + Math.round((samplingDensity / MAX_SAMPLING_DENSITY) * (MAX_NUM_SAMPLES - MIN_NUM_SAMPLES))
-    const limit = MAX_LIMIT - Math.round((samplingDensity / MAX_SAMPLING_DENSITY) * (MAX_LIMIT - MIN_LIMIT))
+    const limitIndex = Math.round(samplingDensity * (PERFECT_SQUARE_LIMITS.length - 1) / MAX_SAMPLING_DENSITY)
+    const limit = PERFECT_SQUARE_LIMITS[Math.min(limitIndex, PERFECT_SQUARE_LIMITS.length - 1)]
     const queryRange = DEFAULT_QUERY_RANGE
 
     useEffect(() => {
@@ -356,7 +356,6 @@ export default function LabelingPage() {
                     refreshTick={refreshTick}
                     showPatches={showPatches}
                     queryRange={queryRange}
-                    numSamples={numSamples}
                     limit={limit}
                     labelClasses={sortedLabelClasses}
                     onBoundsChange={setBounds}
