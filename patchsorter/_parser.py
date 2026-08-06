@@ -22,8 +22,11 @@ def get_docs_argument_parser() -> argparse.ArgumentParser:
 def get_scripts_argument_parser() -> argparse.ArgumentParser:
     """Parser for `patchsorter scripts`, with its own sub-subcommands."""
     parser = argparse.ArgumentParser(prog="patchsorter scripts")
-    scripts_subparsers = parser.add_subparsers(dest="script", required=True)
-
+    scripts_subparsers = parser.add_subparsers(
+        dest="script",
+        required=True,
+        title="scripts",  # <-- fixes sphinxarg's empty anchor-id crash
+    )
     scripts_subparsers.add_parser(
         "add_uuids_to_geojson",
         parents=[_add_uids_script.get_parser()],
