@@ -9,7 +9,7 @@ interface PatchResponseGroup extends Array<PatchResponse> {
 // GeoJS loaded via CDN in index.html
 declare const geo: any
 
-import { WORLD_SIZE, QUAD_HALF, QUAD_PADDING, FIXED_SPACING_WORLD_UNITS, FIXED_MOUSEDOWN_LIMIT } from '../constants'
+import { WORLD_SIZE, QUAD_HALF, QUAD_PADDING, FIXED_SPACING_PIXELS, FIXED_MOUSEDOWN_LIMIT } from '../constants'
 
 export interface MapBounds {
     left: number
@@ -334,16 +334,16 @@ export default function Viewport({
         const height = bounds.bottom - bounds.top;
         const pixelSize = getWorldUnitsPerPixel()
         const sqrtLimit = Math.sqrt(limit)
-        const spacing = sqrtLimit * (QUAD_HALF * pixelSize * 2) + FIXED_SPACING_WORLD_UNITS
+        const spacing = (sqrtLimit * QUAD_HALF * 2 + FIXED_SPACING_PIXELS) * pixelSize + queryRange
         const numCols = Math.max(1, Math.ceil(width / spacing))
         const numRows = Math.max(1, Math.ceil(height / spacing))
 
         const points: { x: number; y: number }[] = []
-        for (let row = 0; row < numRows; row++) {
-            for (let col = 0; col < numCols; col++) {
+        for (let row = 0; (row + 1) * spacing < height; row++) {
+            for (let col = 0; (col + 1) * spacing < width; col++) {
                 points.push({
-                    x: bounds.left + ((col + 0.5) / numCols) * width,
-                    y: bounds.top + ((row + 0.5) / numRows) * height,
+                    x: bounds.left + col * spacing,
+                    y: bounds.top + row * spacing,
                 })
             }
         }

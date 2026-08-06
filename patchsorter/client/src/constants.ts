@@ -38,8 +38,8 @@ export const MAX_QUERY_RANGE = 64
 // Limit constrained to perfect squares
 export const PERFECT_SQUARE_LIMITS = [1, 4, 9, 16, 25, 36, 49]
 
-// Fixed spacing between sample points in world units
-export const FIXED_SPACING_WORLD_UNITS = 10
+// Fixed spacing between sample points in pixels
+export const FIXED_SPACING_PIXELS = 10
 
 // Fixed limit for mouse-down hover grid (3x3)
 export const FIXED_MOUSEDOWN_LIMIT = 9
