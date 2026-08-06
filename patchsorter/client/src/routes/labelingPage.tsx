@@ -9,7 +9,7 @@ import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
 import LabelPicker from '../components/LabelPicker'
 import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, assignLabelsByIdsProjectsProjectIdPatchesPost, assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
-import { DEFAULT_REFRESH_INTERVAL_MS } from '../constants'
+import { DEFAULT_SAMPLING_DENSITY, MAX_SAMPLING_DENSITY, DEFAULT_REFRESH_INTERVAL_MS, MIN_NUM_SAMPLES, MAX_NUM_SAMPLES, DEFAULT_QUERY_RANGE, MIN_LIMIT, MAX_LIMIT } from '../constants'
 
 
 
@@ -45,8 +45,11 @@ export default function LabelingPage() {
     const [pickedLabelClassId, setPickedLabelClassId] = useState<number | null>(null)
     const [gallerySelectAll, setGallerySelectAll] = useState(false)
     const [showPatches, setShowPatches] = useState(true)
-    const [queryRange, setQueryRange] = useState(16)
-    const [numSamples, setNumSamples] = useState(20)
+    const [samplingDensity, setSamplingDensity] = useState(DEFAULT_SAMPLING_DENSITY)
+
+    const numSamples = MIN_NUM_SAMPLES + Math.round((samplingDensity / MAX_SAMPLING_DENSITY) * (MAX_NUM_SAMPLES - MIN_NUM_SAMPLES))
+    const limit = MAX_LIMIT - Math.round((samplingDensity / MAX_SAMPLING_DENSITY) * (MAX_LIMIT - MIN_LIMIT))
+    const queryRange = DEFAULT_QUERY_RANGE
 
     useEffect(() => {
         infoProjectsProjectIdInfoGet({ path: { project_id: projectId } })
@@ -354,6 +357,7 @@ export default function LabelingPage() {
                     showPatches={showPatches}
                     queryRange={queryRange}
                     numSamples={numSamples}
+                    limit={limit}
                     labelClasses={sortedLabelClasses}
                     onBoundsChange={setBounds}
                     onZoomChange={handleZoomChange}
@@ -402,26 +406,19 @@ export default function LabelingPage() {
                             Show Patch Grid
                         </label>
                         <div className="control-group">
-                            <label>Query Range: {queryRange}</label>
+                            <label>Sampling Density: {samplingDensity}</label>
                             <input
                                 type="range"
-                                min={2}
-                                max={64}
-                                step={2}
-                                value={queryRange}
-                                onChange={e => setQueryRange(Number(e.target.value))}
-                            />
-                        </div>
-                        <div className="control-group">
-                            <label>Num Samples: {numSamples}</label>
-                            <input
-                                type="range"
-                                min={5}
-                                max={50}
+                                min={0}
+                                max={100}
                                 step={1}
-                                value={numSamples}
-                                onChange={e => setNumSamples(Number(e.target.value))}
+                                value={samplingDensity}
+                                onChange={e => setSamplingDensity(Number(e.target.value))}
                             />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#666' }}>
+                                <span>few regions, deep sampling</span>
+                                <span>many regions, shallow sampling</span>
+                            </div>
                         </div>
                     </div>
                 </div>

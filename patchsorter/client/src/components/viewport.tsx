@@ -38,6 +38,7 @@ interface ViewportProps {
     showPatches: boolean
     queryRange: number
     numSamples: number
+    limit: number
     labelClasses: LabelClassResponse[]
 }
 
@@ -61,6 +62,7 @@ export default function Viewport({
     showPatches,
     queryRange,
     numSamples,
+    limit,
     labelClasses,
 }: ViewportProps) {
     const osmZoomOffset = worldInfo?.osm_zoom_offset ?? 8
@@ -383,7 +385,7 @@ export default function Viewport({
             listPatchesProjectsProjectIdPatchesGet({
                 client,
                 path: { project_id: projectId },
-                query: { x_min: x_min, y_min: y_min, x_max: x_max, y_max: y_max, lp, limit: 9 },
+                query: { x_min: x_min, y_min: y_min, x_max: x_max, y_max: y_max, lp, limit },
                 signal,
             })
                 .then(({ data }) => {
@@ -556,7 +558,7 @@ export default function Viewport({
             listPatchesProjectsProjectIdPatchesGet({
                 client,
                 path: { project_id: projectId },
-                query: { x_min: x_min, y_min: y_min, x_max: x_max, y_max: y_max, lp: lp, limit: 9 },
+                query: { x_min: x_min, y_min: y_min, x_max: x_max, y_max: y_max, lp: lp, limit },
             }).then(({ data, error }) => {
                 if (error || !data || data.length === 0) {
                     clickQuadFeatureRef.current?.data([]).modified()
@@ -730,7 +732,7 @@ export default function Viewport({
             bboxAbortRef.current?.abort()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showPatches, projectId, selectedCells, queryRange, numSamples])
+    }, [showPatches, projectId, selectedCells, limit, numSamples])
 
     // Update patch layer bounds when map bounds change
     useEffect(() => {
