@@ -248,7 +248,7 @@ def example_project(
     ).fetchall()
     patch_ids = [row[0] for row in patch_ids_result]
 
-    # Seed prediction rows for the five patches so get_patches_by_points finds them
+    # Seed prediction rows for the five patches
     for i, pid in enumerate(patch_ids):
         db_session.execute(
             text(
