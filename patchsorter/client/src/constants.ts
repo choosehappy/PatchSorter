@@ -25,11 +25,6 @@ export const MIN_PATCH_SIZE = 40
 export const MAX_PATCH_SIZE = 300
 export const DEFAULT_PATCH_SIZE = 80
 
-// Sampling density slider (single slider replaces queryRange + numSamples)
-export const DEFAULT_SAMPLING_DENSITY = 50
-export const MIN_SAMPLING_DENSITY = 0
-export const MAX_SAMPLING_DENSITY = 100
-
 // QueryRange (inverted: density=0 → large query box, density=100 → small query box)
 export const DEFAULT_QUERY_RANGE = 16
 export const MIN_QUERY_RANGE = 2

@@ -9,7 +9,7 @@ import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
 import LabelPicker from '../components/LabelPicker'
 import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, assignLabelsByIdsProjectsProjectIdPatchesPost, assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
-import { DEFAULT_SAMPLING_DENSITY, MAX_SAMPLING_DENSITY, DEFAULT_REFRESH_INTERVAL_MS, DEFAULT_QUERY_RANGE, PERFECT_SQUARE_LIMITS } from '../constants'
+import { DEFAULT_REFRESH_INTERVAL_MS, DEFAULT_QUERY_RANGE, PERFECT_SQUARE_LIMITS } from '../constants'
 
 
 
@@ -45,10 +45,8 @@ export default function LabelingPage() {
     const [pickedLabelClassId, setPickedLabelClassId] = useState<number | null>(null)
     const [gallerySelectAll, setGallerySelectAll] = useState(false)
     const [showPatches, setShowPatches] = useState(true)
-    const [samplingDensity, setSamplingDensity] = useState(DEFAULT_SAMPLING_DENSITY)
-
-    const limitIndex = Math.round(samplingDensity * (PERFECT_SQUARE_LIMITS.length - 1) / MAX_SAMPLING_DENSITY)
-    const limit = PERFECT_SQUARE_LIMITS[Math.min(limitIndex, PERFECT_SQUARE_LIMITS.length - 1)]
+    const [queryLimitIndex, setQueryLimitIndex] = useState(2)
+    const limit = PERFECT_SQUARE_LIMITS[queryLimitIndex]
     const queryRange = DEFAULT_QUERY_RANGE
 
     useEffect(() => {
@@ -405,18 +403,18 @@ export default function LabelingPage() {
                             Show Patch Grid
                         </label>
                         <div className="control-group">
-                            <label>Sampling Density: {samplingDensity}</label>
+                            <label>Query Limit: {PERFECT_SQUARE_LIMITS[queryLimitIndex]}</label>
                             <input
                                 type="range"
                                 min={0}
-                                max={100}
+                                max={PERFECT_SQUARE_LIMITS.length - 1}
                                 step={1}
-                                value={samplingDensity}
-                                onChange={e => setSamplingDensity(Number(e.target.value))}
+                                value={queryLimitIndex}
+                                onChange={e => setQueryLimitIndex(Number(e.target.value))}
                             />
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#666' }}>
-                                <span>few regions, deep sampling</span>
-                                <span>many regions, shallow sampling</span>
+                                <span>dense</span>
+                                <span>sparse</span>
                             </div>
                         </div>
                     </div>
