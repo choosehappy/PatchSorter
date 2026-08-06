@@ -25,7 +25,6 @@ def get_scripts_argument_parser() -> argparse.ArgumentParser:
     scripts_subparsers = parser.add_subparsers(
         dest="script",
         required=True,
-        title="scripts",  # <-- fixes sphinxarg's empty anchor-id crash
     )
     scripts_subparsers.add_parser(
         "add_uuids_to_geojson",
