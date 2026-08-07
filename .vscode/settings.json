@@ -2,6 +2,7 @@
     "python.testing.pytestArgs": [
         "./patchsorter/tests"
     ],
+    "python.testing.pytestPath": "/home/ray/anaconda3/bin/pytest",
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
     "python-envs.defaultEnvManager": "ms-python.python:conda",

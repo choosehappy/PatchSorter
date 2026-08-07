@@ -51,6 +51,7 @@ class Project(Base):
     project_id   = Column(Integer, primary_key=True, autoincrement=True)
     project_name = Column(Text, nullable=False)
     description  = Column(Text)
+    creation_ts  = Column(TIMESTAMP, nullable=False, server_default=func.now())
 
     images        = relationship("Image",       back_populates="project")
     label_classes = relationship("LabelClass",  back_populates="project")

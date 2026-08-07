@@ -8,7 +8,7 @@ import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatr
 import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
 import LabelPicker from '../components/LabelPicker'
-import { getConfusionMatrixApiV1ProjectsProjectIdConfusionMatrixGet, infoApiV1ProjectsProjectIdInfoGet, listLabelClassesApiV1ProjectsProjectIdLabelClassesGet, listPatchesApiV1ProjectsProjectIdPatchesGet, assignLabelsByIdsApiV1ProjectsProjectIdPatchesPost, assignLabelsByPolygonApiV1ProjectsProjectIdPatchesPolygonassignPost, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
+import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, assignLabelsByIdsProjectsProjectIdPatchesPost, assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
 
 
 
@@ -43,10 +43,10 @@ export default function LabelingPage() {
     const [showPicker, setShowPicker] = useState(false)
     const [pickedLabelClassId, setPickedLabelClassId] = useState<number | null>(null)
     const [gallerySelectAll, setGallerySelectAll] = useState(false)
-    const [showPatches, setShowPatches] = useState(true)
+    const [showPatches, setShowPatches] = useState(false)
 
     useEffect(() => {
-        infoApiV1ProjectsProjectIdInfoGet({ path: { project_id: projectId } })
+        infoProjectsProjectIdInfoGet({ path: { project_id: projectId } })
             .then(({ data, error }) => {
                 if (data) setWorldInfo(data)
                 else console.error('Error fetching world info:', error)
@@ -74,7 +74,7 @@ export default function LabelingPage() {
         if (pickedId === null) return
 
         if (selectedPatches.length > 0) {
-            await assignLabelsByIdsApiV1ProjectsProjectIdPatchesPost({
+            await assignLabelsByIdsProjectsProjectIdPatchesPost({
                 path: { project_id: projectId },
                 query: { patch_ids: selectedPatches.map(p => p.patch_id), label_class_id: pickedId },
             })
@@ -83,7 +83,7 @@ export default function LabelingPage() {
             queryClient.invalidateQueries({ queryKey: ['galleryTotal'] })
             setRefreshTick(t => t + 1)
         } else if (gallerySelectAll && lassoPolygon) {
-            await assignLabelsByPolygonApiV1ProjectsProjectIdPatchesPolygonassignPost({
+            await assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost({
                 path: { project_id: projectId },
                 query: { label_class_id: pickedId, lp },
                 body: { polygon: { type: 'Polygon', coordinates: [lassoPolygon] } },
@@ -97,7 +97,7 @@ export default function LabelingPage() {
 
     const { data: labelClassesData = [] } = useQuery<LabelClassResponse[]>({
         queryKey: ['labelClasses', projectId],
-        queryFn: () => listLabelClassesApiV1ProjectsProjectIdLabelClassesGet({ path: { project_id: projectId } })
+        queryFn: () => listLabelClassesProjectsProjectIdLabelClassesGet({ path: { project_id: projectId } })
             .then(({ data, error }) => {
                 if (error) throw error
                 return data ?? []
@@ -132,7 +132,7 @@ export default function LabelingPage() {
 
     const { data: confusionData = null } = useQuery<ConfusionData | null>({
         queryKey: ['confusionMatrix', bounds, lp, refreshTick],
-        queryFn: () => getConfusionMatrixApiV1ProjectsProjectIdConfusionMatrixGet({
+        queryFn: () => getConfusionMatrixProjectsProjectIdConfusionMatrixGet({
             path: { project_id: projectId },
             query: {
                 x_min: bounds!.left,
@@ -153,7 +153,7 @@ export default function LabelingPage() {
         queryKey: ['galleryTotal', projectId, lassoPolygon],
         queryFn: async () => {
             const bbox = computeBboxFromPolygon(lassoPolygon!)
-            const { data, error } = await getConfusionMatrixApiV1ProjectsProjectIdConfusionMatrixGet({
+            const { data, error } = await getConfusionMatrixProjectsProjectIdConfusionMatrixGet({
                 path: { project_id: projectId },
                 query: {
                     x_min: bbox.x_min,
@@ -181,7 +181,7 @@ export default function LabelingPage() {
         queryKey: ['patches', projectId, lassoPolygon, pageSize, lp],
         queryFn: async ({ pageParam }: { pageParam: number }) => {
             const bbox = computeBboxFromPolygon(lassoPolygon!)
-            const res = await listPatchesApiV1ProjectsProjectIdPatchesGet({
+            const res = await listPatchesProjectsProjectIdPatchesGet({
                 path: { project_id: projectId },
                 query: {
                     cursor: pageParam,

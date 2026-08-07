@@ -5,6 +5,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import './index.css'
 import Root from './routes/root.tsx'
 import LabelingPage from './routes/labelingPage.tsx'
+import ProjectPage from './routes/projectPage.tsx'
 
 const queryClient = new QueryClient()
 
@@ -13,6 +14,7 @@ const router = createBrowserRouter([
         path: '/',
         element: <Root />,
         children: [
+            { path: '/project/:projectId/', element: <ProjectPage /> },
             { path: '/project/:projectId/labeler', element: <LabelingPage /> },
         ],
     },

@@ -11,3 +11,10 @@ export const PATCH_QUERY_RANGE_POINT = 16
 // Quad base half-size in grid cells (scales by 2^(-zoom) for fixed visual size)
 export const QUAD_HALF = 64
 export const HOVER_TIMEOUT_MS = 100
+
+// Upload
+export const ACCEPTED_EXTS = /\.(tif|tiff|png|jpg|jpeg)$/i
+export const ACCEPT_ATTR = '.tif,.tiff,.png,.jpg,.jpeg'
+
+// Magnification options for review step editor
+export const MAGNIFICATION_OPTIONS: number[] = [5, 10, 20, 40]

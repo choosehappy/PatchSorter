@@ -1,15 +1,22 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet, useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { getProjectProjectsProjectIdGet } from '../api_client';
 import Navigation from '../components/Navigation';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
-// TODO: Replace with actual project state/logic
-const currentProject = null;
-
 export default function Root() {
+    const { projectId: projectIdParam } = useParams<{ projectId: string }>();
+
+    const { data: project } = useQuery({
+        queryKey: ['project', projectIdParam],
+        queryFn: () => getProjectProjectsProjectIdGet({ path: { project_id: Number(projectIdParam!) } }).then(r => r.data),
+        enabled: projectIdParam !== undefined && !isNaN(Number(projectIdParam!)),
+    });
+
     return (
         <div className="d-flex flex-column" style={{ height: '100vh' }}>
-            <Navigation currentProject={currentProject} />
+            <Navigation currentProject={project ? { id: String(project.project_id), name: project.project_name } : null} />
             <ToastContainer
                 position="bottom-right"
                 autoClose={5000}

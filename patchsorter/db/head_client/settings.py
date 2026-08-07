@@ -166,6 +166,10 @@ class SettingsStore:
     #     return value  # type: ignore[return-value]
 
 
+    def get_all(self, project_id: Optional[int] = None) -> List[Setting]:
+        """Alias for get_all_within_project_scope for backward compatibility."""
+        return self.get_all_within_project_scope(project_id)
+
     def get_all_within_project_scope(self, project_id: Optional[int] = None) -> List[Setting]:
         """Return all settings for a given project scope, including application-level settings.
 

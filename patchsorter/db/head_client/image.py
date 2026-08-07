@@ -115,6 +115,22 @@ class ImageStore:
             .all()
         )
 
+    def get_by_project_and_name(self, project_id: int, name: str) -> Optional[Image]:
+        """Return the image row matching *project_id* and *name*, or ``None``.
+
+        Args:
+            project_id: The integer ID of the project.
+            name: The image name (full filename with extension).
+
+        Returns:
+            The Image ORM instance if found, ``None`` otherwise.
+        """
+        return (
+            self._session.query(Image)
+            .filter_by(project_id=project_id, name=name)
+            .first()
+        )
+
     def delete(self, image_id: int, project_id: int) -> None:
         """Delete an image and all associated patches and predictions.
 
