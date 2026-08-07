@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import { SlickgridReact } from 'slickgrid-react'
 import type { Column, GridOption, SlickgridReactInstance, OnSelectedRowsChangedEventArgs } from 'slickgrid-react'
-import type { ImageResponse, ImageStatsResponse, LabelClassResponse } from '../../api_client'
-import { getImageStatsProjectsProjectIdImagesImageIdStatsGet } from '../../api_client'
-
+import type { ImageResponse, ImageStatsResponse, LabelClassResponse, GetImageThumbnailProjectsProjectIdImagesImageIdThumbnailGetData } from '../../api_client'
+import {getImageStatsProjectsProjectIdImagesImageIdStatsGet } from '../../api_client'
+import { client } from '../../api_client/client.gen'
 interface ImagesTableProps {
     projectId: number
     images: ImageResponse[]
@@ -37,9 +37,18 @@ export default function ImagesTable({ projectId, images, labelClasses, isLoading
             imageStatQueries[i]?.isSuccess ? (imageStatQueries[i].data as ImageStatsResponse) : null
         ])), [images, imageStatQueries])
 
+    function buildThumbnailURL(imageId: number): string {
+        const options = {
+            path: { project_id: projectId, image_id: imageId },
+            url: '/projects/{project_id}/images/{image_id}/thumbnail/' satisfies GetImageThumbnailProjectsProjectIdImagesImageIdThumbnailGetData['url'],
+        } as GetImageThumbnailProjectsProjectIdImagesImageIdThumbnailGetData
+
+        return client.buildUrl(options)
+    }
+
     const buildColumns = useCallback((): Column[] => {
         const thumbnailFormatter = (_row: number, _cell: number, value: unknown) => {
-            const src = `/projects/${projectId}/images/${value}/thumbnail/`
+            const src = buildThumbnailURL(value as number)
             return (
                 '<span class="spinner-border spinner-border-sm" role="status"></span>' +
                 '<span class="text-danger" style="display:none;font-size:1.5rem">&times;</span>' +
@@ -64,6 +73,7 @@ export default function ImagesTable({ projectId, images, labelClasses, isLoading
 
         return [
             { id: 'thumbnail', name: '',              field: 'image_id',        sortable: false, formatter: thumbnailFormatter },
+            { id: 'id',        name: 'ID',            field: 'id',              sortable: true },
             { id: 'name',      name: 'Name',          field: 'name',            sortable: true },
             { id: 'width',     name: 'Width',         field: 'width',           sortable: true },
             { id: 'height',    name: 'Height',        field: 'height',          sortable: true },
