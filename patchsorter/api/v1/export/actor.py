@@ -9,7 +9,7 @@ from patchsorter.db.head_client import get_client
 from patchsorter.utils.fsmanager import FileStoreManager
 from .models import ExportImage
 
-
+@ray.remote
 def _export_patch_csv(
     image: ExportImage,
     project_id: int,
