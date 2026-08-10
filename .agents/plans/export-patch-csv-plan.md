@@ -352,40 +352,78 @@ Each CSV file uses the naming format `patches_{image_id}.csv` and contains:
 
 ## Frontend Integration
 
-The client uses the **exact same polling pattern** as `UploadWizardModal.tsx` for tracking export progress:
+### Polling mechanism
 
-### Polling mechanism (identical to upload flow)
-
-1. **Dispatch**: Client calls `export_patch_csv` endpoint, sends `image_ids` list, receives `{task_id: parent_task_id, manifest_urls}` (manifest_urls fully populated)
-2. **Set childTaskId**: Client stores `task_id` in state (`childTaskId = res.data.task_id`)
-3. **Render TaskChildrenGrid**: Client passes `parentTaskId={taskId}` to `<TaskChildrenGrid>` component with an `onCompletion` callback
+1. **Dispatch**: Client calls `export_patch_csv` endpoint with `image_ids` list, receives `{task_id, manifest_urls}` (fully populated).
+2. **Set childTaskId**: Client stores `task_id` in state (`childTaskId = res.data.task_id`).
+3. **Render TaskChildrenGrid in toast**: Client passes `parentTaskId={taskId}` to `<TaskChildrenGrid>` inside a toast notification (same pattern as `UploadWizardModal`).
 4. **Polling loop** (inside `TaskChildrenGrid`):
-   - Calls `searchRayTasks({ body: [['parent_task_id', '=', parentTaskId]] })` every **3 seconds** (POLL_INTERVAL_MS)
-   - Queries Ray's `list_tasks()` API with `parent_task_id` filter to get all child tasks
-   - Displays task names, states (PENDING/RUNNING/DONE/FAILED/CANCELLED), and error messages in a SlickgridReact grid
-   - State badges use colors: PENDING=gray, RUNNING=blue, DONE=green, FAILED=red, CANCELLED=purple
+    - Calls `searchRayTasks({ body: [['parent_task_id', '=', parentTaskId]] })` every **3 seconds** (`POLL_INTERVAL_MS`).
+    - Queries Ray's `list_tasks()` API with `parent_task_id` filter to get all child tasks.
+    - Displays task names, states (PENDING/RUNNING/DONE/FAILED/CANCELLED), and error messages in a SlickgridReact grid.
+    - State badges use colors: PENDING=gray, RUNNING=blue, DONE=green, FAILED=red, CANCELLED=purple.
 5. **Completion detection**:
-   - When **all** child tasks reach `DONE` state → calls `onCompletion()` callback
-   - When **any** child task reaches `FAILED` state → calls `onCompletion()` callback (with error shown in grid)
-   - Stops polling via `doneRef` flag and `clearInterval`
-6. **Post-completion**: Client's `onCompletion` callback executes (e.g., hide progress grid, show success message, display manifest URLs for user to download). **Note: The Ray actor must remain alive during the download phase since the download endpoint streams files directly from the actor's filesystem.**
+    - When **all** child tasks reach `DONE` state → calls `onCompletion()` callback.
+    - When **any** child task reaches `FAILED` state → calls `onCompletion()` callback (with error shown in grid).
+    - Stops polling via `doneRef` flag and `clearInterval`.
+6. **Post-completion**: Modal closes immediately. Manifest URLs are written into a `.txt` file blob and triggered as a browser download to the user's machine.
 
-### UI integration (matching upload flow)
+### UI integration
+
+#### ExportModal.tsx
+
+**Location**: `patchsorter/client/src/components/projectPage/ExportModal.tsx`
+
+**Props**: `projectId`, `selectedImageIds`, `onClose`
+
+**State**: `childTaskId` (for progress tracking via `TaskChildrenGrid`), `isExporting`
+
+**Flow**:
+
+1. On mount/open, call `exportPatchesCsvProjectsProjectIdExportPatchesPost` with `{ image_ids: [...] }`.
+2. On success: store `task_id` in state, immediately close the modal.
+3. `TaskChildrenGrid` renders in a toast notification to track progress.
+4. On completion (`onCompletion` callback): generate a `.txt` file blob containing all `manifest_urls` (one URL per line) and trigger the browser's native download via `URL.createObjectURL` + `<a>` element.
+
+**UI**: Minimal modal with a single "Confirm Export" button. No progress section or download links displayed in the modal.
 
 ```tsx
-// UploadWizardModal.tsx pattern — replicated for export:
 const [childTaskId, setChildTaskId] = useState<string | null>(null)
 
 // After receiving export response:
 setChildTaskId(res.data.task_id)
 
-// In toast or modal body:
+// TaskChildrenGrid rendered in toast (not in modal):
 <TaskChildrenGrid
     parentTaskId={childTaskId!}
     containerId={`toast-task-${childTaskId}`}
     onCompletion={() => {
         setChildTaskId(null)
-        // manifest_urls already populated in response — display for user to download CSVs
+        // Generate .txt blob from manifest_urls and trigger browser download
     }}
 />
 ```
+
+#### Regenerate API client
+
+- Run `npm run openapi-ts` in `patchsorter/client/` to pick up the new `export_patch_csv` endpoint.
+- This will generate `exportPatchesCsvProjectsProjectIdExportPatchesPost` and related types.
+
+#### Wire into ActionsFooter.tsx
+
+- Add `onOpenExportModal` prop.
+- Update the existing "Export Patches for N Images" button to call `onOpenExportModal` instead of `console.log`.
+- Pass `selectedImageIds` to the callback.
+
+#### Wire into projectPage.tsx
+
+- Add `showExportModal` state (similar to `showUploadWizard`).
+- Add `handleOpenExportModal` callback that passes `selectedImageIds`.
+- Render `<ExportModal>` when `showExportModal` is true.
+
+### Key design decisions
+
+- **Minimal export modal** — Single "Confirm Export" button only; no progress or download links in the modal.
+- **TaskChildrenGrid in toast** — Progress tracking uses the existing toast notification pattern (same as upload flow).
+- **Modal closes immediately** — On export completion, the modal closes since progress is displayed in the toast notification.
+- **Blob-based download** — Manifest URLs are written into a `.txt` file blob and triggered via the browser's native download API.
