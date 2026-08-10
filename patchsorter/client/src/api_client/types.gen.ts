@@ -73,6 +73,34 @@ export type ConfusionMatrixResponse = {
 };
 
 /**
+ * ExportRequest
+ *
+ * Request body for starting a patch CSV export.
+ */
+export type ExportRequest = {
+    /**
+     * Image Ids
+     */
+    image_ids: Array<number>;
+};
+
+/**
+ * ExportResponse
+ *
+ * Response from export_patch_csv endpoint.
+ */
+export type ExportResponse = {
+    /**
+     * Task Id
+     */
+    task_id: string;
+    /**
+     * Manifest Urls
+     */
+    manifest_urls: Array<string>;
+};
+
+/**
  * HTTPValidationError
  */
 export type HttpValidationError = {
@@ -1330,8 +1358,8 @@ export type GetImageThumbnailProjectsProjectIdImagesImageIdThumbnailGetResponses
     200: unknown;
 };
 
-export type ExportPatchesCsvProjectsProjectIdExportPatchesGetData = {
-    body?: never;
+export type ExportPatchCsvData = {
+    body: ExportRequest;
     path: {
         /**
          * Project Id
@@ -1339,47 +1367,57 @@ export type ExportPatchesCsvProjectsProjectIdExportPatchesGetData = {
         project_id: number;
     };
     query?: never;
-    url: '/projects/{project_id}/export/patches/';
+    url: '/projects/{project_id}/export/patch-csv/';
 };
 
-export type ExportPatchesCsvProjectsProjectIdExportPatchesGetErrors = {
+export type ExportPatchCsvErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type ExportPatchesCsvProjectsProjectIdExportPatchesGetError = ExportPatchesCsvProjectsProjectIdExportPatchesGetErrors[keyof ExportPatchesCsvProjectsProjectIdExportPatchesGetErrors];
+export type ExportPatchCsvError = ExportPatchCsvErrors[keyof ExportPatchCsvErrors];
 
-export type ExportPatchesCsvProjectsProjectIdExportPatchesGetResponses = {
+export type ExportPatchCsvResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: ExportResponse;
 };
 
-export type ExportLabelsCsvProjectsProjectIdExportLabelsGetData = {
+export type ExportPatchCsvResponse = ExportPatchCsvResponses[keyof ExportPatchCsvResponses];
+
+export type DownloadPatchCsvData = {
     body?: never;
     path: {
         /**
          * Project Id
          */
         project_id: number;
+        /**
+         * Session Id
+         */
+        session_id: string;
+        /**
+         * Image Id
+         */
+        image_id: number;
     };
     query?: never;
-    url: '/projects/{project_id}/export/labels/';
+    url: '/projects/{project_id}/export/{session_id}/download/{image_id}';
 };
 
-export type ExportLabelsCsvProjectsProjectIdExportLabelsGetErrors = {
+export type DownloadPatchCsvErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type ExportLabelsCsvProjectsProjectIdExportLabelsGetError = ExportLabelsCsvProjectsProjectIdExportLabelsGetErrors[keyof ExportLabelsCsvProjectsProjectIdExportLabelsGetErrors];
+export type DownloadPatchCsvError = DownloadPatchCsvErrors[keyof DownloadPatchCsvErrors];
 
-export type ExportLabelsCsvProjectsProjectIdExportLabelsGetResponses = {
+export type DownloadPatchCsvResponses = {
     /**
      * Successful Response
      */
