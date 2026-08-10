@@ -79,7 +79,7 @@ def export_patch_csv(
 
     # Build populated manifest_urls using url_path_for (no hardcoding)
     manifest_urls = [
-        str(http_request.url_path_for(
+        str(http_request.url_for(
             "download_patch_csv",
             project_id=project_id,
             session_id=session_id,
