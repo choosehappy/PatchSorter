@@ -1,12 +1,15 @@
 import { useParams } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Container } from 'react-bootstrap'
+import { toast } from 'react-toastify'
 import '@slickgrid-universal/common/dist/styles/css/slickgrid-theme-bootstrap.css'
 import LabelClassesTable from '../components/projectPage/LabelClassesTable'
 import ImagesTable from '../components/projectPage/ImagesTable'
 import ActionsFooter from '../components/projectPage/ActionsFooter'
 import UploadWizardModal from '../components/projectPage/UploadWizardModal'
+import ExportModal from '../components/projectPage/ExportModal'
+import TaskChildrenGrid from '../components/projectPage/TaskChildrenGrid'
 import {
     getProjectProjectsProjectIdGet,
     listLabelClassesProjectsProjectIdLabelClassesGet,
@@ -20,6 +23,45 @@ export default function ProjectPage() {
     const [selectedImageIds, setSelectedImageIds] = useState<Set<number>>(new Set())
     const [selectedLabelClassIds, setSelectedLabelClassIds] = useState<Set<number>>(new Set())
     const [showUploadWizard, setShowUploadWizard] = useState(false)
+    const [showExportModal, setShowExportModal] = useState(false)
+    const [exportTaskId, setExportTaskId] = useState<string | null>(null)
+    const [exportManifestUrls, setExportManifestUrls] = useState<string[]>([])
+
+    const handleExportStarted = useCallback((data: { task_id: string; manifest_urls: string[] }) => {
+        setExportTaskId(data.task_id)
+        setExportManifestUrls(data.manifest_urls)
+        toast(
+            <div>
+                <div>Exporting patches…</div>
+                <div>
+                    <TaskChildrenGrid
+                        parentTaskId={data.task_id}
+                        containerId={`toast-task-export-${data.task_id}`}
+                        onCompletion={handleExportComplete}
+                    />
+                </div>
+            </div>,
+            { autoClose: false, closeOnClick: false, draggable: false }
+        )
+    }, [])
+
+    const handleExportComplete = useCallback(() => {
+        setExportTaskId(null)
+        if (exportManifestUrls.length > 0) {
+            const content = exportManifestUrls.join('\n')
+            const blob = new Blob([content], { type: 'text/plain' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = 'export_manifest.txt'
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+            toast.success('Export complete. Manifest downloaded.')
+        }
+        setExportManifestUrls([])
+    }, [exportManifestUrls])
 
     const { data: project, isLoading: projectLoading } = useQuery({
         queryKey: ['project', projectId],
@@ -72,11 +114,20 @@ export default function ProjectPage() {
                 onClearImageSelection={() => setSelectedImageIds(new Set())}
                 onClearLabelClassSelection={() => setSelectedLabelClassIds(new Set())}
                 onOpenUploadWizard={() => setShowUploadWizard(true)}
+                onOpenExportModal={() => setShowExportModal(true)}
             />
             {showUploadWizard && (
                 <UploadWizardModal
                     projectId={projectId}
                     onClose={() => setShowUploadWizard(false)}
+                />
+            )}
+            {showExportModal && (
+                <ExportModal
+                    projectId={projectId}
+                    selectedImageIds={selectedImageIds}
+                    onClose={() => setShowExportModal(false)}
+                    onExportStarted={handleExportStarted}
                 />
             )}
         </Container>

@@ -10,6 +10,7 @@ interface ActionsFooterProps {
     onClearImageSelection: () => void
     onClearLabelClassSelection: () => void
     onOpenUploadWizard?: () => void
+    onOpenExportModal?: () => void
 }
 
 export default function ActionsFooter({
@@ -19,6 +20,7 @@ export default function ActionsFooter({
     onClearImageSelection,
     onClearLabelClassSelection,
     onOpenUploadWizard,
+    onOpenExportModal,
 }: ActionsFooterProps) {
     const navigate = useNavigate()
     const [confirmTarget, setConfirmTarget] = useState<'images' | 'labelClasses' | null>(null)
@@ -87,6 +89,7 @@ export default function ActionsFooter({
                                         <Button
                                             variant="outline-secondary"
                                             size="sm"
+                                            onClick={() => onOpenExportModal?.()}
                                         >
                                             Export Patches for {selectedImageIds.size} Image{selectedImageIds.size > 1 ? 's' : ''}
                                         </Button>
