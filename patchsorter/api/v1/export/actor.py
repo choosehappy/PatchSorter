@@ -3,9 +3,9 @@ from __future__ import annotations
 import csv
 
 import ray
-from sqlalchemy import text
 
 from patchsorter.db.head_client import get_client
+from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.utils.fsmanager import FileStoreManager
 from .models import ExportImage
 
@@ -33,30 +33,29 @@ def _export_patch_csv(
     csv_path = session_dir / csv_filename
 
     with get_client().get_session() as session:
+        store = PatchStore(project_id, session)
         with open(csv_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["patch_id", "patch_uid", "label_class_id"])
 
-            cursor: int | None = None
+            # NOTE: consider using a generator to yield rows rather than performing a paginated query here, to contain all pagination logic in the PatchStore class. 
+            # Also consider separating pagination logic from other SELECT and WHERE clauses.
+            cursor = 0
             while True:
-                query = text(
-                    f"SELECT patch_id, patch_uid, label_class_id "
-                    f"FROM project{project_id}_patch "
-                    f"WHERE image_id = :image_id "
-                    f"  AND (:cursor IS NULL OR patch_id > :cursor) "
-                    f"ORDER BY patch_id ASC "
-                    f"LIMIT :limit"
+                rows = store.fetch_ground_truth(
+                    cursor=cursor,
+                    limit=batch_size,
+                    include_image=False,
+                    image_id=image.image_id,
                 )
-                params = {"image_id": image.image_id, "cursor": cursor, "limit": batch_size}
-                rows = session.execute(query, params).fetchall()
 
                 if not rows:
                     break
 
                 for row in rows:
-                    writer.writerow([row[0], row[1], row[2]])
+                    writer.writerow([row["patch_id"], row["patch_uid"], row["label_class_id"]])
 
-                cursor = rows[-1][0]
+                cursor = rows[-1]["patch_id"]
                 if len(rows) < batch_size:
                     break
 
