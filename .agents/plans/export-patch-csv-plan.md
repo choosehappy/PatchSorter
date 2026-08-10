@@ -2,18 +2,19 @@
 
 ## Overview
 
-Add functionality to export patch labels as CSV files per image. Unlike the upload flow (which persists sessions), export sessions are ephemeral and managed entirely by Ray actors. The export endpoint returns a manifest with full URLs for downloading the resulting CSV files. The session ID is returned to the client, which uses the Ray task ID for tracking subtask progress (same pattern as `UploadWizardModal`).
+Add functionality to export patch labels as CSV files per image. **Export sessions are not ephemeral** — the Ray actor must remain alive during the download phase because the download endpoint streams files directly from the actor's filesystem. The export endpoint returns a manifest with **populated** full URLs for downloading the resulting CSV files. The session ID is returned to the client, which uses the Ray task ID for tracking subtask progress (same pattern as `UploadWizardModal`).
 
 ## Architecture
 
 ```
 Client  ──POST /export/patch-csv/──►  Backend
-                                          ├─ Create ExportSessionActor (Ray)
-                                          ├─ Dispatch export_patches() task
-                                          └─ Return {task_id, manifest_urls}
+                                          ├─ Create ExportSessionActor (Ray, detached, concurrency=1)
+                                           ├─ Dispatch dispatch_tasks() which calls N child tasks (one per image), resulting in N csv files saved.
+                                           ├─ Build populated manifest_urls using `url_path_for` (operation_id="download_patch_csv"), session_id, and image_ids
+                                          └─ Return {task_id, manifest_urls} (fully populated)
 
-Client  ──Poll task progress──►  Ray (via task_id)
-Client  ──Download CSVs──►  User downloads from manifest_urls directly
+Client  ──Poll task progress──►  Ray (via task_id), using existing endpoint.
+Client  ──Download CSVs──►  ExportSessionActor (actor must remain alive during download)
 ```
 
 ## Files to Create / Modify
@@ -69,7 +70,7 @@ class ExportRequest(BaseModel):
 class ExportResponse(BaseModel):
     """Response from export_patch_csv endpoint."""
     task_id: str
-    manifest_urls: list[str]  # Full URLs to CSV files
+    manifest_urls: list[str]  # Fully populated full URLs to CSV files
 ```
 
 ### 3. `patchsorter/api/v1/export/actor.py` — New file
@@ -85,58 +86,75 @@ import uuid
 from typing import List
 
 import ray
+from sqlalchemy import text
 
 from patchsorter.db.head_client import get_client
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.utils.fsmanager import FileStoreManager
 
 
-def _export_patches_task(
+def _export_patch_csv(
     project_id: int,
     session_id: str,
-    image_ids: list[int] | None = None,
-) -> dict:
-    """Export patch labels as CSV files, one per image.
+    image_id: int,
+    batch_size: int = 1000,
+) -> None:
+    """Export patch labels for a single image as a CSV file.
+
+    Uses cursor-based pagination on patch_id to avoid loading all rows into
+    memory at once.
 
     Each CSV matches the import patch CSV format (compatible with CsvGeometryIterable
     and HybridPatchIterable): columns are `patch_id, patch_uid, label_class_id`.
-    Filenames follow the convention `patches_{image_name}.csv` to match import naming.
-
-    Returns:
-        dict with 'manifest_urls' (full URLs) and 'base_url' (path prefix).
+    Filename follows the convention `patches_{image_id}.csv` to match the download URL.
     """
     fsman = FileStoreManager()
     session_dir = fsman.export.get_session_dir(session_id)
     session_dir.mkdir(parents=True, exist_ok=True)
 
-    base_url = f"/api/v1/projects/{project_id}/export/{session_id}/download"
-    manifest_urls: list[str] = []
+    csv_filename = f"patches_{image_id}.csv"
+    csv_path = session_dir / csv_filename
 
     with get_client().get_session() as session:
-        # Query patches grouped by image_id
-        # SELECT patch_id, patch_uid, label_class_id, image_id
-        # FROM project{project_id}_patch
-        # [WHERE image_id IN (:image_ids...)]
-        # ORDER BY image_id, patch_id
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["patch_id", "patch_uid", "label_class_id"])
 
-        # Also query image table to get image names for CSV filenames
-        # SELECT image_id, name FROM image WHERE image_id IN (...)
+            cursor: int | None = None
+            # Build query with cursor-based pagination
+            # SELECT patch_id, patch_uid, label_class_id
+            # FROM project{project_id}_patch
+            # WHERE image_id = :image_id
+            #   AND (:cursor IS NULL OR patch_id > :cursor)
+            # ORDER BY patch_id ASC
+            # LIMIT :limit
+            query = text(
+                f"SELECT patch_id, patch_uid, label_class_id "
+                f"FROM project{project_id}_patch "
+                f"WHERE image_id = :image_id "
+                f"  AND (:cursor IS NULL OR patch_id > :cursor) "
+                f"ORDER BY patch_id ASC "
+                f"LIMIT :limit"
+            )
+            params = {"image_id": image_id, "cursor": cursor, "limit": batch_size}
 
-        # Group results by image_id
-        # For each group:
-        #   csv_filename = f"patches_{image_name}.csv"  # matches import naming
-        #   csv_path = session_dir / csv_filename
-        #   Write CSV with columns: patch_id, patch_uid, label_class_id
-        #   manifest_urls.append(f"{base_url}/{csv_filename}")
+            while rows:=session.execute(query,params).fetchall():
+                for row in rows:
+                    writer.writerow([row[0], row[1], row[2]])
 
-    return {"manifest_urls": manifest_urls, "base_url": base_url}
+                # Update cursor to the last patch_id seen
+                cursor = rows[-1][0]
+
+                # If we got fewer rows than the batch size, we're done
+                if len(rows) < batch_size:
+                    break
 
 
 @ray.remote(max_concurrency=1)
 class ExportSessionActor:
-    """Per-session Ray actor that owns export paths and performs CSV generation.
+    """Per-session Ray actor that owns export paths and dispatches CSV generation tasks.
 
-    Uses ``max_concurrency=1`` because the actor processes a single export
+    Uses ``max_concurrency=1`` (concurrency=1) because the actor processes a single export
     session at a time.
     """
 
@@ -152,24 +170,36 @@ class ExportSessionActor:
         except Exception:
             pass
 
-    def export_patches(self, image_ids: list[int] | None = None) -> dict:
-        """Dispatch the export task and wait for completion.
+    def dispatch_tasks(self, image_ids: list[int] | None = None) -> dict:
+        """Dispatch _export_patch_csv once per image_id.
+
+        Each call to ``_export_patch_csv.remote()`` creates a Ray child task
+        that can be tracked via ``TaskChildrenGrid``.
 
         Returns:
-            Dict with 'manifest_urls' and 'base_url'.
+            Dict with 'parent_task_id' (the parent task ID for tracking)
+            and 'child_task_ids' (list of child task IDs).
         """
-        task_ref = _export_patches_task.remote(
-            self._project_id, self._session_id, image_ids
-        )
-        result = ray.get(task_ref)
-        return result
+        image_ids = image_ids or []
 
-    def get_csv_path(self, filename: str) -> str:
-        """Return the full path to a CSV file in this session's directory.
+        # Dispatch one child task per image
+        child_refs = [
+            _export_patch_csv.remote(self._project_id, self._session_id, image_id)
+            for image_id in image_ids
+        ]
+
+        # Block until all child tasks complete
+        ray.get(child_refs)
+
+        return
+
+    def get_csv_path(self, image_id: int) -> str:
+        """Return the full path to a CSV file for the given image_id.
 
         Used by the download endpoint to locate files.
         """
-        return str(self._fsman.export.get_session_dir(self._session_id) / filename)
+        csv_filename = f"patches_{image_id}.csv"
+        return str(self._fsman.export.get_session_dir(self._session_id) / csv_filename)
 ```
 
 ### 4. `patchsorter/api/v1/export/routes.py` — Update with 2 endpoints
@@ -183,7 +213,7 @@ import os
 import uuid
 
 import ray
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from patchsorter.utils.fsmanager import FileStoreManager
@@ -224,11 +254,12 @@ def _get_actor(session_id: str) -> ray.actor.ActorHandle:
 def export_patch_csv(
     project_id: int,
     request: ExportRequest,
+    http_request: Request,
 ) -> ExportResponse:
     """Start a patch label CSV export.
 
     Creates an export session actor, dispatches the CSV generation task,
-    and returns the task ID (for progress tracking) and manifest URLs
+    and returns the task ID (for progress tracking) and **populated** manifest URLs
     for downloading the resulting CSV files.
     """
     session_id = str(uuid.uuid4())
@@ -240,14 +271,25 @@ def export_patch_csv(
         get_if_exists=False,
     ).remote(project_id, session_id)
 
-    # Get the actor and dispatch the export task
+    # Get the actor and dispatch per-image tasks
     actor = ray.get_actor(f"export_session_{session_id}")
-    task_ref = actor.export_patches.remote(request.image_ids)
-    parent_task_id = task_ref.task_id().hex()
+    dispatch_ref = actor.dispatch_tasks.remote(request.image_ids)
+    parent_task_id = dispatch_ref.task_id().hex()
+
+    # Build populated manifest_urls using url_path_for (no hardcoding)
+    manifest_urls = [
+        str(http_request.url_path_for(
+            "download_patch_csv",
+            project_id=project_id,
+            session_id=session_id,
+            image_id=image_id,
+        ))
+        for image_id in (request.image_ids or [])
+    ]
 
     return ExportResponse(
         task_id=parent_task_id,
-        manifest_urls=[],  # Populated when task completes
+        manifest_urls=manifest_urls,  # Fully populated
     )
 
 
@@ -257,49 +299,53 @@ def export_patch_csv(
 
 
 @router.get(
-    "/projects/{project_id}/export/{session_id}/download/{filename}",
+    "/projects/{project_id}/export/{session_id}/download/{image_id}",
     operation_id="download_patch_csv",
 )
-def download_patch_csv(
+async def download_patch_csv(
     project_id: int,
     session_id: str,
-    filename: str,
+    image_id: int,
 ):
-    """Stream a patch CSV file from the export session directory."""
+    """Stream a patch CSV file for the given image_id from the export session directory."""
     actor = _get_actor(session_id)
-    csv_path: str = ray.get(actor.get_csv_path.remote(filename))
+    csv_path: str = ray.get(actor.get_csv_path.remote(image_id))
 
     if not os.path.exists(csv_path):
-        raise HTTPException(status_code=404, detail=f"CSV file not found: {filename}")
+        raise HTTPException(status_code=404, detail=f"CSV file not found for image_id={image_id}")
 
-    return FileResponse(csv_path, media_type="text/csv", filename=filename)
+    csv_filename = f"patches_{image_id}.csv"
+    return FileResponse(csv_path, media_type="text/csv", filename=csv_filename)
 ```
 
 ## Data Flow
 
 1. **Client** calls `POST /projects/{project_id}/export/patch-csv/` with optional `image_ids` list
-2. **Backend** creates `ExportSessionActor` Ray actor (detached, survives request)
-3. **Backend** dispatches `export_patches()` task on the actor, gets `task_id`
-4. **Backend** returns `{task_id, manifest_urls}` to client
-5. **Client** tracks progress via `task_id` using `TaskChildrenGrid` (same as upload flow)
-6. **Actor** queries patches from `project{N}_patch`, writes one CSV per image to export session dir
-7. **Actor** builds `manifest_urls` as full URLs (e.g., `http://host/api/v1/projects/1/export/{session_id}/download/patches_slide1.csv`)
-8. **User** downloads CSVs directly from the manifest URLs (not via client)
+2. **Backend** creates `ExportSessionActor` Ray actor (detached, concurrency=1, survives request)
+3. **Backend** calls `dispatch_tasks()` on the actor, which dispatches N child Ray tasks (one per image), gets `parent_task_id`
+4. **Backend** builds **populated** `manifest_urls` using `url_path_for(operation_id="download_patch_csv", ...)` for each `image_id` (e.g., `http://host/api/v1/projects/1/export/{session_id}/download/123.csv`)
+5. **Backend** returns `{task_id, manifest_urls}` (fully populated) to client
+6. **Client** tracks progress via `task_id` using `TaskChildrenGrid` (same as upload flow)
+7. **Actor** queries patches from `project{N}_patch`, writes one CSV per image to export session dir
+8. **User** downloads CSVs directly from the manifest URLs (**actor must remain alive during download** since the endpoint streams from the actor's filesystem)
 
 ## CSV Format
 
-Each CSV file matches the import patch CSV naming format (`patches_{image_name}.csv`) and contains:
-- **Filename**: `patches_{image_name}.csv` (e.g., `patches_slide1.csv`)
+Each CSV file uses the naming format `patches_{image_id}.csv` and contains:
+- **Filename**: `patches_{image_id}.csv` (e.g., `patches_123.csv`)
 - **Columns**: `patch_id`, `patch_uid`, `label_class_id`
 
 ## Key Design Decisions
 
-1. **No DB persistence for export sessions** — Sessions are ephemeral, managed by Ray actors. Cleanup happens in `__ray_shutdown__`.
-2. **One CSV per image** — Each image gets its own CSV file named `patches_{image_name}.csv`, matching the import CSV naming convention.
-3. **Full URLs in manifest** — The `manifest_urls` contain full URLs so the user can download directly.
-4. **Ray task tracking** — The `task_id` returned by the export endpoint is used by the client's `TaskChildrenGrid` to track subtask progress, identical to the upload flow.
-5. **On-demand download** — The download endpoint delegates file lookup to the actor via `get_csv_path()`, keeping file paths encapsulated within the actor.
-6. **User-driven download** — It's up to the user to download CSVs using the manifest links, not the client.
+1. **No DB persistence for export sessions** — Sessions are managed by Ray actors. **Sessions are not ephemeral**: the actor must remain alive during the download phase because the download endpoint streams files directly from the actor's filesystem. Cleanup happens in `__ray_shutdown__` only when the actor is explicitly terminated.
+2. **One CSV per image** — Each image gets its own CSV file named `patches_{image_id}.csv`, using the image_id in the filename.
+3. **Populated manifest URLs in response** — The `manifest_urls` are built synchronously in the export endpoint using `url_path_for` with operation_id `"download_patch_csv"`, so the response returns fully populated URLs immediately without hardcoding the path.
+4. **URLs derived from operation_id via `url_path_for`** — Manifest URLs are constructed using `http_request.url_path_for("download_patch_csv", ...)` which generates the correct path from the route definition. This avoids hardcoding the download path in two places: if the download route changes, manifest URLs stay in sync automatically.
+5. **Per-image child tasks** — `dispatch_tasks()` calls `_export_patch_csv.remote()` once per image_id, creating one Ray child task per image. This enables granular progress tracking via `TaskChildrenGrid`.
+6. **Ray task tracking** — The `parent_task_id` returned by the export endpoint is used by the client's `TaskChildrenGrid` to track subtask progress, identical to the upload flow.
+6. **On-demand download** — The download endpoint delegates file lookup to the actor via `get_csv_path()`, keeping file paths encapsulated within the actor. **The actor must remain alive during downloads.**
+7. **User-driven download** — It's up to the user to download CSVs using the manifest links, not the client.
+8. **ExportSessionActor concurrency=1** — The actor is decorated with `@ray.remote(max_concurrency=1)` to ensure single-threaded execution per session.
 
 ## Frontend Integration
 
@@ -307,7 +353,7 @@ The client uses the **exact same polling pattern** as `UploadWizardModal.tsx` fo
 
 ### Polling mechanism (identical to upload flow)
 
-1. **Dispatch**: Client calls `export_patch_csv` endpoint, receives `{task_id, manifest_urls}`
+1. **Dispatch**: Client calls `export_patch_csv` endpoint, receives `{task_id: parent_task_id, manifest_urls}` (manifest_urls fully populated)
 2. **Set childTaskId**: Client stores `task_id` in state (`childTaskId = res.data.task_id`)
 3. **Render TaskChildrenGrid**: Client passes `parentTaskId={taskId}` to `<TaskChildrenGrid>` component with an `onCompletion` callback
 4. **Polling loop** (inside `TaskChildrenGrid`):
@@ -319,7 +365,7 @@ The client uses the **exact same polling pattern** as `UploadWizardModal.tsx` fo
    - When **all** child tasks reach `DONE` state → calls `onCompletion()` callback
    - When **any** child task reaches `FAILED` state → calls `onCompletion()` callback (with error shown in grid)
    - Stops polling via `doneRef` flag and `clearInterval`
-6. **Post-completion**: Client's `onCompletion` callback executes (e.g., hide progress grid, show success message, display manifest URLs for user to download)
+6. **Post-completion**: Client's `onCompletion` callback executes (e.g., hide progress grid, show success message, display manifest URLs for user to download). **Note: The Ray actor must remain alive during the download phase since the download endpoint streams files directly from the actor's filesystem.**
 
 ### UI integration (matching upload flow)
 
@@ -336,7 +382,7 @@ setChildTaskId(res.data.task_id)
     containerId={`toast-task-${childTaskId}`}
     onCompletion={() => {
         setChildTaskId(null)
-        // Show manifest_urls for user to download CSVs
+        // manifest_urls already populated in response — display for user to download CSVs
     }}
 />
 ```
