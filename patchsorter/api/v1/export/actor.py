@@ -24,13 +24,13 @@ def _export_patch_csv(
 
     Each CSV matches the import patch CSV format (compatible with CsvGeometryIterable
     and HybridPatchIterable): columns are `patch_id, patch_uid, label_class_id, label_class_name, centroid_x, centroid_y`.
-    Filename follows the convention `patches_{image_id}.csv` to match the download URL.
+    Filename follows the convention `patches_{image_id}_{image_name}.csv` to match the download URL.
     """
     fsman = FileStoreManager()
     session_dir = fsman.export.get_session_dir(session_id)
     session_dir.mkdir(parents=True, exist_ok=True)
 
-    csv_filename = f"patches_{image.image_id}.csv"
+    csv_filename = f"patches_{image.image_id}_{image.image_name}.csv"
     csv_path = session_dir / csv_filename
 
     with get_client().get_session() as session:
