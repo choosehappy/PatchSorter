@@ -9,7 +9,7 @@ import numpy as np
 
 from patchsorter.config.constants import PredPatchSuffix
 from patchsorter.db.grid_index import HierarchicalGridIndexIJPair
-from patchsorter.db.head_client.models import build_table_name, build_pred_table_name, patch_model
+from patchsorter.db.head_client.models import build_table_name, build_pred_table_name, patch_model, LabelClass
 from patchsorter.db.head_client.settings import SettingsStore
 
 
@@ -907,7 +907,7 @@ class PatchStore:
             A dict with patch columns (including ``patch_image``), or ``None``
             if no matching row exists.
         """
-        from patchsorter.db.head_client.models import patch_model
+
 
         Patch = patch_model(self.project_id)
         row = (

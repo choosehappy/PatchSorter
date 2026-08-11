@@ -12,7 +12,7 @@ from patchsorter.db.head_client.image import ImageStore
 from patchsorter.utils.fsmanager import FileStoreManager
 from .actor import ExportSessionActor, ExportImage
 from .models import ExportRequest, ExportResponse
-
+from pathlib import Path
 router = APIRouter()
 
 
@@ -110,10 +110,12 @@ async def download_patch_csv(
 ):
     """Stream a patch CSV file for the given image_id from the export session directory."""
     actor = _get_actor(session_id)
-    csv_path: str = ray.get(actor.get_csv_path.remote(image_id))
+    with get_client().get_session() as session:
+        image_store = ImageStore(session)
+        image_name = image_store.get(image_id).name
+    csv_path: Path = Path(ray.get(actor.get_csv_path.remote(image_id, image_name)))
 
     if not os.path.exists(csv_path):
         raise HTTPException(status_code=404, detail=f"CSV file not found for image_id={image_id}")
 
-    csv_filename = f"patches_{image_id}.csv"
-    return FileResponse(csv_path, media_type="text/csv", filename=csv_filename)
+    return FileResponse(csv_path, media_type="text/csv", filename=csv_path.name)

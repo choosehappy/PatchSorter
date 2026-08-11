@@ -120,10 +120,10 @@ class ExportSessionActor:
         # Block until all child tasks complete
         ray.get(child_refs)
 
-    def get_csv_path(self, image_id: int) -> str:
+    def get_csv_path(self, image_id: int, image_name: str) -> str:
         """Return the full path to a CSV file for the given image_id.
 
         Used by the download endpoint to locate files.
         """
-        csv_filename = f"patches_{image_id}.csv"
-        return str(self._fsman.export.get_session_dir(self._session_id) / csv_filename)
+        
+        return str(self._fsman.export.get_csv_path(self._session_id, image_id, image_name))

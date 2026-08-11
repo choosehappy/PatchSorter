@@ -209,6 +209,11 @@ class ExportStore(FileStore):
         """Remove the session directory tree."""
         shutil.rmtree(self.get_session_dir(session_id), ignore_errors=True)
 
+    def get_csv_path(self, session_id: str, image_id: int, image_name: str) -> Path:
+        """Return the full path to a CSV file for the given image_id and image_name."""
+        csv_filename = f"patches_{image_id}_{image_name}.csv"
+        return self.get_session_dir(session_id) / csv_filename
+
 
 class FileStoreManager:
     """Lightweight container for the three store instances."""
