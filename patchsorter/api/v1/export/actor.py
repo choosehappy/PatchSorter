@@ -8,6 +8,7 @@ from patchsorter.db.head_client import get_client
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.utils.fsmanager import FileStoreManager
 from .models import ExportImage
+from patchsorter.config.constants import PatchCSVColumns
 
 @ray.remote
 def _export_patch_csv(
@@ -22,7 +23,7 @@ def _export_patch_csv(
     memory at once.
 
     Each CSV matches the import patch CSV format (compatible with CsvGeometryIterable
-    and HybridPatchIterable): columns are `patch_id, patch_uid, label_class_id`.
+    and HybridPatchIterable): columns are `patch_id, patch_uid, label_class_id, label_class_name, centroid_x, centroid_y`.
     Filename follows the convention `patches_{image_id}.csv` to match the download URL.
     """
     fsman = FileStoreManager()
@@ -36,7 +37,15 @@ def _export_patch_csv(
         store = PatchStore(project_id, session)
         with open(csv_path, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["patch_id", "patch_uid", "label_class_id"])
+            
+            writer.writerow([
+                PatchCSVColumns.PATCH_ID,
+                PatchCSVColumns.PATCH_UID,
+                PatchCSVColumns.LABEL_CLASS_ID,
+                PatchCSVColumns.LABEL_CLASS_NAME,
+                PatchCSVColumns.CENTROID_X,
+                PatchCSVColumns.CENTROID_Y,
+            ])
 
             # NOTE: consider using a generator to yield rows rather than performing a paginated query here, to contain all pagination logic in the PatchStore class. 
             # Also consider separating pagination logic from other SELECT and WHERE clauses.
@@ -53,9 +62,16 @@ def _export_patch_csv(
                     break
 
                 for row in rows:
-                    writer.writerow([row["patch_id"], row["patch_uid"], row["label_class_id"]])
+                    writer.writerow([
+                        row[PatchCSVColumns.PATCH_ID],  # NOTE: this is fine unless the csv naming needs to be uncoupled from the database column naming.
+                        row[PatchCSVColumns.PATCH_UID],
+                        row[PatchCSVColumns.LABEL_CLASS_ID],
+                        row[PatchCSVColumns.LABEL_CLASS_NAME],
+                        row[PatchCSVColumns.CENTROID_X],
+                        row[PatchCSVColumns.CENTROID_Y],
+                    ])
 
-                cursor = rows[-1]["patch_id"]
+                cursor = rows[-1][PatchCSVColumns.PATCH_ID]
                 if len(rows) < batch_size:
                     break
 

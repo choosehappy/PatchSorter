@@ -11,7 +11,7 @@ from shapely import wkb, wkt
 from shapely.geometry import Point, shape
 from shapely.geometry.base import BaseGeometry
 
-from patchsorter.config.constants import UNASSIGNED_CLASS_ID
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID, PatchCSVColumns, PatchGeoJSONProperties
 
 
 class GeometryIterable(ABC):
@@ -55,15 +55,15 @@ class GeojsonGeometryIterable(GeometryIterable):
             # Extract label from feature properties
             props = feature.items()
             label: int = UNASSIGNED_CLASS_ID
-            for key in ("label", "class_id", "label_class_id"):
+            for key in (PatchGeoJSONProperties.LABEL, PatchGeoJSONProperties.CLASS_ID, PatchGeoJSONProperties.LABEL_CLASS_ID):
                 if key in props and props[key] is not None:
                     label = int(props[key])
                     break
 
             # Extract UUID from feature uid property
             patch_uuid: uuid.UUID | None = None
-            if "uid" in props and props["uid"] is not None:
-                patch_uuid = uuid.UUID(str(props["uid"]))
+            if PatchGeoJSONProperties.UID in props and props[PatchGeoJSONProperties.UID] is not None:
+                patch_uuid = uuid.UUID(str(props[PatchGeoJSONProperties.UID]))
             if patch_uuid is None:
                 patch_uuid = uuid.uuid4()
 
@@ -71,7 +71,7 @@ class GeojsonGeometryIterable(GeometryIterable):
 
 
 class CsvGeometryIterable(GeometryIterable):
-    """Iterates over rows in a CSV file containing x, y coordinates."""
+    """Iterates over rows in a CSV file containing centroid_x, centroid_y coordinates."""
 
     def __init__(self, csv_path: str) -> None:
         self.csv_path = csv_path
@@ -80,19 +80,19 @@ class CsvGeometryIterable(GeometryIterable):
         df = pd.read_csv(self.csv_path)
 
         for _, row in df.iterrows():
-            x = row["x"]
-            y = row["y"]
+            x = row[PatchCSVColumns.CENTROID_X]
+            y = row[PatchCSVColumns.CENTROID_Y]
             geometry = Point(x, y)
 
             # Extract label from row if available
             label: int = UNASSIGNED_CLASS_ID
-            if "label" in row and row["label"] is not None:
-                label = int(row["label"])
+            if PatchCSVColumns.LABEL_CLASS_ID in row and row[PatchCSVColumns.LABEL_CLASS_ID] is not None:
+                label = int(row[PatchCSVColumns.LABEL_CLASS_ID])
 
             # Extract UUID from row if available
             patch_uuid: uuid.UUID | None = None
-            if "uuid" in row and row["uuid"] is not None:
-                patch_uuid = uuid.UUID(str(row["uuid"]))
+            if PatchCSVColumns.PATCH_UID in row and row[PatchCSVColumns.PATCH_UID] is not None:
+                patch_uuid = uuid.UUID(str(row[PatchCSVColumns.PATCH_UID]))
             if patch_uuid is None:
                 patch_uuid = uuid.uuid4()
 
@@ -107,20 +107,20 @@ class HybridPatchIterable(GeometryIterable):
         self.csv_path = csv_path
 
     def __iter__(self) -> Iterator[tuple[BaseGeometry, int, uuid.UUID | None]]:
-        # Read CSV and set uuid column as index for O(1) lookup
+        # Read CSV and set patch_uid column as index for O(1) lookup
         df = pd.read_csv(self.csv_path)
-        if "uuid" not in df.columns:
-            raise ValueError("CSV file must contain a 'uuid' column for hybrid mode")
+        if PatchCSVColumns.PATCH_UID not in df.columns:
+            raise ValueError("CSV file must contain a 'patch_uid' column for hybrid mode")
 
         # Build lookup: uid (from geojson) -> (uuid, label)
         uid_label_map: dict[str, tuple[str, int]] = {}
         for _, row in df.iterrows():
-            uid = row.get("uid", row.get("id", ""))
+            uid = row.get(PatchCSVColumns.PATCH_UID, row.get(PatchCSVColumns.PATCH_ID, ""))
             if uid is not None and uid != "":
-                csv_uuid = str(row["uuid"])
+                csv_uuid = str(row[PatchCSVColumns.PATCH_UID])
                 csv_label: int = UNASSIGNED_CLASS_ID
-                if "label" in row and row["label"] is not None:
-                    csv_label = int(row["label"])
+                if PatchCSVColumns.LABEL_CLASS_ID in row and row[PatchCSVColumns.LABEL_CLASS_ID] is not None:
+                    csv_label = int(row[PatchCSVColumns.LABEL_CLASS_ID])
                 uid_label_map[str(uid)] = (csv_uuid, csv_label)
 
         # Iterate over geojson features
@@ -145,7 +145,7 @@ class HybridPatchIterable(GeometryIterable):
             geometry = wkb.loads(wkb_bytes)
 
             props = feature.items()
-            uid = props.get("uid")
+            uid = props.get(PatchGeoJSONProperties.UID)
 
             # Look up in CSV
             patch_uuid: uuid.UUID | None = None
@@ -158,7 +158,7 @@ class HybridPatchIterable(GeometryIterable):
             else:
                 # Generate UUID, use feature label if available
                 patch_uuid = uuid.uuid4()
-                for key in ("label", "class_id", "label_class_id"):
+                for key in (PatchGeoJSONProperties.LABEL, PatchGeoJSONProperties.CLASS_ID, PatchGeoJSONProperties.LABEL_CLASS_ID):
                     if key in props and props[key] is not None:
                         label = int(props[key])
                         break
