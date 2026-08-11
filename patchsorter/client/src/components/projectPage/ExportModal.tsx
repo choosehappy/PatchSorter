@@ -8,9 +8,10 @@ interface ExportModalProps {
     selectedImageIds: Set<number>
     onClose: () => void
     onExportStarted?: (data: { task_id: string; manifest_urls: string[] }) => void
+    onExportComplete?: (urls: string[]) => void
 }
 
-export default function ExportModal({ projectId, selectedImageIds, onClose, onExportStarted }: ExportModalProps) {
+export default function ExportModal({ projectId, selectedImageIds, onClose, onExportStarted, onExportComplete }: ExportModalProps) {
     const [isExporting, setIsExporting] = useState(false)
 
     const handleExport = useCallback(async () => {
@@ -38,13 +39,14 @@ export default function ExportModal({ projectId, selectedImageIds, onClose, onEx
             if (onExportStarted) {
                 onExportStarted({ task_id: data.task_id, manifest_urls: data.manifest_urls ?? [] })
             }
+            onExportComplete?.(data.manifest_urls ?? [])
             onClose()
         } catch (err) {
             console.error('Export failed:', err)
             toast.error('Failed to start export. Please try again.')
             setIsExporting(false)
         }
-    }, [projectId, selectedImageIds, onClose, onExportStarted])
+    }, [projectId, selectedImageIds, onClose, onExportStarted, onExportComplete])
 
     return (
         <Modal show onHide={onClose} centered>

@@ -25,30 +25,11 @@ export default function ProjectPage() {
     const [showUploadWizard, setShowUploadWizard] = useState(false)
     const [showExportModal, setShowExportModal] = useState(false)
     const [exportTaskId, setExportTaskId] = useState<string | null>(null)
-    const [exportManifestUrls, setExportManifestUrls] = useState<string[]>([])
 
     const handleExportStarted = useCallback((data: { task_id: string; manifest_urls: string[] }) => {
         setExportTaskId(data.task_id)
-        setExportManifestUrls(data.manifest_urls)
-        toast(
-            <div>
-                <div>Exporting patches…</div>
-                <div>
-                    <TaskChildrenGrid
-                        parentTaskId={data.task_id}
-                        containerId={`toast-task-export-${data.task_id}`}
-                        onCompletion={handleExportComplete}
-                    />
-                </div>
-            </div>,
-            { autoClose: false, closeOnClick: false, draggable: false }
-        )
-    }, [])
-
-    const handleExportComplete = useCallback(() => {
-        setExportTaskId(null)
-        if (exportManifestUrls.length > 0) {
-            const content = exportManifestUrls.join('\n')
+        if (data.manifest_urls.length > 0) {
+            const content = data.manifest_urls.join('\n')
             const blob = new Blob([content], { type: 'text/plain' })
             const url = URL.createObjectURL(blob)
             const a = document.createElement('a')
@@ -60,8 +41,24 @@ export default function ProjectPage() {
             URL.revokeObjectURL(url)
             toast.success('Export complete. Manifest downloaded.')
         }
-        setExportManifestUrls([])
-    }, [exportManifestUrls])
+        toast(
+            <div>
+                <div>Exporting patches…</div>
+                <div>
+                    <TaskChildrenGrid
+                        parentTaskId={data.task_id}
+                        containerId={`toast-task-export-${data.task_id}`}
+                        onCompletion={() => {}}
+                    />
+                </div>
+            </div>,
+            { autoClose: false, closeOnClick: false, draggable: false }
+        )
+    }, [])
+
+    const handleExportComplete = useCallback((urls: string[]) => {
+        setExportTaskId(null)
+    }, [])
 
     const { data: project, isLoading: projectLoading } = useQuery({
         queryKey: ['project', projectId],
@@ -128,6 +125,7 @@ export default function ProjectPage() {
                     selectedImageIds={selectedImageIds}
                     onClose={() => setShowExportModal(false)}
                     onExportStarted={handleExportStarted}
+                    onExportComplete={handleExportComplete}
                 />
             )}
         </Container>
