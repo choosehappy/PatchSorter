@@ -39,7 +39,6 @@ export default function ProjectPage() {
             a.click()
             document.body.removeChild(a)
             URL.revokeObjectURL(url)
-            toast.success('Export complete. Manifest downloaded.')
         }
         toast(
             <div>
