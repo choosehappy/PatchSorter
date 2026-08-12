@@ -1,12 +1,10 @@
-import argparse
 import subprocess
 import sys
 from pathlib import Path
 
 import uvicorn
 
-from patchsorter.helper_scripts import add_uuids_to_geojson as _add_uids_script
-from patchsorter.helper_scripts import split_multipolygons as _split_mp_script
+from patchsorter._parser import get_argument_parser
 
 
 def run_server():
@@ -33,29 +31,7 @@ def autobuild_docs():
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="patchsorter")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-    server_parser = subparsers.add_parser("server", help="Run the API server")
-    ui_parser = subparsers.add_parser("ui", help="Run the UI dev server")
-    docs_parser = subparsers.add_parser("docs", help="Auto-generate patchsorter docs")
-
-    scripts_parser = subparsers.add_parser("scripts", help="Run a helper script")
-    scripts_subparsers = scripts_parser.add_subparsers(dest="script", required=True)
-
-    scripts_subparsers.add_parser(
-        "add_uuids_to_geojson",
-        parents=[_add_uids_script.get_parser()],
-        add_help=False,
-        help="Inject a unique integer 'uid' field into every feature of a GeoJSON file.",
-    ).set_defaults(func=_add_uids_script.main)
-
-    scripts_subparsers.add_parser(
-        "split_multipolygons",
-        parents=[_split_mp_script.get_parser()],
-        add_help=False,
-        help="Fix invalid geometries and split MultiPolygon features into individual Polygons.",
-    ).set_defaults(func=_split_mp_script.main)
-
+    parser = get_argument_parser()
     args = parser.parse_args()
     if args.command == "server":
         run_server()

@@ -27,6 +27,7 @@ extensions = [
     'sphinx_design',
     'myst_parser',
     'sphinxcontrib.mermaid',
+    'sphinxarg.ext'
 ]
 
 myst_enable_extensions = [
@@ -61,6 +62,6 @@ html_css_files = [
 ]
 
 autodoc_mock_imports = [
-    "torch", "ray", "numpy", "pandas", "pillow",
-    "sqlalchemy", "psycopg", "tensorboardx", "pyarrow"
+    "torch", "ray", "pandas", "pillow",
+    "sqlalchemy", "psycopg", "tensorboardx", "pyarrow", "geoalchemy2"
 ]

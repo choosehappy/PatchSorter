@@ -1,7 +1,7 @@
 # Patch Array Storage Design
 
 ## 1. Patch Array Storage
-**The patch array is stored as a chunked, compressed multidimensional array using TileDB or Zarr. Each patch (tile) is indexed directly by the patch id (the primary key `id` column from the relational patch table defined in [db_technical_design.md]()).**
+**The patch array is stored as a chunked, compressed multidimensional array using TileDB or Zarr. Each patch (tile) is indexed directly by the patch id (the primary key `id` column from the relational patch table defined in [db_technical_design.md](db_technical_design.md)).**
 
 ### 1.1. Array Schema
 
