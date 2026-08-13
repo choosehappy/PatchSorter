@@ -63,5 +63,7 @@ html_css_files = [
 
 autodoc_mock_imports = [
     "torch", "ray", "pandas", "pillow",
-    "sqlalchemy", "psycopg", "tensorboardx", "pyarrow", "geoalchemy2", "gdal", "shapely", "osgeo"
+    "sqlalchemy", "psycopg", "tensorboardx", "pyarrow",
+    "geoalchemy2", "gdal", "shapely", "osgeo",
+    "fastapi", "uvicorn", "numpy", "matplotlib", "large_image",
 ]
