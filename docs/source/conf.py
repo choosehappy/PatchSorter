@@ -67,3 +67,4 @@ autodoc_mock_imports = [
     "geoalchemy2", "gdal", "shapely", "osgeo",
     "fastapi", "uvicorn", "numpy", "matplotlib", "large_image",
 ]
+
