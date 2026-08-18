@@ -1,8 +1,13 @@
 from __future__ import annotations
 
-from typing import List
+from typing import Annotated, List
 
-from pydantic import BaseModel
+from pathvalidate import validate_dirpath, validate_filepath
+from pydantic import BaseModel, AfterValidator
+
+
+DirString = Annotated[str, AfterValidator(validate_dirpath)]
+FilePathString = Annotated[str, AfterValidator(validate_filepath)]
 
 
 class OpenSessionResponse(BaseModel):
@@ -15,9 +20,9 @@ class UploadFilesResponse(BaseModel):
 
 class ValidateRequest(BaseModel):
     """Unified validation request — all sources are globbed from the session temp dir."""
-    image_folder: str | None = None
-    mask_folder: str | None = None
-    patch_csv_folder: str | None = None
+    image_folder: DirString | None = None
+    mask_folder: DirString | None = None
+    patch_csv_folder: DirString | None = None
 
 
 class ReviewRow(BaseModel):
@@ -30,9 +35,9 @@ class ReviewRow(BaseModel):
 
 
 class ProcessRow(BaseModel):
-    image: str | None
-    mask: str | None
-    csv: str | None
+    image: FilePathString | None
+    mask: FilePathString | None
+    csv: FilePathString | None
     base_mag: float | None = None
 
 
