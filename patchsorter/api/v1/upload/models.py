@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Annotated, List
 
-from pathvalidate import validate_dirpath, validate_filepath
+from patchsorter.utils.validate import validate_path
 from pydantic import BaseModel, AfterValidator
 
-
-DirString = Annotated[str, AfterValidator(validate_dirpath)]
-FilePathString = Annotated[str, AfterValidator(validate_filepath)]
+# For now these are identical, but we may want to differentiate them in the future.
+DirString = Annotated[str, AfterValidator(validate_path)]
+FilePathString = Annotated[str, AfterValidator(validate_path)]
 
 
 class OpenSessionResponse(BaseModel):
