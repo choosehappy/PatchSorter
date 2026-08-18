@@ -1,4 +1,11 @@
 # %%
+import io
+import random
+import sqlite3
+
+import cv2
+cv2.setNumThreads(0)
+
 import torch
 import torch.nn.functional as F
 from albumentations.pytorch import ToTensorV2
@@ -12,75 +19,38 @@ from utils_logging import (
     enqueue_embeddings_to_db,
     init_db_writer,
     init_summary_writer,
+    log_confusion_matrix,
     log_embedding_histograms,
     log_training_scalars,
 )
 import timm
 from configs import *
+from sqlite_dataset import CandidatePoolIterableDataset, GTCandidatePool, SQLiteDataset
+from score_writer import ScoreWriter
 import atexit
 
 from save_utils import save_models_checkpoint, load_models_checkpoint
 from utils_profile import start_profiler
 
-import tables
+import numpy as np
 
 torch.set_float32_matmul_precision('high')
 
-class Dataset(object):
-    def __init__(self, fname, nviews, transforms=None):
-        self.fname = fname
-
-        self.geom_transform, self.photo_transform = (
-            transforms if transforms else (None, None)
-        )
-
-        with tables.open_file(self.fname, "r") as db:
-            self.nitems = db.root.patch.shape[0]
-
-        self.imgs = None
-        self.labels = None
-        self.nviews = nviews
-
-    def __getitem__(self, index):
-        with tables.open_file(self.fname, "r") as db:
-            self.imgs = db.root.patch
-            self.labels = db.root.tmp_label  # ps_label has all the data - here we're using just a random set created  in a noteobok
-            
-
-            # get the requested image and mask from the pytable
-            img = self.imgs[index, :, :, :]
-            label = self.labels[index] 
-            #label = -1
-
-        img_new = img
-
-        if self.geom_transform:
-            geom_out = self.geom_transform(image=img_new)
-            img_geom = geom_out["image"]
-            anchor = ToTensorV2()(image=img_geom)["image"].float()
-
-            if self.photo_transform:
-                
-                views = tuple(
-                    self.photo_transform(image=self.geom_transform(image=img_new)["image"])["image"].float()
-                    for _ in range(self.nviews - 1)
-                )
-                return (anchor, *views, label, img, index)
-
-        else:
-            print("no aug?")
-            return img_new, label, img, index
-
-    def __len__(self):
-        return self.nitems
-
-
 # Initialize dataset with proper parameters
-dataset = Dataset(
-    #"mitosis_ps_labels.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
-    "mitosis_train_patches.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
-    #"deepMEL_1D1_-_2021-02-10_17.31.50.pytable", nviews=NVIEWS, transforms=get_transforms(PATCH_SIZE)
-)
+DATA_DB_PATH = "mitosis_train_patches.db"
+#DATA_DB_PATH = "train_v4.db"
+DATA_DB_TABLE = "mitosis_patches"
+
+label_tracker = LabeledRateTracker(N_CLASS, momentum=0.9, device=DEVICE)
+adaptive_thresh = AdaptiveThreshold(num_classes=N_CLASS, base_thresh=0.95, ema_decay=0.99, device=DEVICE)
+
+
+
+dataset = SQLiteDataset(
+    DATA_DB_PATH,
+    table_name=DATA_DB_TABLE,
+    nviews=NVIEWS,
+    transforms=get_transforms(PATCH_SIZE),)
 
 
 dataloader = DataLoader(
@@ -88,7 +58,7 @@ dataloader = DataLoader(
     batch_size=BATCH_SIZE,
     shuffle=False,
     #num_workers=64,
-    num_workers=32,
+    num_workers=NWORKERS_BASE,
     pin_memory=True,
     drop_last=True,
     persistent_workers=True,
@@ -98,6 +68,31 @@ dataloader = DataLoader(
 vram_prefetcher = threaded_vram_prefetcher(dataloader, buffer_size=4, device=DEVICE) #UNCOMMENT
 #vram_prefetcher = dataloader
 
+
+candidate_loader = None
+if GT_ENRICHMENT > 0:
+    candidate_batch_size = max(1, round(BATCH_SIZE * GT_ENRICHMENT))
+    candidate_dataset = CandidatePoolIterableDataset(DEVICE,
+        DATA_DB_PATH,
+        table_name=DATA_DB_TABLE,
+        transforms=get_transforms(PATCH_SIZE),
+        nviews=NVIEWS,
+        batch_size=candidate_batch_size,
+        pool_size=GT_POOL_SIZE,
+        refresh_every_batches=GT_POOL_UPDATE_INTERVAL,
+    )
+    # batch_size=None: the dataset yields already-collated batches itself,
+    # so DataLoader does no further batching - it just gives us the
+    # standard multi-worker prefetching/double-buffering for free.
+    candidate_loader = DataLoader(
+        candidate_dataset,
+        batch_size=None,
+        num_workers=NWORKERS_ENRICH,
+    )
+
+candidate_iter_holder = [iter(candidate_loader)] if candidate_loader is not None else [None] #TODO: there is probably a way to use the vram_prefeather here, but not sure its worth it so won't opitmize until proven needed
+
+score_writer = ScoreWriter(DATA_DB_PATH, DATA_DB_TABLE)
 
 #
 # ------------------------
@@ -215,9 +210,6 @@ if LOAD_CHECKPOINT:
     except Exception:
         logger.exception("Loading checkpoint failed")
 
-label_tracker = LabeledRateTracker(N_CLASS, momentum=0.9, device=DEVICE)  # outside loop
-
-
 from datetime import datetime
 writer = init_summary_writer()
 
@@ -226,20 +218,20 @@ niter_total = 0
 # running_loss = []
 
 
-# ideal spacing given batch size and grid size
-ideal_spacing = GRID_SIZE / math.sqrt(BATCH_SIZE)  # ~3.1 for 1024 points
-REPULSION_MARGIN = ideal_spacing * 10.5  # slight buffer above ideal
+# # ideal spacing given batch size and grid size
+# ideal_spacing = GRID_SIZE / math.sqrt(BATCH_SIZE)  # ~3.1 for 1024 points
+# REPULSION_MARGIN = ideal_spacing * 10.5  # slight buffer above ideal
 
 del batch_imgs, batch_labels, original_imgs  # free up memory from initial batch
 
-all_views = torch.cat([v.float().to(DEVICE,non_blocking=True) / 255.0 for v in views], dim=0)
+#all_views = torch.cat([v.float().to(DEVICE,non_blocking=True) / 255.0 for v in views], dim=0)
 
 
-if not LOAD_CHECKPOINT:
-    ## ---- UNCOMMENT - JUST COMMENTED OUT FORS PEEED
-    z_init, proj_coords_init = initialize_projection_from_batch(
-        backbone, joint_head, all_views, writer, grid_size=GRID_SIZE
-    )
+# if not LOAD_CHECKPOINT:
+#     ## ---- UNCOMMENT - JUST COMMENTED OUT FORS PEEED
+#     z_init, proj_coords_init = initialize_projection_from_batch(
+#         backbone, joint_head, all_views, writer, grid_size=GRID_SIZE
+#     )
 
 #mem_bank.add_candidates(z_init, proj_coords_init)
 
@@ -262,31 +254,61 @@ patch_mask = gaussian_mask(PATCH_SIZE, PATCH_SIZE).to(DEVICE,non_blocking=True)
 for _ in range(10_000):
     for batch_idx, batch_data in tqdm(enumerate(vram_prefetcher)):
         # forward all views → [nviews, B, D]
-        with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=False): ##TODO: don't use it while we're testing / building 
-            *views, labels, orig, ids = batch_data
-            labels = labels.long().to(DEVICE,non_blocking=True)
+        with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=False): ##TODO: don't use it while we're testing / building -- did a quick test 15/7 and didn't converge well
+            
+            # 1. Grab candidate batch if available
+            cand_batch = None
+            if candidate_iter_holder[0] is not None:
+                cand_batch = next(candidate_iter_holder[0])
 
-            # imgs = torch.cat(views, dim=0).half().to(DEVICE,non_blocking=True) / 255.0  # [B*V, C, H, W]
-            # views = [v.half().to(DEVICE,non_blocking=True) for v in views] # lets not do this during development
+            # 2. Unpack Base Batch
+            *base_views, base_labels, base_orig, base_ids = batch_data
+            base_labels = base_labels.long().to(DEVICE, non_blocking=True)
+            base_views_gpu = [v.to(DEVICE, non_blocking=True) for v in base_views]
+            nbase_ids = len(base_ids)
 
-            # Concatenate, convert to half-precision, and normalize
-            views_gpu = [v.to(DEVICE, non_blocking=True) for v in views]
-            imgs = torch.stack(views_gpu, dim=1).flatten(0, 1) / 255.0  # [B*V, C, H, W]
+            # 3. Unpack & Ship Candidate Batch directly to GPU
+            if cand_batch is not None:
+                *cand_views, cand_labels, cand_orig, cand_ids = cand_batch
+                
+                cand_labels = cand_labels.long().to(DEVICE, non_blocking=True)
+                cand_views_gpu = (v.to(DEVICE, non_blocking=True) for v in cand_views)
+                
+                # 4. Fast Vectorized Concat directly on the GPU
+                labels = torch.cat([base_labels, cand_labels], dim=0)
+                
+                # Concat matching views on GPU
+                views_gpu = [
+                    torch.cat([bv, cv], dim=0) 
+                    for bv, cv in zip(base_views_gpu, cand_views_gpu)
+                ]
+                
+                # (Optional) Handle metadata ids if needed for loss/tracking
+                ids = torch.cat([base_ids.to(DEVICE), cand_ids.to(DEVICE)], dim=0)
+            else:
+                # Fallback if no candidate batch this round
+                labels = base_labels
+                views_gpu = base_views_gpu
+                ids = base_ids
+
+            #imgs = torch.stack(views_gpu, dim=1).flatten(0, 1) / 255.0  # [B*V, C, H, W] #NOTE: THIS WAS VERY WRONG, flattened in the wrong direction
+            imgs = torch.stack(views_gpu, dim=0).flatten(0, 1).float() / 255.0  # [B*V, C, H, W] #Note: move data onto gpu as INT and then convert there to float. this reduces data transfer time and memory usage
+
+
+            B = views_gpu[0].shape[0]
+            V = len(views_gpu)
+
             del views_gpu
-            #imgs = torch.cat(views, dim=0).to(DEVICE,non_blocking=True) / 255.0  # [B*V, C, H, W]
-
 
             if USE_MASK:
                 # imgs = spatial_mask(imgs)
                 imgs = imgs * patch_mask.unsqueeze(0).unsqueeze(
                     0
                 )  # broadcast over [B, C, H, W]
-
+ 
             z = backbone(imgs)  # [B*V, D]
             emb, coords, logits = joint_head(z)  # [B*V, ...]
 
-            B = views[0].shape[0]
-            V = len(views)
 
             emb = F.normalize(emb, dim=-1)   #NOTE: this is likely done in a few of the functions below as well but doing it twice shouldn't be a problem and ensures consistency across all losses that use emb
 
@@ -294,7 +316,7 @@ for _ in range(10_000):
             proj_emb = emb.view(V, B, -1)
             proj_coords = coords.view(V, B, -1)
 
-            #-------------- write to sqlite
+            #-------------- write to sqlite - probably research only
             if LOG_EMBEDDINGS_TOSQL:
                 try:
                     enqueue_embeddings_to_db(db_writer, proj_coords, proj_emb, ids)
@@ -324,14 +346,14 @@ for _ in range(10_000):
             coord_contrastive_loss = (1.0 / (dists[mask] + 1e-6)).mean()
 
             # contrastive / prototype losses: support simclr or swav (configurable)
-            if LOSS_TYPE.lower() == "swav":
+            # if LOSS_TYPE.lower() == "swav":
                 # use the learnable prototypes from the joint head for embedding SwAV
-                simclr_emb_loss = swav_loss(proj_emb, prototypes=joint_head.prototypes)
+            simclr_emb_loss = swav_loss(proj_emb, prototypes=joint_head.prototypes) #TODO: please rename as swav loss
                 # for coordinates, keep k-means-based SwAV (prototypes not provided)
                 #simclr_emb_loss_coord = swav_loss(proj_coords)  -- this seems crazy
-            else:
-                simclr_emb_loss = simclr_loss(proj_emb, temperature=0.07)
-                #simclr_emb_loss_coord = simclr_loss(proj_coords, temperature=0.07)
+            # else:
+            #     simclr_emb_loss = simclr_loss(proj_emb, temperature=0.07)
+            #     #simclr_emb_loss_coord = simclr_loss(proj_coords, temperature=0.07)
 
             # flat [nviews*B, D] — drop-in for all existing functions
             proj_emb = proj_emb.view(-1, proj_emb.shape[-1])
@@ -340,43 +362,45 @@ for _ in range(10_000):
             labels = labels.repeat(len(views))
 
 #            spread_loss_val = spread_loss(proj_coords)
-            max_mean_discrepancy_loss = max_mean_discrepancy(proj_coords)
+            rank_uniform_loss_loss = rank_uniform_loss(proj_coords)
             #repulsion_loss_val = repulsion_loss(proj_coords, margin=REPULSION_MARGIN)
             repulsion_loss_val = torch.tensor(0.0, device=DEVICE)  
 
-            semantic_coord_attr_loss, semantic_coord_repel_loss = semantic_head_loss(proj_coords / GRID_SIZE, labels, margin=.05)
+            semantic_coord_attr_loss, semantic_coord_repel_loss = semantic_head_loss(proj_coords / GRID_SIZE, labels, margin=.05 )
             semantic_coord_loss = (semantic_coord_attr_loss + semantic_coord_repel_loss)  # report seperately
 
             #proj_emb_norm = F.normalize(proj_emb, dim=1 )  # projects onto unit hypersphere
             proj_emb_norm = proj_emb #normalization was done above --- not name refactoring yet
 
-            semantic_emb_attr_loss, semantic_emb_repel_loss = semantic_head_loss(proj_emb_norm, labels, margin=0.5)
+            semantic_emb_attr_loss, semantic_emb_repel_loss = semantic_head_loss(proj_emb_norm, labels, margin=0.5) 
             
             semantic_emb_loss = (semantic_emb_attr_loss + semantic_emb_repel_loss)  # report seperately
 
             class_weights = label_tracker.get_class_weights()
 
-            sup_pred_loss = prediction_loss_sup(pred_logits,labels,class_weights=class_weights)
+            sup_pred_loss, sup_accuracy , confusion= prediction_loss_sup(pred_logits,labels,num_classes=N_CLASS,class_weights=class_weights)
 
-            pseudo_pred_loss, pred_labels, high_conf = prediction_loss_pseudo(pred_logits,labels,pseudo_class_weights=None,pseudo_thresh=PSEUDO_THRESH,views_per_patch=NVIEWS)  # i don't think we want psudo class weights
+            # pseudo_pred_loss, pred_labels, high_conf = prediction_loss_pseudo_sce(pred_logits,labels,pseudo_class_weights=None,
+            #                                                                   views_per_patch=NVIEWS)  # i don't think we want psudo class weights
+
+            if sum(label_tracker.class_freq)>0 and label_tracker.num_updates > NBATCH_PSEUDO_WARMUP: 
+                pseudo_class_weights = label_tracker.get_class_weights(pseudo=True)
+
+                pseudo_pred_loss, pred_labels, high_conf = prediction_loss_pseudo_sce_adaptive(pred_logits,labels,adaptive_thresh,
+                                                                                            pseudo_class_weights=pseudo_class_weights,views_per_patch=NVIEWS)  # i don't think we want psudo class weights
+            else:
+                pseudo_pred_loss, pred_labels, high_conf = torch.tensor(0.0, device=DEVICE), torch.zeros_like(labels), torch.zeros_like(labels, dtype=torch.bool)
             
-            labeled_rate, num_label, num_pseudo = label_tracker.update(
-                labels, pred_labels[high_conf] if high_conf is not None else None
+            labeled_rate, num_label, num_pseudo = label_tracker.update(  
+                labels[0:nbase_ids], pred_labels[high_conf] if high_conf is not None else None
             )  # update with current batch's true and pseudo labels
 
-            # # ---compute tempoerate loss - make sure our coorindates don't go wild
-            # mem_z, mem_coords, mem_ages = mem_bank.sample(MEMORY_SAMPLE_SIZE)
-            # if mem_z.shape[0] > 0:
-            #     with torch.no_grad():
-            #         _, mem_proj_coords_now, _ = joint_head(mem_z)
-            #     margin = get_margin(pred_loss, labeled_rate)
-            #     loss_temp = temporal_loss(
-            #         mem_proj_coords_now, mem_coords, mem_ages, margin=margin
-            #     )
-            # else:
-            #     loss_temp = torch.tensor(0.0, device=DEVICE)
-
-            # contrastative loss ==  ??   proj + emb space
+            #update DB score
+            with torch.no_grad():
+                ids_update, scores_update= compute_weighting_scores(ids,labels,proj_emb,label_tracker.get_class_weights(),len(ids)) #AJ: TODO, this is incorrect? nbase_ids should be total first view?
+                print(ids_update,scores_update)
+                if ids_update is not None:
+                    score_writer.enqueue(ids_update+1, niter_total + scores_update) #NOTE: VERY IMPORTANT - IDs are shifted by 1 here because the DB starts at 1 and not at zero, unlike the dataloader   -> XX(niter_total).YYY(scores_update)
 
             total_loss = (
                 COORD_CONSITENCY_LOSS * coord_consistency_loss
@@ -384,7 +408,7 @@ for _ in range(10_000):
                 + SIMCLR_EMB_LOSS * simclr_emb_loss
                 #+ SIMCLR_EMB_LOSS * simclr_emb_loss_coord
                 #                        + SPREAD_LOSS * spread_loss_val
-                + MAX_MEAN_LOSS * max_mean_discrepancy_loss
+                + RANK_UNIFORM_LOSS * rank_uniform_loss_loss #TODO: should be renamed with _lambda
                 # BATCH_BIN_LAMBDA  * occ_loss
                 # + REPULSION_LAMBDA   * repulsion_loss_val
                 # + INTRA_BIN_LAMBDA  * intra_loss
@@ -403,8 +427,7 @@ for _ in range(10_000):
             scaler.step(optimizer)
             scaler.update()
 
-            # mem_bank.add_candidates(z_batch.detach(), proj_coords.detach()) #___COMMENTED OUT
-            #mem_bank.age_all()
+
 
             if niter_total % LOG_EVERY == 0:
                 log_embedding_histograms(writer, proj_emb, niter_total)
@@ -422,6 +445,10 @@ for _ in range(10_000):
                     niter_total,
                     write_embeddings=False,
                 )
+
+
+                orig = torch.cat((base_orig.cpu(),cand_orig)) if cand_batch is not None else base_orig
+
                 log_nearest_neighbors(
                     writer,
                     imgs,
@@ -484,7 +511,7 @@ for _ in range(10_000):
                 "loss/coord_consistency": coord_consistency_loss.item(),
                 "loss/coord_contrastive": coord_contrastive_loss.item(),
                 "loss/simclr_emb": simclr_emb_loss.item(),
-                "loss/max_mean_discrepancy": max_mean_discrepancy_loss.item(),
+                "loss/rank_uniform_loss": rank_uniform_loss_loss.item(),
                 "loss/repulsion": repulsion_loss_val.item(),
                 "loss/neighborhood": neigh_loss.item(),
                 "loss/semantic_coord": semantic_coord_loss.item(),
@@ -494,14 +521,15 @@ for _ in range(10_000):
                 "loss/semantic_emb_attract": semantic_emb_attr_loss.item(),
                 "loss/semantic_emb_repel": semantic_emb_repel_loss.item(),
                 "loss/pred_supervised": sup_pred_loss.item(),
-                "loss/pred_pseudo": pseudo_pred_loss.item(),
+                "loss/sup_accuracy": sup_accuracy.item(),
+                "loss/pred_pseudo": pseudo_pred_loss.item()
             }
 
             scaled_loss_values = {
                 "loss_scaled/coord_consistency": COORD_CONSITENCY_LOSS * coord_consistency_loss.item(),
                 "loss_scaled/coord_contrastive": COORD_CONTRASTIVE_LOSS * coord_contrastive_loss.item(),
                 "loss_scaled/simclr_emb": SIMCLR_EMB_LOSS * simclr_emb_loss.item(),
-                "loss_scaled/max_mean_discrepancy": MAX_MEAN_LOSS * max_mean_discrepancy_loss.item(),
+                "loss_scaled/rank_uniform_loss": RANK_UNIFORM_LOSS * rank_uniform_loss_loss.item(),
                 "loss_scaled/neighborhood": NEIGHBOR_LAMBDA * neigh_loss.item(),
                 "loss_scaled/semantic_coord": SEMANTIC_COORD_LAMBDA * semantic_coord_loss.item(),
                 "loss_scaled/semantic_emb": SEMANTIC_EMB_LAMBDA * semantic_emb_loss.item(),
@@ -519,9 +547,8 @@ for _ in range(10_000):
             )
 
 
-
-
-
+            log_confusion_matrix(writer, confusion, niter_total)
+    
             niter_total += 1
             if torch_profiler:
                 torch_profiler.step()

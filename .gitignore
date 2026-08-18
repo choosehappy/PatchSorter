@@ -9,6 +9,9 @@ __pycache__/
 *.pyo
 *.pyd
 *.log
+*.db
+*.db-wal
+*.db-shm
 prototyping/data/
 node_modules/
 _version.py
@@ -26,3 +29,13 @@ ps_prototypes_v2/*.png
 ps_prototypes_v2/coords_embeddings.db
 ps_prototypes_v2/coords_embeddings.db-shm
 ps_prototypes_v2/coords_embeddings.db-wal
+ps_prototypes_v2/mitosis_train_patches.pytable
+ps_prototypes_v2/model/*
+ps_prototypes_v2/model_mitosis/*
+ps_prototypes_v2/model_deepmel/*
+ps_prototypes_v2/model_mitosis2/*
+ps_prototypes_v2/*.svg
+ps_prototypes_v2/*.pytable
+ps_prototypes_v2/train_v4.txt
+ps_prototypes_v2/configs.py
+
