@@ -2,7 +2,7 @@
 
 import { type Client, formDataBodySerializer, type Options as Options2, type TDataShape } from './client';
 import { client } from './client.gen';
-import type { AssignLabelsByIdsProjectsProjectIdPatchesPostData, AssignLabelsByIdsProjectsProjectIdPatchesPostErrors, AssignLabelsByIdsProjectsProjectIdPatchesPostResponses, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostData, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostErrors, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetData, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetErrors, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetResponses, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetData, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetErrors, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetResponses, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetData, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetErrors, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetResponses, GetPatchProjectsProjectIdPatchesPatchIdGetData, GetPatchProjectsProjectIdPatchesPatchIdGetErrors, GetPatchProjectsProjectIdPatchesPatchIdGetResponses, GetProjectProjectsProjectIdGetData, GetProjectProjectsProjectIdGetErrors, GetProjectProjectsProjectIdGetResponses, InfoProjectsProjectIdInfoGetData, InfoProjectsProjectIdInfoGetErrors, InfoProjectsProjectIdInfoGetResponses, ListLabelClassesProjectsProjectIdLabelClassesGetData, ListLabelClassesProjectsProjectIdLabelClassesGetErrors, ListLabelClassesProjectsProjectIdLabelClassesGetResponses, ListPatchesProjectsProjectIdPatchesGetData, ListPatchesProjectsProjectIdPatchesGetErrors, ListPatchesProjectsProjectIdPatchesGetResponses, ListProjectsProjectsGetData, ListProjectsProjectsGetResponses, ServeTileProjectsProjectIdTilesZxyPngGetData, ServeTileProjectsProjectIdTilesZxyPngGetErrors, ServeTileProjectsProjectIdTilesZxyPngGetResponses } from './types.gen';
+import type { AssignLabelsByIdsProjectsProjectIdPatchesPostData, AssignLabelsByIdsProjectsProjectIdPatchesPostErrors, AssignLabelsByIdsProjectsProjectIdPatchesPostResponses, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostData, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostErrors, AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses, ExportLabelsCsvProjectsProjectIdExportLabelsGetData, ExportLabelsCsvProjectsProjectIdExportLabelsGetErrors, ExportLabelsCsvProjectsProjectIdExportLabelsGetResponses, ExportPatchesCsvProjectsProjectIdExportPatchesGetData, ExportPatchesCsvProjectsProjectIdExportPatchesGetErrors, ExportPatchesCsvProjectsProjectIdExportPatchesGetResponses, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetData, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetErrors, GetConfusionMatrixProjectsProjectIdConfusionMatrixGetResponses, GetImageStatsProjectsProjectIdImagesImageIdStatsGetData, GetImageStatsProjectsProjectIdImagesImageIdStatsGetErrors, GetImageStatsProjectsProjectIdImagesImageIdStatsGetResponses, GetImageThumbnailProjectsProjectIdImagesImageIdThumbnailGetData, GetImageThumbnailProjectsProjectIdImagesImageIdThumbnailGetErrors, GetImageThumbnailProjectsProjectIdImagesImageIdThumbnailGetResponses, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetData, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetErrors, GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetResponses, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetData, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetErrors, GetPatchImageProjectsProjectIdPatchesPatchIdImageGetResponses, GetPatchProjectsProjectIdPatchesPatchIdGetData, GetPatchProjectsProjectIdPatchesPatchIdGetErrors, GetPatchProjectsProjectIdPatchesPatchIdGetResponses, GetProjectProjectsProjectIdGetData, GetProjectProjectsProjectIdGetErrors, GetProjectProjectsProjectIdGetResponses, GetProjectStatsProjectsProjectIdStatsGetData, GetProjectStatsProjectsProjectIdStatsGetErrors, GetProjectStatsProjectsProjectIdStatsGetResponses, InfoProjectsProjectIdInfoGetData, InfoProjectsProjectIdInfoGetErrors, InfoProjectsProjectIdInfoGetResponses, ListImagesProjectsProjectIdImagesGetData, ListImagesProjectsProjectIdImagesGetErrors, ListImagesProjectsProjectIdImagesGetResponses, ListLabelClassesProjectsProjectIdLabelClassesGetData, ListLabelClassesProjectsProjectIdLabelClassesGetErrors, ListLabelClassesProjectsProjectIdLabelClassesGetResponses, ListPatchesProjectsProjectIdPatchesGetData, ListPatchesProjectsProjectIdPatchesGetErrors, ListPatchesProjectsProjectIdPatchesGetResponses, ListProjectsProjectsGetData, ListProjectsProjectsGetResponses, ListSettingsProjectsProjectIdSettingsGetData, ListSettingsProjectsProjectIdSettingsGetErrors, ListSettingsProjectsProjectIdSettingsGetResponses, OpenUploadSessionData, OpenUploadSessionErrors, OpenUploadSessionResponses, ProcessUploadCsvData, ProcessUploadCsvErrors, ProcessUploadCsvResponses, ProcessUploadData, ProcessUploadErrors, ProcessUploadResponses, SearchRayTasksData, SearchRayTasksErrors, SearchRayTasksResponses, ServeTileProjectsProjectIdTilesZxyPngGetData, ServeTileProjectsProjectIdTilesZxyPngGetErrors, ServeTileProjectsProjectIdTilesZxyPngGetResponses, UpdateProjectProjectsProjectIdPutData, UpdateProjectProjectsProjectIdPutErrors, UpdateProjectProjectsProjectIdPutResponses, UploadImagesData, UploadImagesErrors, UploadImagesResponses, UploadMasksData, UploadMasksErrors, UploadMasksResponses, UploadPatchCsvData, UploadPatchCsvErrors, UploadPatchCsvResponses, ValidateUploadData, ValidateUploadErrors, ValidateUploadImageCsvData, ValidateUploadImageCsvErrors, ValidateUploadImageCsvResponses, ValidateUploadResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -44,6 +44,16 @@ export const listProjectsProjectsGet = <ThrowOnError extends boolean = false>(op
 export const getProjectProjectsProjectIdGet = <ThrowOnError extends boolean = false>(options: Options<GetProjectProjectsProjectIdGetData, ThrowOnError>) => (options.client ?? client).get<GetProjectProjectsProjectIdGetResponses, GetProjectProjectsProjectIdGetErrors, ThrowOnError>({ url: '/projects/{project_id}', ...options });
 
 /**
+ * Update Project
+ */
+export const updateProjectProjectsProjectIdPut = <ThrowOnError extends boolean = false>(options: Options<UpdateProjectProjectsProjectIdPutData, ThrowOnError>) => (options.client ?? client).put<UpdateProjectProjectsProjectIdPutResponses, UpdateProjectProjectsProjectIdPutErrors, ThrowOnError>({ url: '/projects/{project_id}', ...options });
+
+/**
+ * Get Project Stats
+ */
+export const getProjectStatsProjectsProjectIdStatsGet = <ThrowOnError extends boolean = false>(options: Options<GetProjectStatsProjectsProjectIdStatsGetData, ThrowOnError>) => (options.client ?? client).get<GetProjectStatsProjectsProjectIdStatsGetResponses, GetProjectStatsProjectsProjectIdStatsGetErrors, ThrowOnError>({ url: '/projects/{project_id}/stats/', ...options });
+
+/**
  * List Label Classes
  */
 export const listLabelClassesProjectsProjectIdLabelClassesGet = <ThrowOnError extends boolean = false>(options: Options<ListLabelClassesProjectsProjectIdLabelClassesGetData, ThrowOnError>) => (options.client ?? client).get<ListLabelClassesProjectsProjectIdLabelClassesGetResponses, ListLabelClassesProjectsProjectIdLabelClassesGetErrors, ThrowOnError>({ url: '/projects/{project_id}/label_classes/', ...options });
@@ -82,5 +92,162 @@ export const assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost = <T
     headers: {
         'Content-Type': 'application/json',
         ...options.headers
+    }
+});
+
+/**
+ * List Settings
+ */
+export const listSettingsProjectsProjectIdSettingsGet = <ThrowOnError extends boolean = false>(options: Options<ListSettingsProjectsProjectIdSettingsGetData, ThrowOnError>) => (options.client ?? client).get<ListSettingsProjectsProjectIdSettingsGetResponses, ListSettingsProjectsProjectIdSettingsGetErrors, ThrowOnError>({ url: '/projects/{project_id}/settings/', ...options });
+
+/**
+ * List Images
+ */
+export const listImagesProjectsProjectIdImagesGet = <ThrowOnError extends boolean = false>(options: Options<ListImagesProjectsProjectIdImagesGetData, ThrowOnError>) => (options.client ?? client).get<ListImagesProjectsProjectIdImagesGetResponses, ListImagesProjectsProjectIdImagesGetErrors, ThrowOnError>({ url: '/projects/{project_id}/images/', ...options });
+
+/**
+ * Get Image Stats
+ */
+export const getImageStatsProjectsProjectIdImagesImageIdStatsGet = <ThrowOnError extends boolean = false>(options: Options<GetImageStatsProjectsProjectIdImagesImageIdStatsGetData, ThrowOnError>) => (options.client ?? client).get<GetImageStatsProjectsProjectIdImagesImageIdStatsGetResponses, GetImageStatsProjectsProjectIdImagesImageIdStatsGetErrors, ThrowOnError>({ url: '/projects/{project_id}/images/{image_id}/stats/', ...options });
+
+/**
+ * Get Image Thumbnail
+ */
+export const getImageThumbnailProjectsProjectIdImagesImageIdThumbnailGet = <ThrowOnError extends boolean = false>(options: Options<GetImageThumbnailProjectsProjectIdImagesImageIdThumbnailGetData, ThrowOnError>) => (options.client ?? client).get<GetImageThumbnailProjectsProjectIdImagesImageIdThumbnailGetResponses, GetImageThumbnailProjectsProjectIdImagesImageIdThumbnailGetErrors, ThrowOnError>({ url: '/projects/{project_id}/images/{image_id}/thumbnail/', ...options });
+
+/**
+ * Export Patches Csv
+ */
+export const exportPatchesCsvProjectsProjectIdExportPatchesGet = <ThrowOnError extends boolean = false>(options: Options<ExportPatchesCsvProjectsProjectIdExportPatchesGetData, ThrowOnError>) => (options.client ?? client).get<ExportPatchesCsvProjectsProjectIdExportPatchesGetResponses, ExportPatchesCsvProjectsProjectIdExportPatchesGetErrors, ThrowOnError>({ url: '/projects/{project_id}/export/patches/', ...options });
+
+/**
+ * Export Labels Csv
+ */
+export const exportLabelsCsvProjectsProjectIdExportLabelsGet = <ThrowOnError extends boolean = false>(options: Options<ExportLabelsCsvProjectsProjectIdExportLabelsGetData, ThrowOnError>) => (options.client ?? client).get<ExportLabelsCsvProjectsProjectIdExportLabelsGetResponses, ExportLabelsCsvProjectsProjectIdExportLabelsGetErrors, ThrowOnError>({ url: '/projects/{project_id}/export/labels/', ...options });
+
+/**
+ * Open Upload Session
+ *
+ * Create a new upload session actor and return its session UUID.
+ */
+export const openUploadSession = <ThrowOnError extends boolean = false>(options: Options<OpenUploadSessionData, ThrowOnError>) => (options.client ?? client).post<OpenUploadSessionResponses, OpenUploadSessionErrors, ThrowOnError>({ url: '/projects/{project_id}/upload/open/', ...options });
+
+/**
+ * Upload Images
+ */
+export const uploadImages = <ThrowOnError extends boolean = false>(options: Options<UploadImagesData, ThrowOnError>) => (options.client ?? client).post<UploadImagesResponses, UploadImagesErrors, ThrowOnError>({
+    ...formDataBodySerializer,
+    url: '/projects/{project_id}/upload/{session_id}/images/',
+    ...options,
+    headers: {
+        'Content-Type': null,
+        ...options.headers
+    }
+});
+
+/**
+ * Upload Masks
+ */
+export const uploadMasks = <ThrowOnError extends boolean = false>(options: Options<UploadMasksData, ThrowOnError>) => (options.client ?? client).post<UploadMasksResponses, UploadMasksErrors, ThrowOnError>({
+    ...formDataBodySerializer,
+    url: '/projects/{project_id}/upload/{session_id}/masks/',
+    ...options,
+    headers: {
+        'Content-Type': null,
+        ...options.headers
+    }
+});
+
+/**
+ * Upload Patch Csv
+ */
+export const uploadPatchCsv = <ThrowOnError extends boolean = false>(options: Options<UploadPatchCsvData, ThrowOnError>) => (options.client ?? client).post<UploadPatchCsvResponses, UploadPatchCsvErrors, ThrowOnError>({
+    ...formDataBodySerializer,
+    url: '/projects/{project_id}/upload/{session_id}/patch_csv/',
+    ...options,
+    headers: {
+        'Content-Type': null,
+        ...options.headers
+    }
+});
+
+/**
+ * Validate Upload
+ */
+export const validateUpload = <ThrowOnError extends boolean = false>(options: Options<ValidateUploadData, ThrowOnError>) => (options.client ?? client).post<ValidateUploadResponses, ValidateUploadErrors, ThrowOnError>({
+    url: '/projects/{project_id}/upload/{session_id}/validate/',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Validate Upload Image Csv
+ */
+export const validateUploadImageCsv = <ThrowOnError extends boolean = false>(options: Options<ValidateUploadImageCsvData, ThrowOnError>) => (options.client ?? client).post<ValidateUploadImageCsvResponses, ValidateUploadImageCsvErrors, ThrowOnError>({
+    ...formDataBodySerializer,
+    url: '/projects/{project_id}/upload/{session_id}/validate/image-csv/',
+    ...options,
+    headers: {
+        'Content-Type': null,
+        ...options.headers
+    }
+});
+
+/**
+ * Process Upload
+ */
+export const processUpload = <ThrowOnError extends boolean = false>(options: Options<ProcessUploadData, ThrowOnError>) => (options.client ?? client).post<ProcessUploadResponses, ProcessUploadErrors, ThrowOnError>({
+    url: '/projects/{project_id}/upload/{session_id}/process/',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Process Upload Csv
+ *
+ * Stub: later to accept a validated CSV for CSV-only upload flow.
+ */
+export const processUploadCsv = <ThrowOnError extends boolean = false>(options: Options<ProcessUploadCsvData, ThrowOnError>) => (options.client ?? client).post<ProcessUploadCsvResponses, ProcessUploadCsvErrors, ThrowOnError>({
+    ...formDataBodySerializer,
+    url: '/projects/{project_id}/upload/{session_id}/process-csv/',
+    ...options,
+    headers: {
+        'Content-Type': null,
+        ...options.headers
+    }
+});
+
+/**
+ * Get Ray Task State
+ *
+ * Query Ray cluster task state with optional filters.
+ *
+ * Accepts a list of filter tuples (field, operator, value) and returns
+ * matching task states from the Ray cluster.
+ *
+ * Args:
+ * ray_cluster_filters: Optional list of [field, operator, value] tuples
+ * for filtering tasks. Supported fields: state, node_id, driver_id,
+ * parent_task_id, type.
+ *
+ * Returns:
+ * List of task state dicts with keys: task_id, name, func_or_class_name,
+ * state, creation_time, end_time, error_message.
+ *
+ * Raises:
+ * HTTPException(503): If the Ray cluster is unavailable.
+ */
+export const searchRayTasks = <ThrowOnError extends boolean = false>(options?: Options<SearchRayTasksData, ThrowOnError>) => (options?.client ?? client).post<SearchRayTasksResponses, SearchRayTasksErrors, ThrowOnError>({
+    url: '/task',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers
     }
 });
