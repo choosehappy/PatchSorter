@@ -86,16 +86,20 @@ class ImageStore:
         ).mappings().one()
         return dict(row)
 
-    def get(self, image_id: int) -> Image:
+    def get(self, image_id: int, project_id: int) -> Optional[Image]:
         """Return a single image row as an Image ORM object.
 
         Args:
             image_id: The integer ID of the image.
+            project_id: The integer ID of the owning project.
 
         Returns:
-            The Image ORM instance for the given image_id.
+            The Image ORM instance if found, None otherwise.
         """
-        return self._session.query(Image).filter(Image.image_id == image_id).one()
+        return self._session.query(Image).filter_by(
+            image_id=image_id,
+            project_id=project_id,
+        ).first()
 
 
     def list_by_project(self, project_id: int) -> List[Image]:
