@@ -21,6 +21,12 @@ class SettingType(StrEnum):
     INTEGER = "integer"
 
 
+class PatchExtractionMethod(StrEnum):
+    USE_ESTIMATED_OBJECT_SIZE = "use estimated object size"
+    USE_MANUAL_OBJECT_RADIUS = "use manual object radius"
+    FIT_ALL_OBJECTS = "fit all objects"
+
+
 IMAGE_EXTS = {".tif", ".tiff", ".png", ".jpg", ".jpeg", ".svs", ".ndpi", ".vms", ".vmu", ".scn", ".mrxs", ".tif.gz"}
 MASK_EXTS = {".geojson"}
 PATCH_CSV_EXTS = {".csv"}
