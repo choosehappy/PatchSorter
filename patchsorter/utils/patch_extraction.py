@@ -303,7 +303,7 @@ def extract_patch_from_geometry(
     if region is None or region.size[0] == 0 or region.size[1] == 0:
         raise ValueError(
             f"Empty region extracted for centroid=({centroid.x}, {centroid.y}), "
-            f"qmagnification={magnification}. "
+            f"magnification={magnification}. "
             "The requested crop likely falls outside the tile source bounds."
         )
     
