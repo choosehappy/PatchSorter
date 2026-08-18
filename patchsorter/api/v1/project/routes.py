@@ -88,7 +88,7 @@ def get_project_stats(project_id: int) -> ProjectStatsResponse:
         total_objects=total_row,
         labeled_count=labeled_row,
         creation_date=project_row.get("creation_ts"),
-        modification_date=mod_row.isoformat() if mod_row else None
+        modification_date=mod_row if mod_row else None
 
     )
 
