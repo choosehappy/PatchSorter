@@ -39,7 +39,6 @@ class PatchCSVColumns(StrEnum):
     PATCH_ID = "patch_id"
     PATCH_UID = "patch_uid"
     LABEL_CLASS_ID = "label_class_id"
-    LABEL_CLASS_NAME = "label_class_name"
     CENTROID_X = "centroid_x"
     CENTROID_Y = "centroid_y"
 

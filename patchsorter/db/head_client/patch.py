@@ -9,7 +9,7 @@ import numpy as np
 
 from patchsorter.config.constants import PredPatchSuffix
 from patchsorter.db.grid_index import HierarchicalGridIndexIJPair
-from patchsorter.db.head_client.models import build_table_name, build_pred_table_name, patch_model, LabelClass
+from patchsorter.db.head_client.models import build_table_name, build_pred_table_name, patch_model
 from patchsorter.db.head_client.settings import SettingsStore
 
 
@@ -785,19 +785,17 @@ class PatchStore:
 
         Returns:
             A list of flat dicts with keys: ``patch_id``, ``patch_uid``,
-            ``label_class_id``, ``label_class_name``, ``image_id``,
+            ``label_class_id``, ``image_id``,
             ``downsample_factor``, ``centroid_x``, ``centroid_y``, ``polygon``
             (and ``patch_image`` when *include_image* is ``True``).
         """
         Patch = patch_model(self.project_id)
         t = Patch.__table__
-        lc = LabelClass.__table__
 
         cols = [
             t.c.patch_id,
             t.c.patch_uid,
             t.c.label_class_id,
-            lc.c.name.label("label_class_name"),
             t.c.image_id,
             t.c.downsample_factor,
             t.c.centroid_x,
@@ -807,10 +805,9 @@ class PatchStore:
         if include_image:
             cols.append(t.c.patch_image)
 
-        # JOIN with the label_class table to get the label_class_name.
         stmt = (
             select(*cols)
-            .select_from(t.join(lc, t.c.label_class_id == lc.c.label_class_id))
+            .select_from(t)
             .where(t.c.patch_id > cursor)
             .order_by(t.c.patch_id)
             .limit(limit)

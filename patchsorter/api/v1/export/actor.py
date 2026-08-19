@@ -42,7 +42,6 @@ def _export_patch_csv(
                 PatchCSVColumns.PATCH_ID,
                 PatchCSVColumns.PATCH_UID,
                 PatchCSVColumns.LABEL_CLASS_ID,
-                PatchCSVColumns.LABEL_CLASS_NAME,
                 PatchCSVColumns.CENTROID_X,
                 PatchCSVColumns.CENTROID_Y,
             ])
@@ -66,7 +65,6 @@ def _export_patch_csv(
                         row[PatchCSVColumns.PATCH_ID],  # NOTE: this is fine unless the csv naming needs to be uncoupled from the database column naming.
                         row[PatchCSVColumns.PATCH_UID],
                         row[PatchCSVColumns.LABEL_CLASS_ID],
-                        row[PatchCSVColumns.LABEL_CLASS_NAME],
                         row[PatchCSVColumns.CENTROID_X],
                         row[PatchCSVColumns.CENTROID_Y],
                     ])
