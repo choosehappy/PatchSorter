@@ -23,7 +23,7 @@ def _export_patch_csv(
     memory at once.
 
     Each CSV matches the import patch CSV format (compatible with CsvGeometryIterable
-    and HybridPatchIterable): columns are `patch_id, patch_uid, label_class_id, label_class_name, centroid_x, centroid_y`.
+    and HybridPatchIterable): columns are `patch_id, patch_uid, label_class_id, centroid_x, centroid_y`.
     Filename follows the convention `patches_{image_id}_{image_name}.csv` to match the download URL.
     """
     fsman = FileStoreManager()
@@ -62,14 +62,14 @@ def _export_patch_csv(
 
                 for row in rows:
                     writer.writerow([
-                        row[PatchCSVColumns.PATCH_ID],  # NOTE: this is fine unless the csv naming needs to be uncoupled from the database column naming.
-                        row[PatchCSVColumns.PATCH_UID],
-                        row[PatchCSVColumns.LABEL_CLASS_ID],
-                        row[PatchCSVColumns.CENTROID_X],
-                        row[PatchCSVColumns.CENTROID_Y],
+                        row.get(PatchCSVColumns.PATCH_ID),  # NOTE: this is fine unless the csv naming needs to be uncoupled from the database column naming.
+                        row.get(PatchCSVColumns.PATCH_UID, None),
+                        row.get(PatchCSVColumns.LABEL_CLASS_ID),
+                        row.get(PatchCSVColumns.CENTROID_X),
+                        row.get(PatchCSVColumns.CENTROID_Y),
                     ])
 
-                cursor = rows[-1][PatchCSVColumns.PATCH_ID]
+                cursor = rows[-1].get(PatchCSVColumns.PATCH_ID)
                 if len(rows) < batch_size:
                     break
 
