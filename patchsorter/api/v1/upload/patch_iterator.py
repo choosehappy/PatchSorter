@@ -64,8 +64,6 @@ class GeojsonGeometryIterable(GeometryIterable):
             patch_uuid: uuid.UUID | None = None
             if PatchGeoJSONProperties.UID in props and props[PatchGeoJSONProperties.UID] is not None:
                 patch_uuid = uuid.UUID(str(props[PatchGeoJSONProperties.UID]))
-            if patch_uuid is None:
-                patch_uuid = uuid.uuid4()
 
             yield (geom, label, patch_uuid)
 
@@ -93,8 +91,6 @@ class CsvGeometryIterable(GeometryIterable):
             patch_uuid: uuid.UUID | None = None
             if PatchCSVColumns.PATCH_UID in row and row[PatchCSVColumns.PATCH_UID] is not None:
                 patch_uuid = uuid.UUID(str(row[PatchCSVColumns.PATCH_UID]))
-            if patch_uuid is None:
-                patch_uuid = uuid.uuid4()
 
             yield (geometry, label, patch_uuid)
 
@@ -156,8 +152,7 @@ class HybridPatchIterable(GeometryIterable):
                 patch_uuid = uuid.UUID(csv_uuid_str)
                 label = csv_label
             else:
-                # Generate UUID, use feature label if available
-                patch_uuid = uuid.uuid4()
+                # Use feature label if available
                 for key in (PatchGeoJSONProperties.LABEL, PatchGeoJSONProperties.CLASS_ID, PatchGeoJSONProperties.LABEL_CLASS_ID):
                     if key in props and props[key] is not None:
                         label = int(props[key])
