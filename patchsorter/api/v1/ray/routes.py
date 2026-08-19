@@ -16,7 +16,7 @@ router = APIRouter()
     operation_id="searchRayTasks",
 )
 def get_ray_task_state(
-    ray_cluster_filters: list[list[str]] = [],
+    ray_cluster_filters: list[list[str]] | None = None,
 ) -> list[dict]:
     """Query Ray cluster task state with optional filters.
 

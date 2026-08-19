@@ -38,7 +38,10 @@ export default function LabelClassesTable({ labelClasses, isLoading, selectedIds
 
     const handleSelectedRowsChanged = (e: CustomEvent<{ eventData: unknown; args: OnSelectedRowsChangedEventArgs }>) => {
         const rows = e.detail.args.rows ?? []
-        onSelectionChange(new Set(rows))
+        if (gridRef.current) {
+            const ids = new Set(rows.map(r => (gridRef.current!.slickGrid.getDataItem(r) as { id: number }).id))
+            onSelectionChange(ids)
+        }
     }
 
     useEffect(() => {

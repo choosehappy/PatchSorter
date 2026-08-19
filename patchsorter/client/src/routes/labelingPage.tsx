@@ -9,6 +9,7 @@ import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
 import LabelPicker from '../components/LabelPicker'
 import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, assignLabelsByIdsProjectsProjectIdPatchesPost, assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
+import { DEFAULT_REFRESH_INTERVAL_MS, DEFAULT_QUERY_RANGE, PERFECT_SQUARE_LIMITS } from '../constants'
 
 
 
@@ -34,7 +35,7 @@ export default function LabelingPage() {
     const [zoomInfo, setZoomInfo] = useState<string>('')
     const [worldInfo, setWorldInfo] = useState<WorldInfo | null>(null)
     const [refreshTick, setRefreshTick] = useState(0)
-    const [refreshIntervalMs, setRefreshIntervalMs] = useState<number | null>(5000)
+    const [refreshIntervalMs, setRefreshIntervalMs] = useState<number | null>(DEFAULT_REFRESH_INTERVAL_MS)
     const [pageSize, setPageSize] = useState(24)
     const [lassoPolygon, setLassoPolygon] = useState<number[][] | null>(null)
     const [activePage, setActivePage] = useState(0)
@@ -43,7 +44,10 @@ export default function LabelingPage() {
     const [showPicker, setShowPicker] = useState(false)
     const [pickedLabelClassId, setPickedLabelClassId] = useState<number | null>(null)
     const [gallerySelectAll, setGallerySelectAll] = useState(false)
-    const [showPatches, setShowPatches] = useState(false)
+    const [showPatches, setShowPatches] = useState(true)
+    const [queryLimitIndex, setQueryLimitIndex] = useState(2)
+    const limit = PERFECT_SQUARE_LIMITS[queryLimitIndex]
+    const queryRange = DEFAULT_QUERY_RANGE
 
     useEffect(() => {
         infoProjectsProjectIdInfoGet({ path: { project_id: projectId } })
@@ -349,6 +353,8 @@ export default function LabelingPage() {
                     worldInfo={worldInfo}
                     refreshTick={refreshTick}
                     showPatches={showPatches}
+                    queryRange={queryRange}
+                    limit={limit}
                     labelClasses={sortedLabelClasses}
                     onBoundsChange={setBounds}
                     onZoomChange={handleZoomChange}
@@ -388,16 +394,29 @@ export default function LabelingPage() {
                             onIntervalChange={setRefreshIntervalMs}
                             onTick={() => setRefreshTick(t => t + 1)}
                         />
-                    </div>
-                    <div className="control-row flattened">
                         <label className="toggle-label">
                             <input
                                 type="checkbox"
                                 checked={showPatches}
                                 onChange={e => setShowPatches(e.target.checked)}
                             />
-                            Show Patches
+                            Show Patch Grid
                         </label>
+                        <div className="control-group">
+                            <label>Query Limit: {PERFECT_SQUARE_LIMITS[queryLimitIndex]}</label>
+                            <input
+                                type="range"
+                                min={0}
+                                max={PERFECT_SQUARE_LIMITS.length - 1}
+                                step={1}
+                                value={queryLimitIndex}
+                                onChange={e => setQueryLimitIndex(Number(e.target.value))}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#666' }}>
+                                <span>dense</span>
+                                <span>sparse</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

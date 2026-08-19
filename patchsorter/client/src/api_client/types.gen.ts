@@ -1110,124 +1110,6 @@ export type AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostRespon
 
 export type AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponse = AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses[keyof AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses];
 
-export type SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetData = {
-    body?: never;
-    path: {
-        /**
-         * Project Id
-         */
-        project_id: number;
-    };
-    query: {
-        /**
-         * Xmin
-         */
-        xmin: number;
-        /**
-         * Xmax
-         */
-        xmax: number;
-        /**
-         * Ymin
-         */
-        ymin: number;
-        /**
-         * Ymax
-         */
-        ymax: number;
-        /**
-         * Num Samples
-         */
-        num_samples?: number;
-        /**
-         * Lp
-         *
-         * Label pair filter: repeat for each pair as 'gt,pred' (e.g. lp=0,1&lp=2,2)
-         */
-        lp?: Array<string> | null;
-        /**
-         * Patch Query Range
-         *
-         * Range in grid cells around each query point for patch sampling
-         */
-        patch_query_range?: number;
-    };
-    url: '/projects/{project_id}/sample/by-bbox/patches/';
-};
-
-export type SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetErrors = {
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetError = SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetErrors[keyof SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetErrors];
-
-export type SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetResponses = {
-    /**
-     * Response Sample Patches By Bbox Projects  Project Id  Sample By Bbox Patches  Get
-     *
-     * Successful Response
-     */
-    200: Array<PatchResponse>;
-};
-
-export type SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetResponse = SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetResponses[keyof SamplePatchesByBboxProjectsProjectIdSampleByBboxPatchesGetResponses];
-
-export type SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetData = {
-    body?: never;
-    path: {
-        /**
-         * Project Id
-         */
-        project_id: number;
-    };
-    query: {
-        /**
-         * X
-         */
-        x: number;
-        /**
-         * Y
-         */
-        y: number;
-        /**
-         * Lp
-         *
-         * Label pair filter: repeat for each pair as 'gt,pred' (e.g. lp=0,1&lp=2,2)
-         */
-        lp?: Array<string> | null;
-        /**
-         * Patch Query Range
-         *
-         * Range in grid cells around the query point for patch sampling
-         */
-        patch_query_range?: number;
-    };
-    url: '/projects/{project_id}/sample/by-point/patches/';
-};
-
-export type SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetErrors = {
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetError = SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetErrors[keyof SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetErrors];
-
-export type SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetResponses = {
-    /**
-     * Response Sample Patches By Point Projects  Project Id  Sample By Point Patches  Get
-     *
-     * Successful Response
-     */
-    200: Array<PatchResponse>;
-};
-
-export type SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetResponse = SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetResponses[keyof SamplePatchesByPointProjectsProjectIdSampleByPointPatchesGetResponses];
-
 export type ListSettingsProjectsProjectIdSettingsGetData = {
     body?: never;
     path: {
@@ -1696,7 +1578,7 @@ export type SearchRayTasksData = {
     /**
      * Ray Cluster Filters
      */
-    body?: Array<Array<string>>;
+    body?: Array<Array<string>> | null;
     path?: never;
     query?: never;
     url: '/task';

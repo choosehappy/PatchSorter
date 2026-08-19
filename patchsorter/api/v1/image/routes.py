@@ -33,7 +33,7 @@ def get_image_stats(project_id: int, image_id: int) -> ImageStatsResponse:
     client = get_head_client()
     with client.get_session() as session:
         store = ImageStore(session)
-        row = store.get(image_id)
+        row = store.get(image_id, project_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Image not found")
 
@@ -57,7 +57,7 @@ def get_image_thumbnail(project_id: int, image_id: int) -> Response:
     client = get_head_client()
     with client.get_session() as session:
         store = ImageStore(session)
-        row = store.get(image_id)
+        row = store.get(image_id, project_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Image not found")
 

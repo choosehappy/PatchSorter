@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import text
+from sqlalchemy import case, func, select, text
 
 from patchsorter.db.head_client import get_client as get_head_client
 from patchsorter.db.head_client.project import ProjectStore
@@ -68,12 +68,13 @@ def get_project_stats(project_id: int) -> ProjectStatsResponse:
 
         # total_objects and labeled_count from project{N}_patch
         tbl = build_table_name(project_id)
-        total_row = session.execute(
-            text(f"SELECT COUNT(*) FROM {tbl}"),
-        ).scalar()
-        labeled_row = session.execute(
-            text(f"SELECT COUNT(*) FROM {tbl} WHERE label_class_id > 1"),
-        ).scalar()
+        stmt = select(
+            func.count().label("total_count"),
+            func.count(case((text("label_class_id > 1"), 1))).label("labeled_count"),
+        ).select_from(text(tbl))
+        row = session.execute(stmt).one()
+        total_row = row.total_count
+        labeled_row = row.labeled_count
 
         # modification_date from coarsest confusion matrix table (l8)
         cm_table = f"project{project_id}_confusion_matrix_l8"
@@ -88,7 +89,7 @@ def get_project_stats(project_id: int) -> ProjectStatsResponse:
         total_objects=total_row,
         labeled_count=labeled_row,
         creation_date=project_row.get("creation_ts"),
-        modification_date=mod_row.isoformat() if mod_row else None
+        modification_date=mod_row if mod_row else None
 
     )
 

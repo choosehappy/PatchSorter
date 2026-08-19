@@ -9,7 +9,13 @@ from typing import List
 import ray
 import large_image
 
-from patchsorter.config.constants import IMAGE_EXTS, MASK_EXTS, PATCH_CSV_EXTS, PATCH_BATCH_SIZE
+from patchsorter.config.constants import (
+    IMAGE_EXTS,
+    MASK_EXTS,
+    PATCH_CSV_EXTS,
+    PATCH_BATCH_SIZE,
+    PatchExtractionMethod,
+)
 from patchsorter.utils.fsmanager import FileStoreManager, scan_folder
 from patchsorter.api.v1.upload.models import ProcessRow
 from patchsorter.api.v1.upload.patch_iterator import (
@@ -294,20 +300,20 @@ def process_row(
 
     # Load settings (passed from UploadSessionActor — no extra DB round-trip needed)
     patch_size: int = int(settings.get("patch_size", 64))
-    patch_extraction_method: str = settings.get("patch_extraction_method", "use estimated object size")
+    patch_extraction_method: str = settings.get("patch_extraction_method", PatchExtractionMethod.USE_ESTIMATED_OBJECT_SIZE)
     object_radius_str: str | None = settings.get("object_radius")
     object_radius: float | None = float(object_radius_str) if object_radius_str else None
 
     # Determine downsample strategy
     mm_per_pixel = mm_per_pixel_at_base(base_mag)
 
-    if patch_extraction_method == "use manual object radius": # TODO: compare setting with an enum.
+    if patch_extraction_method == PatchExtractionMethod.USE_MANUAL_OBJECT_RADIUS:
         if object_radius is None:
             raise ValueError("object_radius setting is required when patch_extraction_method is 'use manual object radius'")
         downsample = compute_downsample_factor(object_radius, base_mag, patch_size, mm_per_pixel)
         per_patch_downsample = False
 
-    elif patch_extraction_method == "fit all objects":
+    elif patch_extraction_method == PatchExtractionMethod.FIT_ALL_OBJECTS:
         per_patch_downsample = True
         downsample = 1.0  # unused but keeps type-checker happy
     else:
