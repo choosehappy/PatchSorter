@@ -13,6 +13,8 @@ from shapely.geometry.base import BaseGeometry
 
 from patchsorter.config.constants import UNASSIGNED_CLASS_ID, PatchCSVColumns, PatchGeoJSONProperties
 
+VALID_OGR_GEOMETRY_TYPES = {ogr.wkbPolygon, ogr.wkbPoint}
+
 
 class GeometryIterable(ABC):
     """Abstract base class producing (geometry, label, uuid) tuples. May be implemented by subclasses that read from different sources (e.g., GeoJSON, CSV)."""
@@ -41,15 +43,22 @@ class GeojsonGeometryIterable(GeometryIterable):
 
         layer = datasource.GetLayer(0)
         for feature in layer:
-            geom = wkt.loads(feature.GetGeometryRef().ExportToWkt())
+            ogr_geom = feature.GetGeometryRef()
+            geom_type = ogr_geom.GetGeometryType()
 
-            # Check if geometry is a Polygon
-            if not geom.is_valid or geom.geom_type != "Polygon":
-                geom_type_name = geom.geom_type
+            if geom_type not in VALID_OGR_GEOMETRY_TYPES:
+                geom_type_name = ogr_geom.GetGeometryName()
                 raise ValueError(
-                    f"GeojsonGeometryIterable only supports Polygon geometries, "
-                    f"but feature FID={feature.GetFID()} has geometry type '{geom_type_name}'. "
-                    f"Use CsvGeometryIterator for point-based coordinates."
+                    f"GeojsonGeometryIterable only supports Polygon and Point geometries, "
+                    f"but feature FID={feature.GetFID()} has geometry type '{geom_type_name}'."
+                )
+
+            geom = wkt.loads(ogr_geom.ExportToWkt())
+
+            if not geom.is_valid:
+                raise ValueError(
+                    f"GeojsonGeometryIterable requires valid geometries, "
+                    f"but feature FID={feature.GetFID()} has an invalid geometry."
                 )
 
             # Extract label from feature properties
@@ -103,21 +112,25 @@ class HybridPatchIterable(GeometryIterable):
         self.csv_path = csv_path
 
     def __iter__(self) -> Iterator[tuple[BaseGeometry, int, uuid.UUID | None]]:
-        # Read CSV and set patch_uid column as index for O(1) lookup
         df = pd.read_csv(self.csv_path)
-        if PatchCSVColumns.PATCH_UID not in df.columns:
+
+        uid_col = None
+        if PatchCSVColumns.PATCH_UID in df.columns:
+            uid_col = PatchCSVColumns.PATCH_UID
+        else:
             raise ValueError("CSV file must contain a 'patch_uid' column for hybrid mode")
 
-        # Build lookup: uid (from geojson) -> (uuid, label)
-        uid_label_map: dict[str, tuple[str, int]] = {}
-        for _, row in df.iterrows():
-            uid = row.get(PatchCSVColumns.PATCH_UID, row.get(PatchCSVColumns.PATCH_ID, ""))
-            if uid is not None and uid != "":
-                csv_uuid = str(row[PatchCSVColumns.PATCH_UID])
-                csv_label: int = UNASSIGNED_CLASS_ID
-                if PatchCSVColumns.LABEL_CLASS_ID in row and row[PatchCSVColumns.LABEL_CLASS_ID] is not None:
-                    csv_label = int(row[PatchCSVColumns.LABEL_CLASS_ID])
-                uid_label_map[str(uid)] = (csv_uuid, csv_label)
+        df[uid_col] = df[uid_col].astype(str)
+
+        if PatchCSVColumns.LABEL_CLASS_ID in df.columns:
+            # missing values in the label column will be filled with UNASSIGNED_CLASS_ID and converted to int
+            df[PatchCSVColumns.LABEL_CLASS_ID] = (
+                df[PatchCSVColumns.LABEL_CLASS_ID].fillna(UNASSIGNED_CLASS_ID).astype(int)
+            )
+        else:
+            df[PatchCSVColumns.LABEL_CLASS_ID] = UNASSIGNED_CLASS_ID
+
+        df = df.set_index(uid_col)
 
         # Iterate over geojson features
         datasource = ogr.Open(self.geojson_path)
@@ -129,34 +142,30 @@ class HybridPatchIterable(GeometryIterable):
             geom = feature.GetGeometryRef()
             geom_type = geom.GetGeometryType()
 
-            if geom_type != ogr.wkbPolygon:
+            if geom_type not in VALID_OGR_GEOMETRY_TYPES:
                 geom_type_name = geom.GetGeometryName()
                 raise ValueError(
-                    f"HybridPatchIterator only supports Polygon geometries, "
-                    f"but feature FID={feature.GetFID()} has geometry type '{geom_type_name}'. "
-                    f"Use CsvGeometryIterator for point-based coordinates."
+                    f"HybridPatchIterator only supports Polygon and Point geometries, "
+                    f"but feature FID={feature.GetFID()} has geometry type '{geom_type_name}'."
                 )
 
             wkb_bytes = geom.ExportToWkb()
             geometry = wkb.loads(wkb_bytes)
 
             props = feature.items()
-            uid = props.get(PatchGeoJSONProperties.UID)
+            uid = props.get(PatchGeoJSONProperties.UID, None)
 
             # Look up in CSV
             patch_uuid: uuid.UUID | None = None
             label: int = UNASSIGNED_CLASS_ID
 
-            if uid is not None and str(uid) in uid_label_map:
-                csv_uuid_str, csv_label = uid_label_map[str(uid)]
-                patch_uuid = uuid.UUID(csv_uuid_str)
-                label = csv_label
+            if uid is not None and str(uid) in df.index:
+                label = df.at[str(uid), PatchCSVColumns.LABEL_CLASS_ID]
             else:
-                # Use feature label if available
-                for key in (PatchGeoJSONProperties.LABEL, PatchGeoJSONProperties.CLASS_ID, PatchGeoJSONProperties.LABEL_CLASS_ID):
-                    if key in props and props[key] is not None:
-                        label = int(props[key])
-                        break
+                # If the uid is not found in the CSV, we can either raise an error or assign default values.
+                # Here, we choose to assign default values.
+                label = UNASSIGNED_CLASS_ID
+                patch_uuid = None
 
             yield (geometry, label, patch_uuid)
 
