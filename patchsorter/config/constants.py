@@ -48,3 +48,9 @@ class PatchGeoJSONProperties(StrEnum):
     CLASS_ID = "class_id"
     LABEL_CLASS_ID = "label_class_id"
     UID = "uid"
+
+class LargeImageMetadataKeys(StrEnum):
+    IMAGE_WIDTH = "sizeX"
+    IMAGE_HEIGHT = "sizeY"
+    TILE_WIDTH = "tileWidth"
+    BASE_MAGNIFICATION = "magnification"
