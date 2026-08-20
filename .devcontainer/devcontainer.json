@@ -28,6 +28,6 @@
 		  "ms-ossdata.vscode-pgsql"]
 		}
 	},
-	"postCreateCommand": "uv pip install -e ."
+	"postCreateCommand": "curl -fsSL https://opencode.ai/install | bash && uv pip install -e ."
 
 }

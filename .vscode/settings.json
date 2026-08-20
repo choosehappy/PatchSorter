@@ -1,9 +1,42 @@
 {
     "python.testing.pytestArgs": [
-        "./patchsorter/tests"
+        "patchsorter/tests/"
     ],
+    "python.testing.pytestPath": "/home/ray/anaconda3/bin/pytest",
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
     "python-envs.defaultEnvManager": "ms-python.python:conda",
-    "python-envs.defaultPackageManager": "ms-python.python:conda"
+    "python-envs.defaultPackageManager": "ms-python.python:conda",
+    "python.analysis.autoImportCompletions": false,
+    "python.analysis.exclude": [
+        "**/node_modules",
+        "**/__pycache__",
+        "**/anaconda3/**",
+        "**/.pytest_cache",
+        "**/mounts",
+        "**/venv",
+        "**/_build",
+        "**/dist",
+        "**/*.egg-info",
+        "**/.ipynb_checkpoints",
+        "**/.DS_Store",
+        "**/*.pyc",
+        "**/*.pyo",
+        "**/*.pyd",
+        "**/*.log",
+        "**/prototyping/data",
+        "**/_version.py",
+        "ps_prototypes_v2/.vscode/launch.json",
+        "ps_prototypes_v2/mitosis_ps_labels.pytable",
+        "ps_prototypes_v2/workplan.md",
+        "ps_prototypes_v2/runs",
+        "ps_prototypes_v2/__pycache__",
+        "ps_prototypes_v2/.ipynb_checkpoints",
+        "ps_prototypes_v2/models",
+        "ps_prototypes_v2/tests/__pycache__",
+        "ps_prototypes_v2/*.png",
+        "ps_prototypes_v2/coords_embeddings.db",
+        "ps_prototypes_v2/coords_embeddings.db-shm",
+        "ps_prototypes_v2/coords_embeddings.db-wal", "**/.*", ".conda"
+    ],
 }

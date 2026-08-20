@@ -6,13 +6,13 @@ from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
 from patchsorter.api.v1.label_class.models import LabelClassResponse
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID
 from patchsorter.db.head_client.models import LabelClass, build_table_name, build_pred_table_name
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 
 from patchsorter.config.constants import PredPatchSuffix
 
-_UNASSIGNED_CLASS_ID = 1
-"""Reserved ``label_class_id`` for the "Unlabeled" class.  Cannot be deleted."""
+
 
 
 class LabelClassStore:
@@ -105,9 +105,9 @@ class LabelClassStore:
             ValueError: If *label_class_id* is ``1`` (the reserved Unlabeled
                 class).
         """
-        if label_class_id == _UNASSIGNED_CLASS_ID:
+        if label_class_id == UNASSIGNED_CLASS_ID:
             raise ValueError(
-                "The 'Unlabeled' label class (id=1) is reserved and cannot be deleted."
+                f"The 'Unlabeled' label class (id={UNASSIGNED_CLASS_ID}) is reserved and cannot be deleted."
             )
 
         n = project_id
@@ -115,7 +115,7 @@ class LabelClassStore:
         # Step 1: reset patch ground-truth labels.
         self._session.execute(
             text(
-                f"UPDATE {build_table_name(n)} SET label_class_id = 1 WHERE label_class_id = :lcid"
+                f"UPDATE {build_table_name(n)} SET label_class_id = {UNASSIGNED_CLASS_ID} WHERE label_class_id = :lcid"
             ),
             {"lcid": label_class_id},
         )
@@ -124,7 +124,7 @@ class LabelClassStore:
         for tbl in (build_pred_table_name(n, PredPatchSuffix.LATEST), build_pred_table_name(n, PredPatchSuffix.LAST)):
             self._session.execute(
                 text(
-                    f"UPDATE {tbl} SET label_class_id = 1 WHERE label_class_id = :lcid"
+                    f"UPDATE {tbl} SET label_class_id = {UNASSIGNED_CLASS_ID} WHERE label_class_id = :lcid"
                 ),
                 {"lcid": label_class_id},
             )
@@ -134,13 +134,13 @@ class LabelClassStore:
             cm_tbl = ConfusionMatrixStore.build_table_name(n, lvl)
             self._session.execute(
                 text(
-                    f"UPDATE {cm_tbl} SET pred_label = 1 WHERE pred_label = :lcid"
+                    f"UPDATE {cm_tbl} SET pred_label = {UNASSIGNED_CLASS_ID} WHERE pred_label = :lcid"
                 ),
                 {"lcid": label_class_id},
             )
             self._session.execute(
                 text(
-                    f"UPDATE {cm_tbl} SET gt_label = 1 WHERE gt_label = :lcid"
+                    f"UPDATE {cm_tbl} SET gt_label = {UNASSIGNED_CLASS_ID} WHERE gt_label = :lcid"
                 ),
                 {"lcid": label_class_id},
             )

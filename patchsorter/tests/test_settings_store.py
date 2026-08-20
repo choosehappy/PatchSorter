@@ -122,7 +122,7 @@ def test_get_returns_row_for_existing_key(db_session, seeded_project):
     pid = seeded_project["project_id"]
     row = SettingsStore(db_session).get("dl_num_workers", project_id=pid)
     assert row is not None
-    assert row.setting_value == "8"  # seeded default
+    assert row.setting_value == "1"  # seeded default
 
 
 def test_get_scoped_by_project_id(db_session, seeded_project):
@@ -216,7 +216,7 @@ def test_reset_restores_default_value(db_session, seeded_project):
 
     row = store.reset("dl_num_workers", project_id=pid)
     assert row is not None
-    assert row.setting_value == "8"  # back to seeded default
+    assert row.setting_value == "1"  # back to seeded default
 
 
 def test_reset_returns_unchanged_row_when_disabled(db_session, seeded_project):
@@ -238,7 +238,7 @@ def test_reset_with_project_id_returns_project_setting(db_session, seeded_projec
     row = store.reset("dl_num_workers", project_id=pid)
     assert row is not None
     assert row.project_id == pid
-    assert row.setting_value == "8"
+    assert row.setting_value == "1"
 
 
 # ---------------------------------------------------------------------------
@@ -255,8 +255,8 @@ def test_reset_all_resets_all_settings_in_scope(db_session, seeded_project):
 
     rows = store.reset_all(project_id=pid)
     values = {r.setting_key: r.setting_value for r in rows}
-    assert values["dl_num_workers"] == "8"
-    assert values["dl_patches_per_batch"] == "10000"
+    assert values["dl_num_workers"] == "1"
+    assert values["dl_patches_per_batch"] == "1024"
 
 
 def test_reset_all_includes_disabled_settings(db_session, seeded_project):
@@ -328,9 +328,9 @@ def test_get_all_as_dict_parses_integer(db_session, seeded_project):
     """get_all_as_dict() parses INTEGER type settings as int."""
     pid = seeded_project["project_id"]
     result = SettingsStore(db_session).get_all_as_dict(project_id=pid)
-    assert result["dl_num_workers"] == 8
+    assert result["dl_num_workers"] == 1
     assert isinstance(result["dl_num_workers"], int)
-    assert result["dl_patches_per_batch"] == 10000
+    assert result["dl_patches_per_batch"] == 1024
     assert isinstance(result["dl_patches_per_batch"], int)
 
 

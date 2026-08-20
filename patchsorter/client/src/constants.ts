@@ -4,8 +4,12 @@
 export const WORLD_SIZE = 4096
 
 
+// Upload
+export const ACCEPTED_EXTS = /\.(tif|tiff|png|jpg|jpeg)$/i
+export const ACCEPT_ATTR = '.tif,.tiff,.png,.jpg,.jpeg'
 
-// Quad base half-size in grid cells (scales by 2^(-zoom) for fixed visual size)
+// Magnification options for review step editor
+export const MAGNIFICATION_OPTIONS: number[] = [5, 10, 20, 40]
 export const QUAD_HALF = 32
 export const QUAD_PADDING = 2
 
