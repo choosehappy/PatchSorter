@@ -84,12 +84,6 @@ export default function ImagesTable({ projectId, images, labelClasses, isLoading
     }, [labelClasses, projectId, navigate])
 
     useEffect(() => {
-        if (!gridRef.current) return
-        const cols = buildColumns()
-        gridRef.current.slickGrid.setColumns(cols)
-    }, [labelClasses, buildColumns])
-
-    useEffect(() => {
         if (gridRef.current) {
             gridRef.current.slickGrid.invalidate()
         }
