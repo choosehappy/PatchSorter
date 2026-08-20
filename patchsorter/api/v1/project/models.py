@@ -20,3 +20,13 @@ class ProjectStatsResponse(BaseModel):
     labeled_count: int
     creation_date: datetime | None
     modification_date: datetime | None
+
+
+class CreateProjectRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class UpdateProjectRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None

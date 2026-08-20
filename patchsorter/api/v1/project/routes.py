@@ -8,7 +8,7 @@ from patchsorter.db.head_client import get_client as get_head_client
 from patchsorter.db.head_client.project import ProjectStore
 from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.db.head_client.models import build_table_name
-from patchsorter.api.v1.project.models import ProjectResponse, ProjectStatsResponse
+from patchsorter.api.v1.project.models import ProjectResponse, ProjectStatsResponse, CreateProjectRequest, UpdateProjectRequest
 
 router = APIRouter()
 
@@ -97,14 +97,22 @@ def get_project_stats(project_id: int) -> ProjectStatsResponse:
 @router.put("/projects/{project_id}", response_model=ProjectResponse)
 def update_project(
     project_id: int,
-    name: Optional[str] = None,
-    description: Optional[str] = None,
+    body: UpdateProjectRequest,
 ) -> ProjectResponse:
     client = get_head_client()
     with client.get_session() as session:
         store = ProjectStore(session)
         try:
-            row = store.update(project_id, name=name, description=description)
+            row = store.update(project_id, name=body.name, description=body.description)
         except RuntimeError:
             raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+    return ProjectResponse(**row)
+
+
+@router.post("/projects/", response_model=ProjectResponse)
+def create_project(body: CreateProjectRequest) -> ProjectResponse:
+    client = get_head_client()
+    with client.get_session() as session:
+        store = ProjectStore(session)
+        row = store.create(name=body.name, description=body.description)
     return ProjectResponse(**row)
