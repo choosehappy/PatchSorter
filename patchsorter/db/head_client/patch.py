@@ -529,6 +529,7 @@ class PatchStore:
         include_image: bool = True,
         label_pairs: Optional[List[Tuple[int, int]]] = None,
         image_id: Optional[int] = None,
+        label_class_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
         """Fetch a paginated page of ground-truth patches.
 
@@ -545,6 +546,8 @@ class PatchStore:
                 ``fetch_predicted``.
             image_id: Optional filter to only return patches for a specific
                 image.
+            label_class_ids: Optional filter to only return patches for specific
+                label classes.
 
         Returns:
             A list of flat dicts merging patch columns
@@ -557,6 +560,7 @@ class PatchStore:
             limit=limit,
             include_image=include_image,
             image_id=image_id,
+            label_class_ids=label_class_ids,
         )
 
     def _paginated_pred_join(
@@ -766,6 +770,7 @@ class PatchStore:
         limit: int = 20,
         include_image: bool = True,
         image_id: Optional[int] = None,
+        label_class_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
         """Return a paginated, keyset-cursor page of patches from the patch table.
 
@@ -814,6 +819,8 @@ class PatchStore:
         )
         if image_id is not None:
             stmt = stmt.where(t.c.image_id == image_id)
+        if label_class_ids is not None and len(label_class_ids) > 0:
+            stmt = stmt.where(t.c.label_class_id.in_(label_class_ids))
 
         rows = self._session.execute(stmt).mappings().all()
         return [dict(r) for r in rows]

@@ -61,20 +61,21 @@ def export_patch_csv(
     with get_client().get_session() as session:
         image_store = ImageStore(session)
         images = [
-            ExportImage(image_id=img_id, image_name=image_store.get(img_id).name)
+            ExportImage(image_id=img_id, image_name=image_store.get(img_id, project_id).name)
             for img_id in request.image_ids
         ]
+        label_class_ids = request.label_class_ids
 
     # Create the Ray actor (detached, lives beyond this request)
     ExportSessionActor.options(
         name=f"export_session_{session_id}",
         lifetime="detached",
         get_if_exists=False,
-    ).remote(project_id, session_id)
+    ).remote(project_id, session_id, label_class_ids)
 
     # Get the actor and dispatch per-image tasks
     actor = ray.get_actor(f"export_session_{session_id}")
-    dispatch_ref = actor.dispatch_tasks.remote(images)
+    dispatch_ref = actor.dispatch_tasks.remote(images, label_class_ids)
     parent_task_id = dispatch_ref.task_id().hex()
 
     # Build populated manifest_urls using url_path_for (no hardcoding)
@@ -112,7 +113,7 @@ async def download_patch_csv(
     actor = _get_actor(session_id)
     with get_client().get_session() as session:
         image_store = ImageStore(session)
-        image_name = image_store.get(image_id).name
+        image_name = image_store.get(image_id, project_id).name
     csv_path: Path = Path(ray.get(actor.get_csv_path.remote(image_id, image_name)))
 
     if not os.path.exists(csv_path):

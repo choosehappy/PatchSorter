@@ -8,6 +8,7 @@ from pydantic import BaseModel
 class ExportRequest(BaseModel):
     """Request body for starting a patch CSV export."""
     image_ids: list[int]
+    label_class_ids: list[int] = []
 
 
 @dataclass

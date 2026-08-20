@@ -15,6 +15,7 @@ def _export_patch_csv(
     image: ExportImage,
     project_id: int,
     session_id: str,
+    label_class_ids: list[int] = [],
     batch_size: int = 1000,
 ) -> None:
     """Export patch labels for a single image as a CSV file.
@@ -55,6 +56,7 @@ def _export_patch_csv(
                     limit=batch_size,
                     include_image=False,
                     image_id=image.image_id,
+                    label_class_ids=label_class_ids if label_class_ids else None,
                 )
 
                 if not rows:
@@ -82,10 +84,11 @@ class ExportSessionActor:
     session at a time.
     """
 
-    def __init__(self, project_id: int, session_id: str) -> None:
+    def __init__(self, project_id: int, session_id: str, label_class_ids: list[int] = []) -> None:
         self._project_id = project_id
         self._session_id = session_id
         self._fsman = FileStoreManager()
+        self._label_class_ids = label_class_ids
         self._fsman.export.create_session_dir(session_id)
 
     def __ray_shutdown__(self) -> None:
@@ -94,7 +97,7 @@ class ExportSessionActor:
         except Exception:
             pass
 
-    def dispatch_tasks(self, images: list[ExportImage]) -> None:
+    def dispatch_tasks(self, images: list[ExportImage], label_class_ids: list[int] = []) -> None:
         """Dispatch _export_patch_csv once per image.
 
         Each call to ``_export_patch_csv.remote()`` creates a Ray child task
@@ -111,7 +114,7 @@ class ExportSessionActor:
         child_refs = [
             _export_patch_csv
                 .options(name=f"Export {img.image_name}")
-                .remote(img, self._project_id, self._session_id)
+                .remote(img, self._project_id, self._session_id, label_class_ids if label_class_ids else self._label_class_ids)
             for img in images
         ]
 

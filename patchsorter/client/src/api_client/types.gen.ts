@@ -82,6 +82,10 @@ export type ExportRequest = {
      * Image Ids
      */
     image_ids: Array<number>;
+    /**
+     * Label Class Ids
+     */
+    label_class_ids?: Array<number>;
 };
 
 /**

@@ -6,12 +6,13 @@ import { exportPatchCsv, type ExportResponse } from '../../api_client'
 interface ExportModalProps {
     projectId: number
     selectedImageIds: Set<number>
+    selectedLabelClassIds: Set<number>
     onClose: () => void
     onExportStarted?: (data: { task_id: string; manifest_urls: string[] }) => void
     onExportComplete?: (urls: string[]) => void
 }
 
-export default function ExportModal({ projectId, selectedImageIds, onClose, onExportStarted, onExportComplete }: ExportModalProps) {
+export default function ExportModal({ projectId, selectedImageIds, selectedLabelClassIds, onClose, onExportStarted, onExportComplete }: ExportModalProps) {
     const [isExporting, setIsExporting] = useState(false)
 
     const handleExport = useCallback(async () => {
@@ -19,7 +20,7 @@ export default function ExportModal({ projectId, selectedImageIds, onClose, onEx
         try {
             const res = await exportPatchCsv({
                 path: { project_id: projectId },
-                body: { image_ids: [...selectedImageIds] },
+                body: { image_ids: [...selectedImageIds], label_class_ids: [...selectedLabelClassIds] },
             })
 
             if (res.error) {
@@ -46,7 +47,7 @@ export default function ExportModal({ projectId, selectedImageIds, onClose, onEx
             toast.error('Failed to start export. Please try again.')
             setIsExporting(false)
         }
-    }, [projectId, selectedImageIds, onClose, onExportStarted, onExportComplete])
+    }, [projectId, selectedImageIds, selectedLabelClassIds, onClose, onExportStarted, onExportComplete])
 
     return (
         <Modal show onHide={onClose} centered>
@@ -55,7 +56,7 @@ export default function ExportModal({ projectId, selectedImageIds, onClose, onEx
             </Modal.Header>
             <Modal.Body>
                 <p>
-                    Export patch labels for {selectedImageIds.size} image{selectedImageIds.size > 1 ? 's' : ''}?
+                    Export patch labels for {selectedLabelClassIds.size} label class{selectedLabelClassIds.size > 1 ? 'es' : ''} from {selectedImageIds.size} image{selectedImageIds.size > 1 ? 's' : ''}?
                 </p>
             </Modal.Body>
             <Modal.Footer>

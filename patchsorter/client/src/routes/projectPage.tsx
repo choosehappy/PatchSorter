@@ -122,6 +122,7 @@ export default function ProjectPage() {
                 <ExportModal
                     projectId={projectId}
                     selectedImageIds={selectedImageIds}
+                    selectedLabelClassIds={selectedLabelClassIds}
                     onClose={() => setShowExportModal(false)}
                     onExportStarted={handleExportStarted}
                     onExportComplete={handleExportComplete}
