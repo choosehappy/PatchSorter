@@ -1,34 +1,38 @@
-# DL Actor Lifecycle + Freeze Control Plan
+# DL Actor Termination + Freeze Control Plan
 
 ## Overview
 
-Add two orthogonal control dimensions for the `DLActor` (deep learning training actor):
+Add two orthogonal control flags to the `DLActor`:
 
-| Dimension | States | Variable | Meaning |
-|-----------|--------|----------|---------|
-| **Lifecycle** (outer) | UP / DOWN | `termination_signal` (bool) | Whether workers have been signalled for shutdown |
-| **Freeze** (inner, only valid when UP) | UNFREEZE / FREEZE | `_training_enabled` (bool) | Whether the training loop is paused |
+| Flag | Variable | Default | Meaning |
+|------|----------|---------|---------|
+| **Termination** (outer) | `_termination_signal` (bool) | `False` | Whether workers have been signalled for shutdown |
+| **Freeze** (inner, only valid when `termination_signal=False`) | `_training_enabled` (bool) | `False` | Whether the training loop is running |
 
-The frontend exposes a nested toggle UI: the outer toggle controls UP/DOWN, and when toggled ON (UP), it expands to reveal the FREEZE/UNFREEZE toggle.
+The frontend exposes a nested toggle UI: the outer toggle controls whether the actor is active (`termination_signal=False`) or shut down (`termination_signal=True`), and when active it expands to reveal the freeze toggle.
 
-**Key design decision: the DLActor Ray actor is never explicitly killed by this feature.** When workers receive the termination signal and exit, `trainer.fit()` completes and shuts down gracefully when the ray train remote method completes. State transitions are communicated via two boolean flags on the actor, which workers check every N batches processed. The backend always handles the case where the actor does not exist (never created or previously killed).
-
-**Important: `termination_signal` is one-way — once set to `True`, it cannot be reset to `False`.** Starting a new training session requires creating a new actor.
+**Key design decisions:**
+- **`termination_signal` is one-way — once set to `True`, it cannot be reset.** Starting a new training session requires creating a new actor.
+- **`_training_enabled` defaults to `False` (frozen).** Workers start in the frozen spin-wait until explicitly unfrozen via `set_training_enabled(True)`.
+- **`start_processing` signals and evicts any existing actor before creating a new one**, using retry logic modelled on QuickAnnotator's `truncate_processing_actors`.
+- **Actors are project-scoped:** actor name = `dl_actor_{project_id}`.
+- The backend always handles the case where the actor does not exist (never created or previously killed and removed).
 
 **State combinations:**
 
-| Lifecycle | Freeze | Meaning |
-|-----------|--------|---------|
-| DOWN | — | DL actor does not exist (or workers have exited). On startup resumes at the exact batch where it left off |
-| UP | UNFREEZE | Model is actively training |
-| UP | FREEZE | Model is loaded but training loop is paused; resumes at the exact batch where it left off |
+| `termination_signal` | `training_enabled` | Meaning |
+|---------------------|--------------------|---------|
+| actor absent | — | No actor for this project; `start_processing` will create one |
+| `False` | `False` | Actor is running, workers are in the frozen spin-wait |
+| `False` | `True` | Actor is running, workers are actively training |
+| `True` | either | Shutdown requested; workers will exit at next cycle boundary |
 
 ## Current State
 
 | File | Current state |
 |------|---------------|
-| `patchsorter/dl/training.py` | `DLActor` exists with `get_training_enabled` / `set_training_enabled` remote methods (boolean). `startup_dl_actor()` always creates the actor and immediately starts training. Outer loop: `while ray.get(actor.get_training_enabled.remote())`. No state tracking beyond `_training_enabled` flag. No API endpoint for DL state. `get_cursor_from_shard()` on `WorkerPatchStore` and the cursor-based `ShardDataset.__iter__` are **already implemented**. |
-| `patchsorter/api/v1/ray/routes.py` | Ray router exists with only `/task` endpoint for querying Ray task state. No DL actor endpoints. |
+| `patchsorter/dl/training.py` | `DLActor` exists with `get_training_enabled` / `set_training_enabled` remote methods. `startup_dl_actor()` creates/reuses actor and immediately starts training. Outer loop: `while ray.get(actor.get_training_enabled.remote())`. `_training_enabled` defaults to `False` in `__init__` and is set to `True` in `start_dl_proc`. No `_termination_signal`. No API endpoint. `get_cursor_from_shard()` and `ShardDataset.__iter__` are **already implemented**. |
+| `patchsorter/api/v1/ray/routes.py` | Ray router with only `/task` endpoint. No DL actor endpoints. |
 | `patchsorter/api/v1/main.py` | No DL-related router included. |
 | `patchsorter/client/src/components/projectPage/ActionsFooter.tsx` | Footer with action buttons. No DL state control component. |
 | `patchsorter/client/src/routes/projectPage.tsx` | Project page route. No DL state integration. |
@@ -37,64 +41,45 @@ The frontend exposes a nested toggle UI: the outer toggle controls UP/DOWN, and 
 
 ### Backend Design
 
-The DL actor state endpoints are added to the **existing** Ray router at `patchsorter/api/v1/ray/routes.py` rather than creating a new `dl_actor/` package. This follows the existing pattern where Ray-related endpoints live in a single router module.
+The DL actor state endpoints are added to the **existing** Ray router at `patchsorter/api/v1/ray/routes.py`.
 
-#### New endpoints (in `patchsorter/api/v1/ray/routes.py`):
+#### New endpoints:
 
 ```
-GET    /api/v1/ray/dl-actor/state/{project_id}           → get DL actor state (returns DetailedState or null)
-POST   /api/v1/ray/dl-actor/start-processing/{project_id}  → request UP (start processing)
-POST   /api/v1/ray/dl-actor/request-shutdown/{project_id}  → request DOWN (signal termination)
-POST   /api/v1/ray/dl-actor/set-freeze/{project_id}?frozen=true|false        → set FREEZE or UNFREEZE
+GET    /api/v1/ray/dl-actor/state/{project_id}               → DLActorState | null
+POST   /api/v1/ray/dl-actor/start-processing/{project_id}    → 204 No Content
+POST   /api/v1/ray/dl-actor/request-shutdown/{project_id}    → 204 No Content
+POST   /api/v1/ray/dl-actor/set-freeze/{project_id}?frozen=  → DLActorState
 ```
-
-#### New file: `patchsorter/api/v1/ray/models.py`
-
-Request/response models for DL actor state.
-
-#### New file: `patchsorter/api/v1/ray/service.py`
-
-Service layer that encapsulates the DL actor lifecycle and freeze state management (create actor if needed, set flags).
 
 ### State Resolution Logic (Backend)
 
-The backend determines the current state by checking Ray actor existence and the two boolean flags:
-
 ```python
-def get_dl_actor_detailed_state(project_id: int) -> DetailedState | None:
-    """Determine the current DL actor state.
-
-    Returns:
-        DetailedState if the actor exists (regardless of termination_signal value)
-        None if the actor does not exist
-    """
+def get_dl_actor_state(project_id: int) -> DLActorState | None:
+    """Returns DLActorState if actor exists, None otherwise."""
 ```
 
-**State resolution details:**
+1. **None**: `ray.get_actor(actor_name)` raises when no actor exists → return `None`.
+2. **Actor exists**: read both flags and return `DLActorState(termination_signal=..., training_enabled=...)`.
+3. **ActorDiedError** during flag reads → return `None`.
 
-1. **None (actor missing)**: `ray.get_actor("dl_actor")` raises `ValueError` (Ray 2.x) when no actor with that name exists. Wrap in `try/except` and return `None`.
-2. **DetailedState with termination_signal=True**: Actor exists AND `ray.get(actor.get_termination_signal.remote())` returns `True` — still returns DetailedState (lifecycle reflects the flag value).
-3. **DetailedState with termination_signal=False + _training_enabled=True**: Actor exists, `termination_signal` is `False`, and `_training_enabled` is `True` → UP + UNFREEZE.
-4. **DetailedState with termination_signal=False + _training_enabled=False**: Actor exists, `termination_signal` is `False`, and `_training_enabled` is `False` → UP + FREEZE.
+### DLActor Modifications (`patchsorter/dl/training.py`)
 
-### DLActor Modifications (in `patchsorter/dl/training.py`)
-
-The `DLActor` class needs the following changes:
-
-1. **Keep `_training_enabled` (bool) and add `termination_signal` (bool)**:
+1. **Add `_termination_signal` and update defaults in `__init__`:**
 
 ```python
 @ray.remote(max_concurrency=3)
 class DLActor:
     def __init__(self, project_id, app_config, label_classes):
         self._project_id = project_id
-        self._training_enabled: bool = True  # UNFREEZE by default
-        self._termination_signal: bool = False  # lifecycle UP by default
+        self._training_enabled: bool = False   # frozen by default until explicitly unfrozen
+        self._termination_signal: bool = False
+        self._training_ref: Optional[ray.ObjectRef] = None
         self._app_config = app_config or {}
         self._label_classes = label_classes
 ```
 
-2. **Remote methods for both flags**:
+2. **Remote methods for both flags:**
 
 ```python
 def get_training_enabled(self) -> bool:
@@ -110,108 +95,87 @@ def set_termination_signal(self, value: bool) -> None:
     self._termination_signal = value
 ```
 
-3. **`start_dl_proc` sets `termination_signal = False`** — when the actor is created and workers are launched, the lifecycle is UP. Remove any existing `_training_enabled = True` line if it's in `start_dl_proc` (it should stay in `__init__` as default).
+3. **`start_dl_proc` — remove the `self._training_enabled = True` line.** Workers start frozen; the caller must explicitly call `set_training_enabled(True)` or the user unfreezes via the UI.
 
-### Worker Loop Modifications (in `patchsorter/dl/training.py`)
+4. **Delete `startup_dl_actor`** — replaced entirely by `service.start_processing`.
 
-The `train_worker` function needs the following changes:
+### Worker Loop Modifications (`patchsorter/dl/training.py`)
 
-1. **Outer while loop checks both flags**:
+Add `FROZEN_POLL_INTERVAL_S: float = 2.0` as a module-level constant.
+
+Replace `while ray.get(actor.get_training_enabled.remote()):` with:
 
 ```python
 while True:
-    # --- Cycle-boundary checks (no active barriers here) ---
-    term = ray.get(actor.get_termination_signal.remote())
-    if term:
+    # Check termination at every cycle boundary (after barriers complete)
+    if ray.get(actor.get_termination_signal.remote()):
         logger.info("[Worker %d] Received termination signal. Shutting down.", rank)
         return
-    
-    enabled = ray.get(actor.get_training_enabled.remote())
-    while not enabled:
-        logger.info("[Worker %d] Paused (FREEZE). Waiting for UNFREEZE or termination.", rank)
+
+    # Spin-wait while frozen
+    while not ray.get(actor.get_training_enabled.remote()):
+        logger.info("[Worker %d] Frozen. Waiting for unfreeze or termination.", rank)
         time.sleep(FROZEN_POLL_INTERVAL_S)
-        term = ray.get(actor.get_termination_signal.remote())
-        if term:
+        if ray.get(actor.get_termination_signal.remote()):
             logger.info("[Worker %d] Received termination while frozen. Shutting down.", rank)
             return
-        enabled = ray.get(actor.get_training_enabled.remote())
-    
-    # enabled == True (UNFREEZE): run one full cycle
+
+    # training_enabled=True: run one full cycle
     cycle += 1
     logger.info("[Worker %d] Starting cycle %d.", rank, cycle)
-    
-    # ... existing shard discovery, ShardDataset construction, and inner training loop unchanged ...
-    
-    logger.info("[Worker %d] Cycle %d done. Waiting at barrier.", rank, cycle)
+
+    # ... shard discovery, ShardDataset, inner training loop (unchanged) ...
+
     barrier()
     if rank == 0:
         DatabaseManager(head_sm).rotate_pred_patch_tables(project_id)
-        logger.info("[Rank 0] Cycle %d — table rotation complete.", cycle)
     barrier()
-    logger.info("[Worker %d] Cycle %d complete. Starting next cycle.", rank, cycle)
+    logger.info("[Worker %d] Cycle %d complete.", rank, cycle)
 ```
 
-2. **Add `FROZEN_POLL_INTERVAL_S`** as a module-level constant (`2.0`).
+**Termination/freeze are only checked at cycle boundaries (after both barriers complete), so all workers are always in sync.**
 
-3. **FREEZE state pause** — workers spin-wait at the cycle boundary between barriers. No dataset iteration occurs while FREEZE. When UNFREEZE is set, the spin exits and a new `ShardDataset` is constructed for the next cycle, resuming via `get_cursor_from_shard` for each shard.
+### Resume Cursor (freeze → unfreeze)
 
-4. **Termination detection is barrier-safe** — flags are only read after end-of-cycle barriers complete, so all workers are always in sync when they check. No barrier deadlock is possible.
+**Already implemented.** `WorkerPatchStore.get_cursor_from_shard()` and `ShardDataset.__iter__` are present. No changes needed. When unfrozen, each worker constructs a new `ShardDataset` whose `__iter__` resumes from the highest already-written `patch_id` per shard via `COALESCE(MAX(patch_id), 0)`.
 
-### Resume Cursor (FREEZE → UNFREEZE)
+### State Transition Logic
 
-**Already implemented.** `WorkerPatchStore.get_cursor_from_shard()` and the cursor-based `ShardDataset.__iter__` are both present in the codebase. No changes needed.
+#### `start_processing` — create actor (with truncation/retry)
 
-**How it works:**
-- When FREEZE is detected at a cycle boundary, the current cycle may be partially complete. On the next UNFREEZE cycle, each worker constructs a new `ShardDataset` whose `__iter__` calls `get_cursor_from_shard` to resume from the highest already-written `patch_id` per shard.
-- Each worker has a stable shard subset (round-robin: `shard_id % num_workers == rank`), so the same shards are always assigned to the same worker.
-- `COALESCE(MAX(patch_id), 0)` returns 0 when the shard has no pred patches yet (fresh start).
+```
+1. If actor exists and termination_signal=False: signal termination_signal=True.
+2. Retry loop (MAX_START_RETRIES attempts, START_RETRY_DELAY_S sleep):
+   - If actor no longer exists: break.
+   - On last retry: force-kill with ray.kill(actor, no_restart=True).
+3. Create new actor: DLActor.options(name=dl_actor_{project_id}, get_if_exists=False).remote(...)
+   - __init__ defaults: training_enabled=False (frozen), termination_signal=False.
+4. Call actor.start_dl_proc.remote(num_workers).
+```
 
-### Lifecycle Transition Logic
+#### `request_shutdown`
 
-#### DOWN (actor missing) → UP
+```
+1. If no actor: raise 400.
+2. If termination_signal=True already: raise 400.
+3. ray.get(actor.set_termination_signal.remote(True)).
+```
 
-1. Create DLActor via `DLActor.remote(project_id, app_config, label_classes)` with `name="dl_actor"`. `__init__` defaults to `_training_enabled=True` (UNFREEZE) and `termination_signal=False` (UP).
-2. Call `actor.start_dl_proc.remote(num_workers)`.
+#### `set_freeze`
 
-#### DOWN (actor present, workers exited) → UP
-
-1. **Cannot reset `termination_signal`** — it is one-way. Create a **new** DLActor via `DLActor.remote(...)`.
-2. Call `actor.start_dl_proc.remote(num_workers)`.
-
-> **Note:** Since `termination_signal` cannot be reset, the `start_processing` endpoint does nothing if an existing actor for the project_id has `termination_signal=True`. The old actor will shut down gracefully. Only after this point will the start_processing endpoint start up a new actor.
-
-#### UP → DOWN
-
-1. Get existing actor handle: `ray.get_actor("dl_actor")`.
-2. Call `actor.set_termination_signal.remote(True)`.
-
-#### Frozen (UP + FREEZE) → DOWN
-
-1. Get existing actor handle: `ray.get_actor("dl_actor")`.
-2. Call `actor.set_termination_signal.remote(True)`.
-
-### Freeze Transition Logic
-
-#### UP + UNFREEZE → UP + FREEZE
-
-1. Get existing actor handle: `ray.get_actor("dl_actor")`.
-2. Call `actor.set_training_enabled.remote(False)`.
-3. Return `UP + FREEZE` **immediately** — workers enter the spin-wait at their next cycle boundary.
-
-#### UP + FREEZE → UP + UNFREEZE
-
-1. Get existing actor handle: `ray.get_actor("dl_actor")`.
-2. Call `actor.set_training_enabled.remote(True)`.
-3. Return `UP + UNFREEZE` **immediately** — workers exit the spin-wait on their next poll.
+```
+1. If no actor or termination_signal=True: raise 400.
+2. ray.get(actor.set_training_enabled.remote(not frozen)).
+3. Return updated DLActorState.
+```
 
 ### Frontend Design
 
 #### New file: `patchsorter/client/src/components/labelingPage/DLActorControl.tsx`
 
-A self-contained React component that displays the current DL actor state with a **nested toggle UI**. Uses `@tanstack/react-query` for polling and mutations.
+Uses `@tanstack/react-query` and the **generated SDK** from `patchsorter/client/src/api_client/sdk.gen.ts`.
 
 **Props:**
-
 ```typescript
 interface DLActorControlProps {
     projectId: number
@@ -219,62 +183,37 @@ interface DLActorControlProps {
 }
 ```
 
-**State structure:**
-
+**State** (from generated `DLActorState` type in `types.gen.ts`):
 ```typescript
-interface DetailedState {
-    lifecycle: boolean  // true = UP, false = DOWN
-    freeze: boolean     // true = FREEZE, false = UNFREEZE
+// Generated type mirrors the Pydantic model:
+interface DLActorState {
+    termination_signal: boolean   // true = shutdown requested
+    training_enabled: boolean     // true = active, false = frozen
 }
+
+// Derived UI state:
+// isActive = state !== null && !state.termination_signal
+// isFrozen = isActive && !state.training_enabled
 ```
-
-**API integration:**
-
-- `GET /api/v1/ray/dl-actor/state/{project_id}` → `DetailedState | null` (null when actor doesn't exist)
-- `POST /api/v1/ray/dl-actor/start-processing/{project_id}` → `DetailedState`
-- `POST /api/v1/ray/dl-actor/request-shutdown/{project_id}` → `DetailedState`
-- `POST /api/v1/ray/dl-actor/set-freeze/{project_id}?frozen=true|false` → `DetailedState`
 
 **UI structure:**
-
 ```
 ┌─────────────────────────────────────┐
-│  [Toggle: DL Active ▼]              │  ← outer toggle (UP/DOWN)
+│  [Toggle: DL Active / Inactive]     │  ← outer toggle (termination_signal=False → active)
 ├─────────────────────────────────────┤
 │  ┌───────────────────────────────┐  │
-│  │  [Toggle: Freeze ▼]           │  │  ← inner toggle (FREEZE/UNFREEZE)
+│  │  [Toggle: Training / Frozen]  │  │  ← inner toggle (training_enabled)
 │  └───────────────────────────────┘  │
 └─────────────────────────────────────┘
 ```
 
-- When lifecycle is **DOWN**, the outer toggle is in the "off" position and the inner section is hidden.
-- When lifecycle is **UP**, the outer toggle is "on" and the div expands to reveal the FREEZE/UNFREEZE toggle.
-- The FREEZE toggle is only visible and interactive when the lifecycle is UP.
-- If the user toggles lifecycle DOWN while FREEZE is active, the FREEZE state is cleared (termination overrides freeze).
-
-**Behavior:**
-
-- Polls the current state at `pollIntervalMs` (default 3000ms).
-- On toggle click, disables the affected toggle during the mutation (spinner).
-- Shows error message on mutation failure.
-- The outer lifecycle toggle is always visible; the inner freeze toggle is nested and conditionally rendered.
+- Outer toggle OFF: actor absent or `termination_signal=True`. Inner section hidden.
+- Outer toggle ON: actor present and `termination_signal=False`. Inner section visible.
+- Inner toggle shows "Training" (`training_enabled=True`) or "Frozen" (`training_enabled=False`).
 
 #### Integration: Labeling Page Toolbar
 
-Add `DLActorControl` to the toolbar in the labeling page. The toolbar is typically in `patchsorter/client/src/components/labelingPage/` (check for `Toolbar.tsx` or similar).
-
-```tsx
-<Toolbar
-    // ... existing props
-    dlActorControl={{ projectId }}
->
-```
-
-The component renders as a small inline control within the toolbar, positioned alongside other project-level controls.
-
-#### Integration: `ProjectPage`
-
-No changes needed to `projectPage.tsx` route itself — the DL control is embedded in the labeling page toolbar.
+Add `DLActorControl` to the existing toolbar component in `patchsorter/client/src/components/labelingPage/`.
 
 ## File Layout
 
@@ -284,8 +223,8 @@ patchsorter/
     ray/
       __init__.py            ← exports router (existing)
       routes.py              ← add GET/POST /dl-actor/* endpoints
-      models.py              ← NEW: DetailedState, FreezeRequest
-      service.py             ← NEW: get_dl_actor_detailed_state(), start_processing(), request_shutdown(), set_freeze()
+      models.py              ← NEW: DLActorState model
+      service.py             ← NEW: get_dl_actor_state(), start_processing(), request_shutdown(), set_freeze()
   client/src/
     components/
       labelingPage/
@@ -300,120 +239,125 @@ patchsorter/
 from pydantic import BaseModel
 
 
-class DetailedState(BaseModel):
-    lifecycle: bool   # True = UP, False = DOWN
-    freeze: bool      # True = FREEZE, False = UNFREEZE
-
-
-class FreezeRequest(BaseModel):
-    frozen: bool  # True → FREEZE, False → UNFREEZE
+class DLActorState(BaseModel):
+    termination_signal: bool  # True = shutdown requested
+    training_enabled: bool    # True = active, False = frozen
 ```
 
 ### `service.py` (new file: `patchsorter/api/v1/ray/service.py`)
 
 ```python
+import time
+import logging
+
 import ray
-import uuid
 from ray.exceptions import ActorDiedError
-from patchsorter.dl.training import DLActor, DL_ACTOR_NAME
+
+from patchsorter.dl.training import DLActor
 from patchsorter.db import head_client
 from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.db.head_client.label_class import LabelClassStore
-from .models import DetailedState, FreezeRequest
+from .models import DLActorState
+
+logger = logging.getLogger(__name__)
+
+MAX_START_RETRIES: int = 10
+START_RETRY_DELAY_S: float = 2.0
 
 
-def _get_actor_handle():
-    """Return the DL actor handle, or None if it does not exist."""
+def _actor_name(project_id: int) -> str:
+    return f"dl_actor_{project_id}"
+
+
+def _get_actor_handle(project_id: int):
+    """Return the actor handle, or None if it does not exist."""
     try:
-        return ray.get_actor(DL_ACTOR_NAME)
+        return ray.get_actor(_actor_name(project_id))
     except Exception:
         return None
 
 
-def get_dl_actor_detailed_state(project_id: int) -> DetailedState | None:
-    """Determine the current DL actor state.
-
-    Returns:
-        DetailedState if the actor exists (regardless of termination_signal value)
-        None if the actor does not exist
-    """
-    actor = _get_actor_handle()
+def get_dl_actor_state(project_id: int) -> DLActorState | None:
+    actor = _get_actor_handle(project_id)
     if actor is None:
         return None
     try:
         term = ray.get(actor.get_termination_signal.remote())
         enabled = ray.get(actor.get_training_enabled.remote())
-        lifecycle = term  # True = DOWN, False = UP
-        freeze = not enabled  # True = FREEZE, False = UNFREEZE
-        return DetailedState(lifecycle=lifecycle, freeze=freeze)
+        return DLActorState(termination_signal=term, training_enabled=enabled)
     except ActorDiedError:
         return None
 
 
 def start_processing(project_id: int) -> None:
-    """Request lifecycle transition to UP (start processing).
+    """Signal any existing actor to stop, wait for it to exit, then create a new one."""
+    existing = _get_actor_handle(project_id)
+    if existing is not None:
+        try:
+            if not ray.get(existing.get_termination_signal.remote()):
+                ray.get(existing.set_termination_signal.remote(True))
+                logger.info("Signalled termination on existing actor for project %d.", project_id)
+        except Exception:
+            pass
 
-    Since termination_signal is one-way, only capable of creating an actor if one does not already exist.
-    Raises error if a worker is already running (actor exists with termination_signal=False).
-    """
-    current = get_dl_actor_detailed_state(project_id)
+    # Wait for actor to leave Ray's namespace; force-kill on final retry
+    for attempt in range(MAX_START_RETRIES):
+        if _get_actor_handle(project_id) is None:
+            break
+        if attempt == MAX_START_RETRIES - 1:
+            actor = _get_actor_handle(project_id)
+            if actor is not None:
+                logger.warning(
+                    "Force-killing actor for project %d after %d retries.",
+                    project_id, MAX_START_RETRIES,
+                )
+                ray.kill(actor, no_restart=True)
+        else:
+            time.sleep(START_RETRY_DELAY_S)
 
-    # Check if a live actor exists (UP, workers still running)
-    if current is not None and current.lifecycle is True:
-        raise ValueError("DL actor is already active (UP)")
-
-    # Create a new actor (always, since termination_signal is one-way)
+    # Create new actor; training_enabled=False by default (frozen until explicitly unfrozen)
     app_config, label_classes = _get_project_config(project_id)
-    actor = DLActor.options(name=DL_ACTOR_NAME, get_if_exists=False).remote(
-        project_id, app_config, label_classes
-    )
-    # __init__ defaults to termination_signal=False (UP) and _training_enabled=True (UNFREEZE)
+    actor = DLActor.options(  # type: ignore[attr-defined]
+        name=_actor_name(project_id),
+        get_if_exists=False,
+    ).remote(project_id, app_config, label_classes)
 
-    # Launch workers
-    num_workers = app_config.get("dl_num_workers", 8)
+    num_workers: int = app_config.get("dl_num_workers", 8)
     actor.start_dl_proc.remote(num_workers)
 
 
 def request_shutdown(project_id: int) -> None:
-    """Request lifecycle transition to DOWN (signal termination).
-
-    Raises error if actor does not exist or termination already signaled.
-    """
-    current = get_dl_actor_detailed_state(project_id)
+    current = get_dl_actor_state(project_id)
     if current is None:
         raise ValueError("DL actor does not exist")
-    if current.lifecycle is False:  # lifecycle=False means termination_signal=True (DOWN)
+    if current.termination_signal:
         raise ValueError("Termination already signaled")
 
-    actor = _get_actor_handle()
+    actor = _get_actor_handle(project_id)
     if actor is None:
         raise ValueError("DL actor does not exist")
-    actor.set_termination_signal.remote(True)
+    ray.get(actor.set_termination_signal.remote(True))
 
 
-def set_freeze(project_id: int, frozen: bool) -> DetailedState:
-    """Set freeze state. Only valid when lifecycle is UP.
+def set_freeze(project_id: int, frozen: bool) -> DLActorState:
+    """frozen=True → set training_enabled=False; frozen=False → set training_enabled=True."""
+    current = get_dl_actor_state(project_id)
+    if current is None or current.termination_signal:
+        raise ValueError("Cannot set freeze: actor is not active")
 
-    frozen=True → FREEZE, frozen=False → UNFREEZE
-    """
-    current = get_dl_actor_detailed_state(project_id)
-    if current is None or current.lifecycle is True:  # lifecycle=True means termination_signal=False (UP)
-        raise ValueError("Freeze can only be set when lifecycle is UP")
-
-    actor = _get_actor_handle()
-    if actor is None:
-        raise ValueError("DL actor does not exist")
-
-    if current.freeze == frozen:
+    new_enabled = not frozen
+    if current.training_enabled == new_enabled:
         return current  # no-op
 
-    actor.set_training_enabled.remote(not frozen)  # True = UNFREEZE, False = FREEZE
-    freeze_state = frozen
-    return DetailedState(lifecycle=False, freeze=freeze_state)  # lifecycle=False means UP
+    actor = _get_actor_handle(project_id)
+    if actor is None:
+        raise ValueError("DL actor does not exist")
+
+    ray.get(actor.set_training_enabled.remote(new_enabled))
+    return DLActorState(termination_signal=False, training_enabled=new_enabled)
 
 
 def _get_project_config(project_id: int):
-    """Fetch app_config and label_classes for actor creation."""
     head_sm = head_client.get_client()
     with head_sm.get_session() as session:
         app_config = SettingsStore(session).get_all_as_dict(project_id)
@@ -421,43 +365,33 @@ def _get_project_config(project_id: int):
     return app_config, label_classes
 ```
 
-> **Note on lifecycle boolean semantics:** `lifecycle=True` in `DetailedState` means `termination_signal=True` (DOWN), and `lifecycle=False` means `termination_signal=False` (UP). This directly mirrors the underlying flag. The frontend inverts this for display: `isUp = !state.lifecycle`.
-
 ### Updated `routes.py` (modify `patchsorter/api/v1/ray/routes.py`)
-
-Add the following routes to the existing file:
 
 ```python
 from fastapi import APIRouter, HTTPException, Query
-from .models import DetailedState, FreezeRequest
-from .service import get_dl_actor_detailed_state, start_processing, request_shutdown, set_freeze
+from .models import DLActorState
+from .service import get_dl_actor_state, start_processing, request_shutdown, set_freeze
 
-# ... existing code above ...
+# ... existing /task endpoint above ...
 
 @router.get(
     "/dl-actor/state/{project_id}",
     tags=["DL Actor"],
     operation_id="getDlActorState",
 )
-def get_dl_actor_state_endpoint(project_id: int) -> DetailedState | None:
-    """Get the current DL actor state for a project.
-    
-    Returns null if the actor does not exist.
-    """
-    return get_dl_actor_detailed_state(project_id)
+def get_dl_actor_state_endpoint(project_id: int) -> DLActorState | None:
+    return get_dl_actor_state(project_id)
 
 
 @router.post(
     "/dl-actor/start-processing/{project_id}",
     tags=["DL Actor"],
     operation_id="startProcessing",
+    status_code=204,
 )
 def start_processing_endpoint(project_id: int) -> None:
-    """Request UP: start (or restart) the DL training process."""
     try:
         start_processing(project_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -466,9 +400,9 @@ def start_processing_endpoint(project_id: int) -> None:
     "/dl-actor/request-shutdown/{project_id}",
     tags=["DL Actor"],
     operation_id="requestShutdown",
+    status_code=204,
 )
 def request_shutdown_endpoint(project_id: int) -> None:
-    """Request DOWN: signal the DL actor workers to shut down gracefully."""
     try:
         request_shutdown(project_id)
     except ValueError as e:
@@ -484,9 +418,8 @@ def request_shutdown_endpoint(project_id: int) -> None:
 )
 def set_freeze_endpoint(
     project_id: int,
-    frozen: bool = Query(..., description="True to FREEZE, False to UNFREEZE"),
-) -> DetailedState:
-    """Set the freeze state (only valid when lifecycle is UP)."""
+    frozen: bool = Query(..., description="True to freeze, False to unfreeze"),
+) -> DLActorState:
     try:
         return set_freeze(project_id, frozen)
     except ValueError as e:
@@ -499,59 +432,22 @@ def set_freeze_endpoint(
 
 ### `DLActorControl.tsx` (new file)
 
-Uses `react-bootstrap` (already a project dependency) — no new UI library required.
+Uses the **generated SDK** (`api_client/sdk.gen.ts`). The SDK is regenerated in step 7 before this component is written.
 
 ```tsx
-import { ToggleButton, ToggleButtonGroup, Spinner } from 'react-bootstrap'
+import { ToggleButton, Spinner } from 'react-bootstrap'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+    getDlActorState,
+    startProcessing,
+    requestShutdown,
+    setDlActorFreeze,
+} from '@/api_client/sdk.gen'
+import type { DLActorState } from '@/api_client/types.gen'
 
 interface DLActorControlProps {
     projectId: number
     pollIntervalMs?: number
-}
-
-interface DetailedState {
-    lifecycle: boolean  // true = DOWN (termination signaled), false = UP
-    freeze: boolean     // true = FREEZE, false = UNFREEZE
-}
-
-async function fetchState(projectId: number): Promise<DetailedState | null> {
-    const res = await fetch(`/api/v1/ray/dl-actor/state/${projectId}`)
-    if (!res.ok) throw new Error('Failed to fetch DL actor state')
-    const data = await res.json()
-    return data  // null when actor doesn't exist
-}
-
-async function startProcessing(projectId: number): Promise<void> {
-    const res = await fetch(`/api/v1/ray/dl-actor/start-processing/${projectId}`, {
-        method: 'POST',
-    })
-    if (!res.ok) {
-        const err = await res.text()
-        throw new Error(err || 'Failed to start processing')
-    }
-}
-
-async function requestShutdown(projectId: number): Promise<void> {
-    const res = await fetch(`/api/v1/ray/dl-actor/request-shutdown/${projectId}`, {
-        method: 'POST',
-    })
-    if (!res.ok) {
-        const err = await res.text()
-        throw new Error(err || 'Failed to request shutdown')
-    }
-}
-
-async function setFreeze(projectId: number, frozen: boolean): Promise<DetailedState> {
-    const res = await fetch(
-        `/api/v1/ray/dl-actor/set-freeze/${projectId}?frozen=${frozen}`,
-        { method: 'POST' }
-    )
-    if (!res.ok) {
-        const err = await res.text()
-        throw new Error(err || 'Failed to update freeze state')
-    }
-    return res.json()
 }
 
 export default function DLActorControl({
@@ -560,90 +456,68 @@ export default function DLActorControl({
 }: DLActorControlProps) {
     const queryClient = useQueryClient()
 
-    const { data: state } = useQuery({
+    const { data: state } = useQuery<DLActorState | null>({
         queryKey: ['dlActorState', projectId],
-        queryFn: () => fetchState(projectId),
+        queryFn: () =>
+            getDlActorState({ path: { project_id: projectId } }).then(r => r.data ?? null),
         refetchInterval: pollIntervalMs,
-        // state is null when actor doesn't exist
     })
 
     const lifecycleMutation = useMutation({
-        mutationFn: (active: boolean) =>
-            active ? startProcessing(projectId) : requestShutdown(projectId),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['dlActorState', projectId] })
-        },
+        mutationFn: (activate: boolean) =>
+            activate
+                ? startProcessing({ path: { project_id: projectId } })
+                : requestShutdown({ path: { project_id: projectId } }),
+        onSuccess: () =>
+            queryClient.invalidateQueries({ queryKey: ['dlActorState', projectId] }),
     })
 
     const freezeMutation = useMutation({
-        mutationFn: (frozen: boolean) => setFreeze(projectId, frozen),
-        onSuccess: (newState) => {
-            queryClient.setQueryData(['dlActorState', projectId], newState)
-        },
+        mutationFn: (frozen: boolean) =>
+            setDlActorFreeze({ path: { project_id: projectId }, query: { frozen } }).then(
+                r => r.data!,
+            ),
+        onSuccess: newState =>
+            queryClient.setQueryData(['dlActorState', projectId], newState),
     })
 
-    // lifecycle=true means DOWN (termination signaled), false means UP
-    // Invert for UI: isUp = !state.lifecycle
-    const isUp = state !== null && !state.lifecycle
-    const isFrozen = state !== null && state.freeze
-    const lifecyclePending = lifecycleMutation.isPending
-    const freezePending = freezeMutation.isPending
+    const isActive = state !== null && state !== undefined && !state.termination_signal
+    const isFrozen = isActive && !state!.training_enabled
 
     return (
         <div className="d-inline-block">
-            {/* Outer lifecycle toggle */}
-            <ToggleButtonGroup
-                type="radio"
-                value={isUp ? 'up' : null}
-                onChange={(val) => {
-                    if (val === 'up') {
-                        lifecycleMutation.mutate(true)  // request UP
-                    } else {
-                        lifecycleMutation.mutate(false)  // request DOWN
-                    }
-                }}
-                disabled={lifecyclePending}
+            <ToggleButton
+                id="dl-lifecycle-toggle"
+                type="checkbox"
+                variant={isActive ? 'success' : 'outline-secondary'}
+                checked={isActive}
+                value="active"
+                size="sm"
+                disabled={lifecycleMutation.isPending}
+                onChange={() => lifecycleMutation.mutate(!isActive)}
             >
-                <ToggleButton
-                    id="dl-lifecycle-up"
-                    type="radio"
-                    variant={isUp ? 'success' : 'outline-success'}
-                    value="up"
-                    size="sm"
-                >
-                    {lifecyclePending ? (
-                        <>
-                            <Spinner animation="border" size="sm" className="me-1" />
-                            Updating…
-                        </>
-                    ) : (
-                        isUp ? 'DL: Active' : 'DL: Inactive'
-                    )}
-                </ToggleButton>
-            </ToggleButtonGroup>
+                {lifecycleMutation.isPending ? (
+                    <><Spinner animation="border" size="sm" className="me-1" />Updating…</>
+                ) : (
+                    isActive ? 'DL: Active' : 'DL: Inactive'
+                )}
+            </ToggleButton>
 
-            {/* Inner freeze section — only visible when lifecycle is UP */}
-            {isUp && (
+            {/* Freeze toggle — only shown when actor is active */}
+            {isActive && (
                 <div className="mt-1 ms-2 ps-2 border-start">
-                    <ToggleButtonGroup
-                        type="radio"
-                        value={isFrozen ? 'frozen' : 'unfrozen'}
-                        onChange={(val) => {
-                            const frozen = val === 'frozen'
-                            freezeMutation.mutate(frozen)
-                        }}
-                        disabled={freezePending}
+                    <ToggleButton
+                        id="dl-freeze-toggle"
+                        type="checkbox"
+                        variant={isFrozen ? 'warning' : 'outline-primary'}
+                        checked={isFrozen}
+                        value="frozen"
+                        size="sm"
+                        disabled={freezeMutation.isPending}
+                        onChange={() => freezeMutation.mutate(!isFrozen)}
                     >
-                        <ToggleButton
-                            id="dl-freeze-frozen"
-                            type="radio"
-                            variant={isFrozen ? 'primary' : 'outline-primary'}
-                            value="frozen"
-                            size="sm"
-                        >
-                            {freezePending ? 'Freezing…' : isFrozen ? 'Frozen' : 'Unfrozen'}
-                        </ToggleButton>
-                    </ToggleButtonGroup>
+                        {freezeMutation.isPending ? 'Updating…' : isFrozen ? 'Frozen' : 'Training'}
+                    </ToggleButton>
                 </div>
             )}
 
@@ -657,18 +531,13 @@ export default function DLActorControl({
 
 ### Integration: Labeling Page Toolbar
 
-Add to the toolbar component in the labeling page:
+Find the existing toolbar component in `patchsorter/client/src/components/labelingPage/` and add:
 
 ```tsx
-interface ToolbarProps {
-    // ... existing props
-    dlActorControl?: { projectId: number }
-}
-```
+// in props interface:
+dlActorControl?: { projectId: number }
 
-Render in the toolbar (position alongside other project-level controls):
-
-```tsx
+// in render:
 {dlActorControl && (
     <DLActorControl projectId={dlActorControl.projectId} />
 )}
@@ -676,41 +545,48 @@ Render in the toolbar (position alongside other project-level controls):
 
 ## Implementation Order
 
-1. **Modify `patchsorter/dl/training.py`** — Add `termination_signal` (bool) to `DLActor.__init__` and remote methods (`get_termination_signal()` / `set_termination_signal()`). Keep `_training_enabled` as-is. Update `train_worker` outer loop to check both flags: `while True` with cycle-boundary checks for `termination_signal` (exit) and `_training_enabled` (FREEZE spin-wait). Remove `_training_enabled = True` from `start_dl_proc` if present (it should default in `__init__`). (`get_cursor_from_shard` and `ShardDataset.__iter__` are already implemented — no changes needed there.)
+1. **Modify `patchsorter/dl/training.py`**:
+   - Add `_termination_signal: bool = False` to `DLActor.__init__`.
+   - Keep `_training_enabled: bool = False` in `__init__` (already correct); **remove** `self._training_enabled = True` from `start_dl_proc`.
+   - Add `get_termination_signal()` / `set_termination_signal()` remote methods.
+   - Replace the `while ray.get(actor.get_training_enabled.remote()):` loop with the `while True:` loop checking both flags at cycle boundaries.
+   - Add `FROZEN_POLL_INTERVAL_S = 2.0` module-level constant.
+   - Add `import time` if not present.
+   - **Delete `startup_dl_actor`** (replaced by `service.start_processing`).
 
-2. **Create `patchsorter/api/v1/ray/models.py`** — Define `DetailedState` (with boolean `lifecycle` and `freeze` fields) and `FreezeRequest` Pydantic models.
+2. **Create `patchsorter/api/v1/ray/models.py`** — `DLActorState` with `termination_signal` and `training_enabled`.
 
-3. **Create `patchsorter/api/v1/ray/service.py`** — Implement `_get_actor_handle()`, `get_dl_actor_detailed_state()` (returns `DetailedState | None`), `start_processing()` (no return, always creates new actor since termination is one-way), `request_shutdown()` (no return), and `set_freeze()` with proper error checking (no duplicate UP, no double termination).
+3. **Create `patchsorter/api/v1/ray/service.py`** — `_actor_name()`, `_get_actor_handle()`, `get_dl_actor_state()`, `start_processing()` (signal → retry/wait → force-kill → create), `request_shutdown()`, `set_freeze()`.
 
-4. **Modify `patchsorter/api/v1/ray/routes.py`** — Add GET state query and POST lifecycle/freeze endpoints (append to existing file, no new package).
+4. **Modify `patchsorter/api/v1/ray/routes.py`** — append the four DL actor endpoints.
 
-5. **Create `patchsorter/client/src/components/labelingPage/DLActorControl.tsx`** — Frontend nested toggle component (react-bootstrap).
+5. **Regenerate TypeScript client** — run `npm run openapi-ts` in `patchsorter/client/` to produce `DLActorState` type and SDK functions.
 
-6. **Update the labeling page toolbar component** — Add `dlActorControl` prop and render the component.
+6. **Create `patchsorter/client/src/components/labelingPage/DLActorControl.tsx`** — nested toggle component using generated SDK.
 
-7. **Regenerate TypeScript client** — Run `npm run openapi-ts` in `patchsorter/client/` to generate types and SDK functions for the new endpoints.
+7. **Update the labeling page toolbar component** — add `dlActorControl` prop and render `DLActorControl`.
 
-8. **Test all transitions end-to-end** — Verify UP/DOWN lifecycle transitions, FREEZE/UNFREEZE freeze transitions, nested UI behavior, and error cases (duplicate UP, double termination).
+8. **Test all transitions end-to-end** — actor creation (starts frozen), unfreeze, freeze, shutdown, restart (evicts old actor), force-kill path.
 
 ## Files to Create
 
 | File | Action |
 |------|--------|
-| `patchsorter/api/v1/ray/models.py` | **Create** — DetailedState (boolean fields), FreezeRequest models |
-| `patchsorter/api/v1/ray/service.py` | **Create** — State resolution (returns DetailedState \| None), start_processing, request_shutdown, set_freeze logic |
-| `patchsorter/client/src/components/labelingPage/DLActorControl.tsx` | **Create** — Nested toggle component |
+| `patchsorter/api/v1/ray/models.py` | **Create** — `DLActorState` model |
+| `patchsorter/api/v1/ray/service.py` | **Create** — state query + lifecycle/freeze service functions |
+| `patchsorter/client/src/components/labelingPage/DLActorControl.tsx` | **Create** — nested toggle component (generated SDK) |
 
 ## Files to Modify
 
 | File | Action |
 |------|--------|
-| `patchsorter/dl/training.py` | Add `termination_signal` bool + remote methods; update `train_worker` outer loop to check both flags; keep `_training_enabled` for freeze |
-| `patchsorter/api/v1/ray/routes.py` | Append GET `/dl-actor/state/{project_id}` and POST `/dl-actor/start-processing/{project_id}`, `/dl-actor/request-shutdown/{project_id}`, `/dl-actor/set-freeze/{project_id}` endpoints |
+| `patchsorter/dl/training.py` | Add `_termination_signal` + remote methods; remove `_training_enabled = True` from `start_dl_proc`; update worker loop; delete `startup_dl_actor` |
+| `patchsorter/api/v1/ray/routes.py` | Append four DL actor endpoints |
 | Labeling page toolbar component | Add `dlActorControl` prop; render `DLActorControl` |
 
-## Files to Regenerate (after backend)
+## Files to Regenerate (after backend changes)
 
 | File | Action |
 |------|--------|
-| `patchsorter/client/src/api_client/types.gen.ts` | Regenerate with new DL actor types |
-| `patchsorter/client/src/api_client/sdk.gen.ts` | Regenerate with new DL actor functions |
+| `patchsorter/client/src/api_client/types.gen.ts` | Regenerate — includes `DLActorState` type |
+| `patchsorter/client/src/api_client/sdk.gen.ts` | Regenerate — includes `getDlActorState`, `startProcessing`, `requestShutdown`, `setDlActorFreeze` |
