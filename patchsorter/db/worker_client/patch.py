@@ -34,6 +34,24 @@ class WorkerPatchStore:
     # Patch reads                                                          #
     # ------------------------------------------------------------------ #
 
+    def get_cursor_from_shard(self, shard_id: int) -> int:
+        """Return the resume cursor (highest patch_id) from the worker's pred_patch_latest shard table.
+
+        Queries the physical shard table ``project{N}_pred_patch_latest_{shard_id}``
+        directly (shard_id is part of the table name, not a column).
+
+        Args:
+            shard_id: Numeric Citus shard ID whose pred_patch_latest shard to query.
+
+        Returns:
+            The maximum ``patch_id`` in the shard, or 0 if no rows exist.
+        """
+        shard_table = build_pred_table_name(self.project_id, PredPatchSuffix.LATEST, shard_id)
+        row = self._session.execute(
+            text(f"SELECT COALESCE(MAX(patch_id), 0) FROM {shard_table}")
+        ).mappings().one()
+        return row["coalesce"]
+
     def fetch_patch_batch(
         self,
         shard_id: int,

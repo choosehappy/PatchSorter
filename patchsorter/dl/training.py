@@ -202,7 +202,9 @@ class ShardDataset:
     def __iter__(self) -> Iterator[Tuple[int, List[Dict[str, Any]]]]:
         """Yield ``(shard_id, batch)`` tuples, one session opened per batch."""
         for shard_id in self._assigned_shards:
-            cursor = 0
+            with self._worker_sm.get_session() as session:
+                store = WorkerPatchStore(self._project_id, session)
+                cursor = store.get_cursor_from_shard(shard_id)
             while True:
                 with self._worker_sm.get_session() as session:
                     batch = WorkerPatchStore(
