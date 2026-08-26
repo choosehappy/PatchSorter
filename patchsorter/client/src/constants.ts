@@ -5,8 +5,8 @@ export const WORLD_SIZE = 4096
 
 
 // Upload
-export const ACCEPTED_EXTS = /\.(tif|tiff|png|jpg|jpeg)$/i
-export const ACCEPT_ATTR = '.tif,.tiff,.png,.jpg,.jpeg'
+export const ACCEPTED_EXTS = /\.(tif|tiff|png|jpg|jpeg|svs|ndpi|vms|vmu|scn|mrxs)$/i
+export const ACCEPT_ATTR = '.tif,.tiff,.png,.jpg,.jpeg,.svs,.ndpi,.vms,.vmu,.scn,.mrxs'
 
 // Magnification options for review step editor
 export const MAGNIFICATION_OPTIONS: number[] = [5, 10, 20, 40]

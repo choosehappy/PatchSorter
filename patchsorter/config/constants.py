@@ -27,7 +27,7 @@ class PatchExtractionMethod(StrEnum):
     FIT_ALL_OBJECTS = "fit all objects"
 
 
-IMAGE_EXTS = {".tif", ".tiff", ".png", ".jpg", ".jpeg", ".svs", ".ndpi", ".vms", ".vmu", ".scn", ".mrxs", ".tif.gz"}
+IMAGE_EXTS = {".tif", ".tiff", ".png", ".jpg", ".jpeg", ".svs", ".ndpi", ".vms", ".vmu", ".scn", ".mrxs"}
 MASK_EXTS = {".geojson"}
 PATCH_CSV_EXTS = {".csv"}
 
