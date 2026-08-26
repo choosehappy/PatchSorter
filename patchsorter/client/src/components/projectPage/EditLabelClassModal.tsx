@@ -30,19 +30,18 @@ export default function EditLabelClassModal({ projectId, labelClass, show, onClo
             return
         }
         setSaving(true)
-        try {
-            await updateLabelClassProjectsProjectIdLabelClassesLabelClassIdPut({
-                path: { project_id: projectId, label_class_id: labelClass.label_class_id },
-                body: { name: name.trim(), color_code: colorCode },
-            })
+        const result = await updateLabelClassProjectsProjectIdLabelClassesLabelClassIdPut({
+            path: { project_id: projectId, label_class_id: labelClass.label_class_id },
+            body: { name: name.trim(), color_code: colorCode },
+        })
+        setSaving(false)
+        if (result.error) {
+            const detail = result.error?.body?.detail || 'Failed to update label class'
+            toast.error(`Error: ${detail}`)
+        } else {
             toast.success('Label class updated successfully')
             onSuccess()
             onClose()
-        } catch (err: any) {
-            const detail = err?.body?.detail || 'Failed to update label class'
-            toast.error(`Error: ${detail}`)
-        } finally {
-            setSaving(false)
         }
     }
 

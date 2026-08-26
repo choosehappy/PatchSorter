@@ -1,6 +1,7 @@
 from typing import List
 
 from fastapi import APIRouter, HTTPException
+from sqlalchemy.exc import IntegrityError
 
 from patchsorter.db.head_client import get_client as get_head_client
 from patchsorter.db.head_client.label_class import LabelClassStore, ColorPalette
@@ -52,7 +53,15 @@ def create_label_class(project_id: int, body: LabelClassCreate) -> LabelClassRes
     client = get_head_client()
     with client.get_session() as session:
         store = LabelClassStore(session)
-        row = store.create(project_id, body.name, body.color_code)
+        try:
+            row = store.create(project_id, body.name, body.color_code)
+            session.flush()  # forces the INSERT to run now, inside the try
+        except IntegrityError:
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=f"Label class with name '{body.name}' already exists",
+            )
     return LabelClassResponse.model_validate(row)
 
 
@@ -67,9 +76,17 @@ def update_label_class(
         store = LabelClassStore(session)
         try:
             row = store.update(label_class_id, project_id, body.name, body.color_code)
+            session.flush()  # forces the UPDATE to run now, inside the try
         except RuntimeError:
+            session.rollback()
             raise HTTPException(
                 status_code=404,
                 detail=f"Label class {label_class_id} not found in project {project_id}",
+            )
+        except IntegrityError:
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=f"Label class with name '{body.name}' already exists",
             )
     return LabelClassResponse.model_validate(row)

@@ -38,21 +38,20 @@ export default function CreateLabelClassModal({ projectId, show, onClose, onSucc
             return
         }
         setSaving(true)
-        try {
-            await createLabelClassProjectsProjectIdLabelClassesPost({
-                path: { project_id: projectId },
-                body: { name: name.trim(), color_code: colorCode },
-            })
+        const result = await createLabelClassProjectsProjectIdLabelClassesPost({
+            path: { project_id: projectId },
+            body: { name: name.trim(), color_code: colorCode },
+        })
+        setSaving(false)
+        if (result.error) {
+            const detail = result.error?.body?.detail || 'Failed to create label class'
+            toast.error(`Error: ${detail}`)
+        } else {
             toast.success('Label class created successfully')
             setName('')
             setColorCode('#000000')
             onSuccess()
             onClose()
-        } catch (err: any) {
-            const detail = err?.body?.detail || 'Failed to create label class'
-            toast.error(`Error: ${detail}`)
-        } finally {
-            setSaving(false)
         }
     }
 
