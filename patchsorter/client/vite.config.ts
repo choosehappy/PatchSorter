@@ -6,6 +6,7 @@ import { SERVER_URL } from './config.ts';
 export default defineConfig({
   plugins: [react()],
   server: {
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: SERVER_URL,
