@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from patchsorter.db.head_client import get_client as get_head_client
 from patchsorter.db.head_client.label_class import LabelClassStore, ColorPalette
-from patchsorter.api.v1.label_class.models import LabelClassResponse, LabelClassCreate, LabelClassDefaultResponse
+from patchsorter.api.v1.label_class.models import LabelClassResponse, LabelClassCreate, LabelClassDefaultResponse, LabelClassUpdate
 
 
 router = APIRouter()
@@ -53,4 +53,23 @@ def create_label_class(project_id: int, body: LabelClassCreate) -> LabelClassRes
     with client.get_session() as session:
         store = LabelClassStore(session)
         row = store.create(project_id, body.name, body.color_code)
+    return LabelClassResponse.model_validate(row)
+
+
+@router.put("/projects/{project_id}/label_classes/{label_class_id}", response_model=LabelClassResponse)
+def update_label_class(
+    project_id: int,
+    label_class_id: int,
+    body: LabelClassUpdate,
+) -> LabelClassResponse:
+    client = get_head_client()
+    with client.get_session() as session:
+        store = LabelClassStore(session)
+        try:
+            row = store.update(label_class_id, project_id, body.name, body.color_code)
+        except RuntimeError:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Label class {label_class_id} not found in project {project_id}",
+            )
     return LabelClassResponse.model_validate(row)

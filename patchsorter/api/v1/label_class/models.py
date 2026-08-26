@@ -21,3 +21,8 @@ class LabelClassCreate(BaseModel):
 
 class LabelClassDefaultResponse(BaseModel):
     color_code: str
+
+
+class LabelClassUpdate(BaseModel):
+    name: Optional[str] = None
+    color_code: Optional[str] = None

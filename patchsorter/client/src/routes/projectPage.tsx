@@ -9,6 +9,7 @@ import ImagesTable from '../components/projectPage/ImagesTable'
 import ActionsFooter from '../components/projectPage/ActionsFooter'
 import UploadWizardModal from '../components/projectPage/UploadWizardModal'
 import CreateLabelClassModal from '../components/projectPage/CreateLabelClassModal'
+import EditLabelClassModal from '../components/projectPage/EditLabelClassModal'
 import {
     getProjectProjectsProjectIdGet,
     listLabelClassesProjectsProjectIdLabelClassesGet,
@@ -23,6 +24,7 @@ export default function ProjectPage() {
     const [selectedLabelClassIds, setSelectedLabelClassIds] = useState<Set<number>>(new Set())
     const [showUploadWizard, setShowUploadWizard] = useState(false)
     const [showCreateLabelClass, setShowCreateLabelClass] = useState(false)
+    const [editingLabelClass, setEditingLabelClass] = useState<any>(null)
 
     const { data: project, isLoading: projectLoading } = useQuery({
         queryKey: ['project', projectId],
@@ -58,6 +60,7 @@ export default function ProjectPage() {
                 onMutated={() => queryClient.invalidateQueries({ queryKey: ['labelClasses', projectId] })}
                 selectedIds={selectedLabelClassIds}
                 onSelectionChange={setSelectedLabelClassIds}
+                onEdit={setEditingLabelClass}
             />
             <ImagesTable
                 projectId={projectId}
@@ -91,6 +94,18 @@ export default function ProjectPage() {
                     onSuccess={() => {
                         queryClient.invalidateQueries({ queryKey: ['labelClasses', projectId] })
                         toast.success('Label class created successfully')
+                    }}
+                />
+            )}
+            {editingLabelClass && (
+                <EditLabelClassModal
+                    projectId={projectId}
+                    labelClass={editingLabelClass}
+                    show={!!editingLabelClass}
+                    onClose={() => setEditingLabelClass(null)}
+                    onSuccess={() => {
+                        queryClient.invalidateQueries({ queryKey: ['labelClasses', projectId] })
+                        toast.success('Label class updated successfully')
                     }}
                 />
             )}

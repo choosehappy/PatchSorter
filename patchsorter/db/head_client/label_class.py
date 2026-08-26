@@ -75,6 +75,45 @@ class LabelClassStore:
         ).mappings().one()
         return dict(row)
 
+    def update(
+        self,
+        label_class_id: int,
+        project_id: int,
+        name: Optional[str] = None,
+        color_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update a label class and return the updated row.
+
+        Args:
+            label_class_id: The integer ID of the label class to update.
+            project_id: The integer ID of the owning project.
+            name: Optional new display name.
+            color_code: Optional new CSS colour string.
+
+        Returns:
+            A dict with all columns of the updated label-class row.
+
+        Raises:
+            RuntimeError: If the label class is not found.
+        """
+        row = (
+            self._session.query(LabelClass)
+            .filter(
+                LabelClass.label_class_id == label_class_id,
+                LabelClass.project_id == project_id,
+            )
+            .first()
+        )
+        if row is None:
+            raise RuntimeError(
+                f"Label class {label_class_id} not found in project {project_id}"
+            )
+        if name is not None:
+            row.name = name
+        if color_code is not None:
+            row.color_code = color_code
+        return {c.name: getattr(row, c.name) for c in row.__table__.columns}
+
     def list_by_project(self, project_id: int) -> List[LabelClassResponse]:
         """Return all label classes for a project ordered by ``label_class_id``.
 
