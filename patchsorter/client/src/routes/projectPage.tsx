@@ -2,11 +2,13 @@ import { useParams } from 'react-router-dom'
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Container } from 'react-bootstrap'
+import { toast } from 'react-toastify'
 import '@slickgrid-universal/common/dist/styles/css/slickgrid-theme-bootstrap.css'
 import LabelClassesTable from '../components/projectPage/LabelClassesTable'
 import ImagesTable from '../components/projectPage/ImagesTable'
 import ActionsFooter from '../components/projectPage/ActionsFooter'
 import UploadWizardModal from '../components/projectPage/UploadWizardModal'
+import CreateLabelClassModal from '../components/projectPage/CreateLabelClassModal'
 import {
     getProjectProjectsProjectIdGet,
     listLabelClassesProjectsProjectIdLabelClassesGet,
@@ -20,6 +22,7 @@ export default function ProjectPage() {
     const [selectedImageIds, setSelectedImageIds] = useState<Set<number>>(new Set())
     const [selectedLabelClassIds, setSelectedLabelClassIds] = useState<Set<number>>(new Set())
     const [showUploadWizard, setShowUploadWizard] = useState(false)
+    const [showCreateLabelClass, setShowCreateLabelClass] = useState(false)
 
     const { data: project, isLoading: projectLoading } = useQuery({
         queryKey: ['project', projectId],
@@ -72,11 +75,23 @@ export default function ProjectPage() {
                 onClearImageSelection={() => setSelectedImageIds(new Set())}
                 onClearLabelClassSelection={() => setSelectedLabelClassIds(new Set())}
                 onOpenUploadWizard={() => setShowUploadWizard(true)}
+                onCreateLabelClass={() => setShowCreateLabelClass(true)}
             />
             {showUploadWizard && (
                 <UploadWizardModal
                     projectId={projectId}
                     onClose={() => setShowUploadWizard(false)}
+                />
+            )}
+            {showCreateLabelClass && (
+                <CreateLabelClassModal
+                    projectId={projectId}
+                    show={showCreateLabelClass}
+                    onClose={() => setShowCreateLabelClass(false)}
+                    onSuccess={() => {
+                        queryClient.invalidateQueries({ queryKey: ['labelClasses', projectId] })
+                        toast.success('Label class created successfully')
+                    }}
                 />
             )}
         </Container>

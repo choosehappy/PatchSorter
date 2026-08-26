@@ -10,6 +10,7 @@ interface ActionsFooterProps {
     onClearImageSelection: () => void
     onClearLabelClassSelection: () => void
     onOpenUploadWizard?: () => void
+    onCreateLabelClass?: () => void
 }
 
 export default function ActionsFooter({
@@ -19,6 +20,7 @@ export default function ActionsFooter({
     onClearImageSelection,
     onClearLabelClassSelection,
     onOpenUploadWizard,
+    onCreateLabelClass,
 }: ActionsFooterProps) {
     const navigate = useNavigate()
     const [confirmTarget, setConfirmTarget] = useState<'images' | 'labelClasses' | null>(null)
@@ -59,7 +61,7 @@ export default function ActionsFooter({
                         <Button
                             variant="outline-secondary"
                             size="sm"
-                            onClick={() => console.log('Create Label Class not implemented yet')}
+                            onClick={() => onCreateLabelClass?.()}
                         >
                             Create Label Class
                         </Button>
