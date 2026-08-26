@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import logging
 import math
+import time
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import cv2
@@ -42,7 +43,8 @@ from patchsorter.dl.losses import (
 
 logger = logging.getLogger(__name__)
 
-DL_ACTOR_NAME = "dl_actor"
+def dl_actor_name(project_id: int) -> str:
+    return f"dl_actor_{project_id}"
 
 # ---------------------------------------------------------------------------
 # Hyperparameters
@@ -57,6 +59,7 @@ BATCH_SIZE: int = 1024
 PSEUDO_THRESH: float = 0.9
 N_TRAIN_STEPS: int = 500  # number of gradient steps per cycle (training inner loop)
 LOG_EVERY: int = 100      # log TensorBoard scalars every N batches
+FROZEN_POLL_INTERVAL_S: float = 2.0
 
 # Loss weights
 COORD_CONSISTENCY_LOSS: float = 1.0
@@ -263,7 +266,7 @@ def train_worker(config: Dict[str, Any]) -> None:
     rank = context.get_world_rank()
     device = ray.train.torch.get_device()
 
-    actor = ray.get_actor(DL_ACTOR_NAME)
+    actor = ray.get_actor(dl_actor_name(project_id))
 
     # -----------------------------------------------------------------------
     # Model initialisation
@@ -302,7 +305,20 @@ def train_worker(config: Dict[str, Any]) -> None:
     niter_total = 0
 
     cycle = 0
-    while ray.get(actor.get_training_enabled.remote()):
+    while True:
+        # Termination and freeze checks happen only at cycle boundaries (after barriers),
+        # ensuring all workers are in sync when they read the flags.
+        if ray.get(actor.get_termination_signal.remote()):
+            logger.info("[Worker %d] Received termination signal. Shutting down.", rank)
+            return
+
+        while not ray.get(actor.get_training_enabled.remote()):
+            logger.info("[Worker %d] Frozen. Waiting for unfreeze or termination.", rank)
+            time.sleep(FROZEN_POLL_INTERVAL_S)
+            if ray.get(actor.get_termination_signal.remote()):
+                logger.info("[Worker %d] Received termination while frozen. Shutting down.", rank)
+                return
+
         # Discover locally assigned shards on each cycle since table rotation changes shard placements.
         shard_map = dm.get_shard_map_for_patch_and_pred(project_id)
         all_local_shards = shard_map.get_table_a_shard_list()
@@ -528,17 +544,14 @@ def train_worker(config: Dict[str, Any]) -> None:
 class DLActor:
     """Named Ray actor that owns DL training state and launches the training loop.
 
-    Workers running inside :func:`train_worker` access this actor by name::
-
-        actor = ray.get_actor("dl_actor")
-        enabled = ray.get(actor.get_training_enabled.remote())
-
-    Use :func:`startup_dl_actor` to create the actor and start training.
+    Workers running inside :func:`train_worker` access this actor by name via
+    :func:`dl_actor_name`.
     """
 
     def __init__(self, project_id: int, app_config: Dict[str, Any], label_classes: List[LabelClassResponse]) -> None:
         self._project_id = project_id
-        self._training_enabled: bool = False
+        self._training_enabled: bool = False  # frozen by default until explicitly unfrozen
+        self._termination_signal: bool = False
         self._training_ref: Optional[ray.ObjectRef] = None
         self._app_config = app_config or {}
         self._label_classes = label_classes
@@ -557,6 +570,14 @@ class DLActor:
         """
         self._training_enabled = value
 
+    def get_termination_signal(self) -> bool:
+        """Return whether workers have been signalled to shut down."""
+        return self._termination_signal
+
+    def set_termination_signal(self, value: bool) -> None:
+        """Signal workers to shut down. One-way: once True it cannot be reset."""
+        self._termination_signal = value
+
     def start_dl_proc(self, num_workers: int = 8) -> None:
         """Launch the distributed training loop as a non-blocking Ray remote task.
 
@@ -568,7 +589,6 @@ class DLActor:
         Args:
             num_workers: Number of Ray Train workers to use.
         """
-        self._training_enabled = True
         self._training_ref = _launch_training.remote(
             self._project_id,
             self._app_config,
@@ -605,45 +625,6 @@ def _launch_training(
         ),
     )
     return trainer.fit()
-
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
-
-def startup_dl_actor(project_id: int) -> "DLActor":
-    """Create the named ``dl_actor`` if it does not exist, then start training.
-
-    Reads ``dl_num_workers`` and ``dl_patches_per_batch`` from the project's
-    settings table.  If an actor named ``"dl_actor"`` already exists it is
-    reused — a second training process is *not* launched.  To restart
-    training, call ``set_training_enabled(False)`` on the existing actor
-    first, wait for the current run to complete, then call this function again.
-
-    Args:
-        project_id: Project to run training for.
-
-    Returns:
-        The (possibly pre-existing) :class:`DLActor` handle.
-    """
-    head_sm = head_client.get_client()
-    with head_sm.get_session() as session:
-        settings_store = SettingsStore(session)
-        app_config = settings_store.get_all_as_dict(project_id)
-
-        # Fetch label classes for the worker to build the LabelMap
-        label_class_store = LabelClassStore(session)
-        label_classes = label_class_store.list_by_project(project_id)
-
-    num_workers: int = app_config.get("dl_num_workers", 8)
-
-    actor = DLActor.options(  # type: ignore[attr-defined]
-        name=DL_ACTOR_NAME,
-        get_if_exists=True,
-    ).remote(project_id, app_config, label_classes)
-
-    actor.start_dl_proc.remote(num_workers)
-    return actor
 
 
 def compute_shard_assignments(

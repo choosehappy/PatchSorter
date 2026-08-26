@@ -73,6 +73,20 @@ export type ConfusionMatrixResponse = {
 };
 
 /**
+ * DLActorState
+ */
+export type DlActorState = {
+    /**
+     * Termination Signal
+     */
+    termination_signal: boolean;
+    /**
+     * Training Enabled
+     */
+    training_enabled: boolean;
+};
+
+/**
  * HTTPValidationError
  */
 export type HttpValidationError = {
@@ -1567,3 +1581,132 @@ export type SearchRayTasksResponses = {
 };
 
 export type SearchRayTasksResponse = SearchRayTasksResponses[keyof SearchRayTasksResponses];
+
+export type GetDlActorStateData = {
+    body?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+    };
+    query?: never;
+    url: '/dl-actor/state/{project_id}';
+};
+
+export type GetDlActorStateErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetDlActorStateError = GetDlActorStateErrors[keyof GetDlActorStateErrors];
+
+export type GetDlActorStateResponses = {
+    /**
+     * Response Getdlactorstate
+     *
+     * Successful Response
+     */
+    200: DlActorState | null;
+};
+
+export type GetDlActorStateResponse = GetDlActorStateResponses[keyof GetDlActorStateResponses];
+
+export type StartProcessingData = {
+    body?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+    };
+    query?: never;
+    url: '/dl-actor/start-processing/{project_id}';
+};
+
+export type StartProcessingErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type StartProcessingError = StartProcessingErrors[keyof StartProcessingErrors];
+
+export type StartProcessingResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type StartProcessingResponse = StartProcessingResponses[keyof StartProcessingResponses];
+
+export type RequestShutdownData = {
+    body?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+    };
+    query?: never;
+    url: '/dl-actor/request-shutdown/{project_id}';
+};
+
+export type RequestShutdownErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RequestShutdownError = RequestShutdownErrors[keyof RequestShutdownErrors];
+
+export type RequestShutdownResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type RequestShutdownResponse = RequestShutdownResponses[keyof RequestShutdownResponses];
+
+export type SetDlActorFreezeData = {
+    body?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+    };
+    query: {
+        /**
+         * Frozen
+         *
+         * True to freeze, False to unfreeze
+         */
+        frozen: boolean;
+    };
+    url: '/dl-actor/set-freeze/{project_id}';
+};
+
+export type SetDlActorFreezeErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SetDlActorFreezeError = SetDlActorFreezeErrors[keyof SetDlActorFreezeErrors];
+
+export type SetDlActorFreezeResponses = {
+    /**
+     * Successful Response
+     */
+    200: DlActorState;
+};
+
+export type SetDlActorFreezeResponse = SetDlActorFreezeResponses[keyof SetDlActorFreezeResponses];

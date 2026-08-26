@@ -9,6 +9,7 @@ import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
 import LabelPicker from '../components/LabelPicker'
 import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, assignLabelsByIdsProjectsProjectIdPatchesPost, assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
+import DLActorControl from '../components/labelingPage/DLActorControl'
 import { DEFAULT_REFRESH_INTERVAL_MS, DEFAULT_QUERY_RANGE, PERFECT_SQUARE_LIMITS } from '../constants'
 
 
@@ -402,6 +403,7 @@ export default function LabelingPage() {
                             />
                             Show Patch Grid
                         </label>
+                        <DLActorControl projectId={projectId} />
                         <div className="control-group">
                             <label>Query Limit: {PERFECT_SQUARE_LIMITS[queryLimitIndex]}</label>
                             <input
