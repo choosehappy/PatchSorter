@@ -171,6 +171,16 @@ export type LabelClassCreate = {
 };
 
 /**
+ * LabelClassDefaultResponse
+ */
+export type LabelClassDefaultResponse = {
+    /**
+     * Color Code
+     */
+    color_code: string;
+};
+
+/**
  * LabelClassResponse
  */
 export type LabelClassResponse = {
@@ -874,6 +884,36 @@ export type CreateLabelClassProjectsProjectIdLabelClassesPostResponses = {
 };
 
 export type CreateLabelClassProjectsProjectIdLabelClassesPostResponse = CreateLabelClassProjectsProjectIdLabelClassesPostResponses[keyof CreateLabelClassProjectsProjectIdLabelClassesPostResponses];
+
+export type GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetData = {
+    body?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+    };
+    query?: never;
+    url: '/projects/{project_id}/label_classes/default';
+};
+
+export type GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetError = GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetErrors[keyof GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetErrors];
+
+export type GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: LabelClassDefaultResponse;
+};
+
+export type GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetResponse = GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetResponses[keyof GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetResponses];
 
 export type GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetData = {
     body?: never;

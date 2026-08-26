@@ -6,13 +6,30 @@ from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
 from patchsorter.api.v1.label_class.models import LabelClassResponse
-from patchsorter.config.constants import UNASSIGNED_CLASS_ID
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID, ANNOTATION_CLASS_COLOR_PALETTES
 from patchsorter.db.head_client.models import LabelClass, build_table_name, build_pred_table_name
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 
 from patchsorter.config.constants import PredPatchSuffix
 
 
+
+
+class ColorPalette:
+    """Yield unused colors from the configured palette for a given project."""
+
+    def __init__(self, project_id: int) -> None:
+        self._color_list = ANNOTATION_CLASS_COLOR_PALETTES['default']
+        self._project_id = project_id
+
+    def get_unused_color(self, existing: List[LabelClassResponse]) -> str:
+        """Return the first palette color not already used by *existing* label classes."""
+        used_colors = {lc.color_code for lc in existing if lc.color_code is not None}
+        for color in self._color_list:
+            if color not in used_colors:
+                return color
+        # Exhausted the palette — fall back to the first entry
+        return self._color_list[0]
 
 
 class LabelClassStore:

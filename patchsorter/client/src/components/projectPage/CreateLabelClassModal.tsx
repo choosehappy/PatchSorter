@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Modal, Button } from 'react-bootstrap'
 import { toast } from 'react-toastify'
-import { createLabelClassProjectsProjectIdLabelClassesPost } from '../../api_client'
+import { createLabelClassProjectsProjectIdLabelClassesPost, getDefaultLabelClassProjectsProjectIdLabelClassesDefaultGet } from '../../api_client'
 
 interface CreateLabelClassModalProps {
     projectId: number
@@ -14,6 +14,22 @@ export default function CreateLabelClassModal({ projectId, show, onClose, onSucc
     const [name, setName] = useState('')
     const [colorCode, setColorCode] = useState('#000000')
     const [saving, setSaving] = useState(false)
+
+    useEffect(() => {
+        if (show) {
+            getDefaultLabelClassProjectsProjectIdLabelClassesDefaultGet({
+                path: { project_id: projectId },
+            })
+                .then(r => {
+                    if (r.data?.color_code) {
+                        setColorCode(r.data.color_code)
+                    }
+                })
+                .catch(() => {
+                    setColorCode('#000000')
+                })
+        }
+    }, [show, projectId])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -57,7 +73,7 @@ export default function CreateLabelClassModal({ projectId, show, onClose, onSucc
                             id="lc-name"
                             value={name}
                             onChange={e => setName(e.target.value)}
-                            placeholder="e.g. Nucleus, Cytoplasm"
+                            placeholder="e.g. Label class 1, Lymphocyte, Tubule, Benign, etc."
                         />
                     </div>
                     <div className="mb-3">
