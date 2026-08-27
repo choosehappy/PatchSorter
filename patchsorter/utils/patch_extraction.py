@@ -241,7 +241,7 @@ def compute_downsample_factor(
 
     Formula::
 
-        downsample = max(1.0, (2 * radius_microns) / (patch_size * mm_per_pixel_at_base * 1000) / base_mag)
+        downsample = max(1.0, (2 * radius_microns) / (patch_size * mm_per_pixel_at_base * 1000))
 
     Args:
         object_radius_microns: Object radius in microns.
@@ -253,7 +253,7 @@ def compute_downsample_factor(
         The computed downsample factor (>= 1.0).
     """
     radius_base_pixels = object_radius_microns / (mm_per_pixel_at_base_val * 1000)
-    downsample = (2 * radius_base_pixels) / patch_size_pixels / base_mag
+    downsample = (2 * radius_base_pixels) / patch_size_pixels
     return max(1.0, downsample)
 
 
