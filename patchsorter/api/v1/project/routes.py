@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import case, func, select, text
 
 from patchsorter.db.head_client import get_client as get_head_client
+from patchsorter.db.head_client.database_manager import DatabaseManager
 from patchsorter.db.head_client.project import ProjectStore
 from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.db.head_client.models import build_table_name
@@ -115,4 +116,8 @@ def create_project(body: CreateProjectRequest) -> ProjectResponse:
     with client.get_session() as session:
         store = ProjectStore(session)
         row = store.create(name=body.name, description=body.description)
+
+    # Some CITUS operations cannot occur in a transaction.
+    db_mgr = DatabaseManager(client)
+    db_mgr.setup_project(row.get("project_id"))
     return ProjectResponse(**row)
