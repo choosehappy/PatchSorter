@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 class PatchResponse(BaseModel):
     patch_id: int
-    patch_uid: UUID
+    patch_uid: Optional[UUID] = None
     label_class_id: int
     image_id: int
     downsample_factor: float
