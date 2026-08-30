@@ -9,10 +9,7 @@ from patchsorter.api.v1.label_class.models import LabelClassResponse
 from patchsorter.db.head_client.models import LabelClass, build_table_name, build_pred_table_name
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 
-from patchsorter.config.constants import PredPatchSuffix
-
-_UNASSIGNED_CLASS_ID = 1
-"""Reserved ``label_class_id`` for the "Unlabeled" class.  Cannot be deleted."""
+from patchsorter.config.constants import PredPatchSuffix, UNASSIGNED_LABEL_CLASS_ID
 
 
 class LabelClassStore:
@@ -80,18 +77,18 @@ class LabelClassStore:
     def delete(self, label_class_id: int, project_id: int) -> None:
         """Delete a label class following the Annotation Class Deletion Protocol.
 
-        The "Unlabeled" class (``label_class_id = 1``) is reserved and cannot
+        The "Unassigned" class (``label_class_id = -1``) is reserved and cannot
         be deleted.
 
         Deletion steps (all within the current session's transaction):
 
         1. Reset ``label_class_id`` on all patches in the project's patch table
-           that reference the deleted class back to ``1`` (Unlabeled).
+            that reference the deleted class back to ``-1`` (Unassigned).
         2. Reset ``label_class_id`` on all rows in ``project{N}_pred_patch_latest``
-           that reference the deleted class back to ``1``.
+            that reference the deleted class back to ``-1``.
         3. Perform the same reset on ``project{N}_pred_patch_last``.
         4. Reset ``pred_label`` and ``gt_label`` in all five confusion-matrix
-           tables that reference the deleted class back to ``1``.
+            tables that reference the deleted class back to ``-1``.
         5. Delete the ``label_class`` row.
 
         Steps 1–4 must complete before step 5.
@@ -102,12 +99,12 @@ class LabelClassStore:
                 resolve project-scoped table names.
 
         Raises:
-            ValueError: If *label_class_id* is ``1`` (the reserved Unlabeled
+            ValueError: If *label_class_id* is ``-1`` (the reserved Unassigned
                 class).
         """
-        if label_class_id == _UNASSIGNED_CLASS_ID:
+        if label_class_id == UNASSIGNED_LABEL_CLASS_ID:
             raise ValueError(
-                "The 'Unlabeled' label class (id=1) is reserved and cannot be deleted."
+                f"Cannot delete the reserved Unassigned class (id={UNASSIGNED_LABEL_CLASS_ID})."
             )
 
         n = project_id
@@ -115,18 +112,18 @@ class LabelClassStore:
         # Step 1: reset patch ground-truth labels.
         self._session.execute(
             text(
-                f"UPDATE {build_table_name(n)} SET label_class_id = 1 WHERE label_class_id = :lcid"
+                f"UPDATE {build_table_name(n)} SET label_class_id = :uid WHERE label_class_id = :lcid"
             ),
-            {"lcid": label_class_id},
+            {"uid": UNASSIGNED_LABEL_CLASS_ID, "lcid": label_class_id},
         )
 
         # Steps 2 & 3: reset prediction labels.
         for tbl in (build_pred_table_name(n, PredPatchSuffix.LATEST), build_pred_table_name(n, PredPatchSuffix.LAST)):
             self._session.execute(
                 text(
-                    f"UPDATE {tbl} SET label_class_id = 1 WHERE label_class_id = :lcid"
+                    f"UPDATE {tbl} SET label_class_id = :uid WHERE label_class_id = :lcid"
                 ),
-                {"lcid": label_class_id},
+                {"uid": UNASSIGNED_LABEL_CLASS_ID, "lcid": label_class_id},
             )
 
         # Step 4: reset confusion-matrix pred_label / gt_label references.
@@ -134,15 +131,15 @@ class LabelClassStore:
             cm_tbl = ConfusionMatrixStore.build_table_name(n, lvl)
             self._session.execute(
                 text(
-                    f"UPDATE {cm_tbl} SET pred_label = 1 WHERE pred_label = :lcid"
+                    f"UPDATE {cm_tbl} SET pred_label = :uid WHERE pred_label = :lcid"
                 ),
-                {"lcid": label_class_id},
+                {"uid": UNASSIGNED_LABEL_CLASS_ID, "lcid": label_class_id},
             )
             self._session.execute(
                 text(
-                    f"UPDATE {cm_tbl} SET gt_label = 1 WHERE gt_label = :lcid"
+                    f"UPDATE {cm_tbl} SET gt_label = :uid WHERE gt_label = :lcid"
                 ),
-                {"lcid": label_class_id},
+                {"uid": UNASSIGNED_LABEL_CLASS_ID, "lcid": label_class_id},
             )
 
         # Step 5: delete the label class row.

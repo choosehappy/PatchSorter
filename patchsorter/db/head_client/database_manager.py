@@ -127,11 +127,11 @@ class DatabaseManager:
 
         Base.metadata.create_all(self.sm.engine)
 
-        # Seed the reserved "unassigned" label class (label_class_id = 1)
+        # Seed the reserved "unassigned" label class (label_class_id = -1)
         seed_statement = """
             INSERT INTO label_class (project_id, name, color_code)
             SELECT NULL, 'unassigned', NULL
-            WHERE NOT EXISTS (SELECT 1 FROM label_class WHERE label_class_id = 1);
+            WHERE NOT EXISTS (SELECT 1 FROM label_class WHERE label_class_id = -1);
         """
         distribution_statements = [
             "SELECT create_reference_table('project');",
