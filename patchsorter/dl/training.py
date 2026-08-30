@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import os
 import logging
 import math
 from typing import Any, Dict, Iterator, List, Optional, Tuple
@@ -9,13 +10,15 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+
 from patchsorter.db.head_client.project import ProjectStore
 from torch.utils.tensorboard import SummaryWriter
 import ray
 import ray.train
 import ray.train.torch
 from ray.train import get_context
-from ray.train.collective import barrier
+# from ray.train.collective import barrier
+import torch.distributed as dist
 from ray.train.torch import TorchTrainer
 from ray.train import ScalingConfig
 
@@ -180,11 +183,17 @@ class ShardDataset:
     patch metadata.  One short-lived DB session is opened per batch so no
     connection is held between yields.
 
+    When ``max_batches`` is provided, the dataset yields empty padding batches
+    (``shard_id, []``) after exhausting all real data so that all workers
+    iterate the same number of batches.
+
     Args:
         worker_sm: A :class:`~patchsorter.db.utils.SessionManager` for the worker node.
         project_id: Project whose patch shards are read.
         assigned_shards: Ordered list of shard IDs to iterate.
         batch_size: Maximum number of patch rows per yielded batch.
+        max_batches: If provided, pad with empty batches until this many total
+            batches have been yielded.
     """
 
     def __init__(
@@ -193,14 +202,17 @@ class ShardDataset:
         project_id: int,
         assigned_shards: List[int],
         batch_size: int,
+        max_batches: Optional[int] = None,
     ) -> None:
         self._worker_sm = worker_sm
         self._project_id = project_id
         self._assigned_shards = assigned_shards
         self._batch_size = batch_size
+        self._max_batches = max_batches
 
     def __iter__(self) -> Iterator[Tuple[int, List[Dict[str, Any]]]]:
         """Yield ``(shard_id, batch)`` tuples, one session opened per batch."""
+        batch_count = 0
         for shard_id in self._assigned_shards:
             cursor = 0
             while True:
@@ -212,6 +224,11 @@ class ShardDataset:
                     break
                 cursor = batch[-1]["patch_id"]
                 yield shard_id, batch
+                batch_count += 1
+        # Pad with empty batches if needed
+        while self._max_batches is not None and batch_count < self._max_batches:
+            yield self._assigned_shards[0] if self._assigned_shards else 0, []
+            batch_count += 1
 
 
 # ---------------------------------------------------------------------------
@@ -259,9 +276,17 @@ def train_worker(config: Dict[str, Any]) -> None:
 
     context = get_context()
     rank = context.get_world_rank()
-    device = ray.train.torch.get_device()
+    local_rank = context.get_local_rank()
+    device = torch.device("cuda", local_rank % torch.cuda.device_count())
 
     actor = ray.get_actor(DL_ACTOR_NAME)
+
+    logger.debug(
+        "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=%s, CUDA_VISIBLE_DEVICES=%s",
+        os.environ.get("RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES", ""),
+        os.environ.get("CUDA_VISIBLE_DEVICES", ""),
+    )
+
 
     # -----------------------------------------------------------------------
     # Model initialisation
@@ -305,11 +330,28 @@ def train_worker(config: Dict[str, Any]) -> None:
         shard_map = dm.get_shard_map_for_patch_and_pred(project_id)
         all_local_shards = shard_map.get_table_a_shard_list()
         assigned_shards = compute_shard_assignments(
-            all_local_shards, context.get_local_world_size(), rank
+            all_local_shards, context.get_local_world_size(), local_rank
         )
 
         cycle += 1
-        logger.info("[Worker %d] Starting cycle %d.", rank, cycle)
+        logger.info("[Worker %d, local_rank %d] Starting cycle %d.", rank, local_rank, cycle)
+
+        # -------------------------------------------------------------------
+        # Compute max_batches across all workers via all-reduce so every
+        # worker iterates the same number of batches (avoids Join overhead).
+        # -------------------------------------------------------------------
+        with worker_sm.get_session() as session:
+            patch_store = WorkerPatchStore(project_id, session)
+            shard_counts = patch_store.get_local_patch_count(assigned_shards)
+
+        local_batch_count = sum(math.ceil(c / patches_per_batch) for c in shard_counts) if shard_counts else 0
+        local_batch_tensor = torch.tensor([local_batch_count], device=device)
+        dist.all_reduce(local_batch_tensor, op=dist.ReduceOp.MAX)
+        max_batches = local_batch_tensor.item()
+        logger.info(
+            "[Worker %d] Shard counts: %s, local batches: %d, max_batches (all-reduce): %d",
+            rank, shard_counts, local_batch_count, max_batches,
+        )
 
         # -------------------------------------------------------------------
         # TODO: Selective training loop (backprop phase goes here)
@@ -337,20 +379,34 @@ def train_worker(config: Dict[str, Any]) -> None:
         backbone.train()
         joint_head.train()
 
-        dataset = ShardDataset(worker_sm, project_id, assigned_shards, patches_per_batch)
+        dataset = ShardDataset(worker_sm, project_id, assigned_shards, patches_per_batch, max_batches)
         for shard_id, batch in dataset:
+            # An empty batch is yielded when the shard subset is exhausted but max_batches has not been reached yet.
+            if not batch:
+                optimizer.zero_grad()
+                dummy_input = torch.zeros(2, 3, patch_size, patch_size, device=device)
+                with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=True):
+                    z = backbone(dummy_input)
+                    emb, coords, logits = joint_head(z)
+                    dummy_loss = emb.sum() * 0.0 + coords.sum() * 0.0 + logits.sum() * 0.0
+                scaler.scale(dummy_loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+                niter_total += 1
+                continue
+
             # Decode images
             imgs_np: List[np.ndarray] = []
             valid_patches: List[Dict[str, Any]] = []
             for patch in batch:
                 img = _decode_patch_image(patch.get("patch_image"), patch_size)
                 if img is None:
-                    continue
+                    raise ValueError(f"Failed to decode patch_id {patch['patch_id']} in shard {shard_id}")
                 imgs_np.append(img)
                 valid_patches.append(patch)
 
             if not imgs_np:
-                continue
+                raise ValueError(f"No valid images decoded in shard {shard_id} for cycle {cycle}")
 
             B = len(imgs_np)
 
@@ -370,7 +426,7 @@ def train_worker(config: Dict[str, Any]) -> None:
             # Labels: convert DB label_class_id -> model class index, repeat across views
             raw_labels = torch.tensor(
                 [label_map.to_model_index(p["label_class_id"])
-                 for p in valid_patches],
+                for p in valid_patches],
                 dtype=torch.long,
             )  # [B]
             labels = raw_labels.repeat(NVIEWS).to(device)  # [V*B]
@@ -507,14 +563,14 @@ def train_worker(config: Dict[str, Any]) -> None:
         logger.info("[Worker %d] Cycle %d done. Waiting at barrier.", rank, cycle)
 
         # Barrier 1: all workers finished inserting for this cycle
-        barrier()
+        dist.barrier()
 
         if rank == 0:
             DatabaseManager(head_sm).rotate_pred_patch_tables(project_id)
             logger.info("[Rank 0] Cycle %d — table rotation complete.", cycle)
 
         # Barrier 2: rotation complete, all workers may proceed
-        barrier()
+        dist.barrier()
         logger.info("[Worker %d] Cycle %d complete. Starting next cycle.", rank, cycle)
 
 
@@ -600,6 +656,7 @@ def _launch_training(
         scaling_config=ScalingConfig(
             num_workers=num_workers,
             use_gpu=True,
+            resources_per_worker={"GPU": 0.1},
         ),
     )
     return trainer.fit()
@@ -645,16 +702,16 @@ def startup_dl_actor(project_id: int) -> "DLActor":
 
 
 def compute_shard_assignments(
-    shard_ids: List[int], num_local_workers: int, rank: int
+    shard_ids: List[int], num_local_workers: int, local_rank: int
 ) -> List[int]:
     """Assign Citus shards to the current worker by round-robin modulo.
 
     Args:
         shard_ids: All shard IDs for the project.
         num_local_workers: Number of local workers to divide shards among.
-        rank: Rank of the current worker.
+        local_rank: Local rank of the current worker.
 
     Returns:
         List of shard IDs assigned to this worker.
     """
-    return [s for s in shard_ids if s % num_local_workers == rank]
+    return [s for s in shard_ids if s % num_local_workers == local_rank]
