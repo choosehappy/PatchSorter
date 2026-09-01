@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Form } from 'react-bootstrap'
-import { ACCEPT_ATTR, ACCEPTED_EXTS } from '../../constants'
+import { ACCEPT_IMAGE_ATTR, ACCEPTED_IMAGE_EXTS_REGEX } from '../../constants'
 
 interface StepUploadImagesProps {
     files: File[]
@@ -23,7 +23,7 @@ export default function StepUploadImages({
 
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault()
-        const dropped = Array.from(e.dataTransfer.files).filter(f => ACCEPTED_EXTS.test(f.name))
+        const dropped = Array.from(e.dataTransfer.files).filter(f => ACCEPTED_IMAGE_EXTS_REGEX.test(f.name))
         if (dropped.length) onAddFiles(dropped)
         setDragOver(false)
     }
@@ -65,13 +65,13 @@ export default function StepUploadImages({
                             <div className="mb-2" style={{ fontSize: '2rem' }}>🖼️</div>
                             <div>Drag &amp; drop scan images here, or <strong>click to browse</strong></div>
                             <div className="text-muted mt-1" style={{ fontSize: '0.8rem' }}>
-                                Accepts: .tif, .tiff, .png, .jpg, .jpeg
+                                Accepts: {ACCEPT_IMAGE_ATTR}
                             </div>
                         </div>
                         <input
                             type="file"
                             multiple
-                            accept={ACCEPT_ATTR}
+                            accept={ACCEPT_IMAGE_ATTR}
                             style={{ display: 'none' }}
                             onChange={handleBrowse}
                         />
