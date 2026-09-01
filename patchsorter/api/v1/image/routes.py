@@ -1,13 +1,18 @@
 from typing import List
 
+import large_image
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from sqlalchemy import text
 
 from patchsorter.db.head_client import get_client as get_head_client
 from patchsorter.db.head_client.image import ImageStore
-from patchsorter.db.head_client.models import build_table_name
+from patchsorter.db.head_client.models import build_table_name, build_pred_table_name
 from patchsorter.api.v1.image.models import ImageResponse, ImageStatsResponse
+import logging
+import io
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -56,18 +61,31 @@ def get_image_thumbnail(project_id: int, image_id: int) -> Response:
         if row is None:
             raise HTTPException(status_code=404, detail="Image not found")
 
-        tbl = build_table_name(project_id)
-        thumbnail_row = session.execute(
-            text(f"SELECT thumbnail FROM {tbl} WHERE image_id = :image_id"),
-            {"image_id": image_id},
-        ).mappings().first()
+        session.expunge(row)
 
-    if not thumbnail_row or not thumbnail_row.get("thumbnail"):
+    try:
+        slide = large_image.open(row.image_path)
+        thumbnail, mime_type = slide.getThumbnail(format='PNG', width=256, height=256)
+
+        if isinstance(thumbnail, bytes):
+            thumbnail_bytes = thumbnail
+        else:
+            # Some large_image backends return a PIL Image instead of bytes
+            buf = io.BytesIO()
+            thumbnail.save(buf, format="PNG")
+            thumbnail_bytes = buf.getvalue()
+            mime_type = "image/png"
+    except Exception:
+        logger.exception(
+            "Failed to generate thumbnail for image_id=%s, project_id=%s",
+            image_id,
+            project_id,
+        )
         raise HTTPException(status_code=404, detail="Thumbnail not found")
 
     return Response(
-        content=thumbnail_row["thumbnail"],
-        media_type="image/jpeg",
+        content=thumbnail_bytes,
+        media_type=mime_type,
         headers={
             "Cache-Control": "public, max-age=31536000",
         },

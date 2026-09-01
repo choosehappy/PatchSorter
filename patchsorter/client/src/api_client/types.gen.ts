@@ -87,6 +87,38 @@ export type DlActorState = {
 };
 
 /**
+ * ExportRequest
+ *
+ * Request body for starting a patch CSV export.
+ */
+export type ExportRequest = {
+    /**
+     * Image Ids
+     */
+    image_ids: Array<number>;
+    /**
+     * Label Class Ids
+     */
+    label_class_ids?: Array<number>;
+};
+
+/**
+ * ExportResponse
+ *
+ * Response from export_patch_csv endpoint.
+ */
+export type ExportResponse = {
+    /**
+     * Task Id
+     */
+    task_id: string;
+    /**
+     * Manifest Urls
+     */
+    manifest_urls: Array<string>;
+};
+
+/**
  * HTTPValidationError
  */
 export type HttpValidationError = {
@@ -171,6 +203,30 @@ export type LabelAssignResponse = {
 };
 
 /**
+ * LabelClassCreate
+ */
+export type LabelClassCreate = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Color Code
+     */
+    color_code?: string | null;
+};
+
+/**
+ * LabelClassDefaultResponse
+ */
+export type LabelClassDefaultResponse = {
+    /**
+     * Color Code
+     */
+    color_code: string;
+};
+
+/**
  * LabelClassResponse
  */
 export type LabelClassResponse = {
@@ -197,6 +253,20 @@ export type LabelClassResponse = {
 };
 
 /**
+ * LabelClassUpdate
+ */
+export type LabelClassUpdate = {
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Color Code
+     */
+    color_code?: string | null;
+};
+
+/**
  * OpenSessionResponse
  */
 export type OpenSessionResponse = {
@@ -217,7 +287,7 @@ export type PatchResponse = {
     /**
      * Patch Uid
      */
-    patch_uid: string;
+    patch_uid?: string | null;
     /**
      * Label Class Id
      */
@@ -845,6 +915,66 @@ export type ListLabelClassesProjectsProjectIdLabelClassesGetResponses = {
 
 export type ListLabelClassesProjectsProjectIdLabelClassesGetResponse = ListLabelClassesProjectsProjectIdLabelClassesGetResponses[keyof ListLabelClassesProjectsProjectIdLabelClassesGetResponses];
 
+export type CreateLabelClassProjectsProjectIdLabelClassesPostData = {
+    body: LabelClassCreate;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+    };
+    query?: never;
+    url: '/projects/{project_id}/label_classes/';
+};
+
+export type CreateLabelClassProjectsProjectIdLabelClassesPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateLabelClassProjectsProjectIdLabelClassesPostError = CreateLabelClassProjectsProjectIdLabelClassesPostErrors[keyof CreateLabelClassProjectsProjectIdLabelClassesPostErrors];
+
+export type CreateLabelClassProjectsProjectIdLabelClassesPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: LabelClassResponse;
+};
+
+export type CreateLabelClassProjectsProjectIdLabelClassesPostResponse = CreateLabelClassProjectsProjectIdLabelClassesPostResponses[keyof CreateLabelClassProjectsProjectIdLabelClassesPostResponses];
+
+export type GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetData = {
+    body?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+    };
+    query?: never;
+    url: '/projects/{project_id}/label_classes/default';
+};
+
+export type GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetError = GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetErrors[keyof GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetErrors];
+
+export type GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: LabelClassDefaultResponse;
+};
+
+export type GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetResponse = GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetResponses[keyof GetDefaultLabelClassProjectsProjectIdLabelClassesDefaultGetResponses];
+
 export type GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetData = {
     body?: never;
     path: {
@@ -878,6 +1008,40 @@ export type GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetResponses =
 };
 
 export type GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetResponse = GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetResponses[keyof GetLabelClassProjectsProjectIdLabelClassesLabelClassIdGetResponses];
+
+export type UpdateLabelClassProjectsProjectIdLabelClassesLabelClassIdPutData = {
+    body: LabelClassUpdate;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+        /**
+         * Label Class Id
+         */
+        label_class_id: number;
+    };
+    query?: never;
+    url: '/projects/{project_id}/label_classes/{label_class_id}';
+};
+
+export type UpdateLabelClassProjectsProjectIdLabelClassesLabelClassIdPutErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateLabelClassProjectsProjectIdLabelClassesLabelClassIdPutError = UpdateLabelClassProjectsProjectIdLabelClassesLabelClassIdPutErrors[keyof UpdateLabelClassProjectsProjectIdLabelClassesLabelClassIdPutErrors];
+
+export type UpdateLabelClassProjectsProjectIdLabelClassesLabelClassIdPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: LabelClassResponse;
+};
+
+export type UpdateLabelClassProjectsProjectIdLabelClassesLabelClassIdPutResponse = UpdateLabelClassProjectsProjectIdLabelClassesLabelClassIdPutResponses[keyof UpdateLabelClassProjectsProjectIdLabelClassesLabelClassIdPutResponses];
 
 export type ListPatchesProjectsProjectIdPatchesGetData = {
     body?: never;
@@ -1226,8 +1390,8 @@ export type GetImageThumbnailProjectsProjectIdImagesImageIdThumbnailGetResponses
     200: unknown;
 };
 
-export type ExportPatchesCsvProjectsProjectIdExportPatchesGetData = {
-    body?: never;
+export type ExportPatchCsvData = {
+    body: ExportRequest;
     path: {
         /**
          * Project Id
@@ -1235,47 +1399,57 @@ export type ExportPatchesCsvProjectsProjectIdExportPatchesGetData = {
         project_id: number;
     };
     query?: never;
-    url: '/projects/{project_id}/export/patches/';
+    url: '/projects/{project_id}/export/patch-csv/';
 };
 
-export type ExportPatchesCsvProjectsProjectIdExportPatchesGetErrors = {
+export type ExportPatchCsvErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type ExportPatchesCsvProjectsProjectIdExportPatchesGetError = ExportPatchesCsvProjectsProjectIdExportPatchesGetErrors[keyof ExportPatchesCsvProjectsProjectIdExportPatchesGetErrors];
+export type ExportPatchCsvError = ExportPatchCsvErrors[keyof ExportPatchCsvErrors];
 
-export type ExportPatchesCsvProjectsProjectIdExportPatchesGetResponses = {
+export type ExportPatchCsvResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: ExportResponse;
 };
 
-export type ExportLabelsCsvProjectsProjectIdExportLabelsGetData = {
+export type ExportPatchCsvResponse = ExportPatchCsvResponses[keyof ExportPatchCsvResponses];
+
+export type DownloadPatchCsvData = {
     body?: never;
     path: {
         /**
          * Project Id
          */
         project_id: number;
+        /**
+         * Session Id
+         */
+        session_id: string;
+        /**
+         * Image Id
+         */
+        image_id: number;
     };
     query?: never;
-    url: '/projects/{project_id}/export/labels/';
+    url: '/projects/{project_id}/export/{session_id}/download/{image_id}';
 };
 
-export type ExportLabelsCsvProjectsProjectIdExportLabelsGetErrors = {
+export type DownloadPatchCsvErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type ExportLabelsCsvProjectsProjectIdExportLabelsGetError = ExportLabelsCsvProjectsProjectIdExportLabelsGetErrors[keyof ExportLabelsCsvProjectsProjectIdExportLabelsGetErrors];
+export type DownloadPatchCsvError = DownloadPatchCsvErrors[keyof DownloadPatchCsvErrors];
 
-export type ExportLabelsCsvProjectsProjectIdExportLabelsGetResponses = {
+export type DownloadPatchCsvResponses = {
     /**
      * Successful Response
      */

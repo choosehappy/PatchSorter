@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 import numpy as np
 
 from patchsorter.config.constants import PredPatchSuffix
 from patchsorter.db.grid_index import HierarchicalGridIndexIJPair
-from patchsorter.db.head_client.models import build_table_name, build_pred_table_name
+from patchsorter.db.head_client.models import build_table_name, build_pred_table_name, patch_model
 from patchsorter.db.head_client.settings import SettingsStore
 
 
@@ -522,6 +522,47 @@ class PatchStore:
             label_pairs=label_pairs,
         )
 
+    def fetch_ground_truth(
+        self,
+        cursor: int = 0,
+        limit: int = 20,
+        include_image: bool = True,
+        label_pairs: Optional[List[Tuple[int, int]]] = None,
+        image_id: Optional[int] = None,
+        label_class_ids: Optional[List[int]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch a paginated page of ground-truth patches.
+
+        Only patches with a ground-truth label (``label_class_id`` is not NULL)
+        are returned.
+
+        Args:
+            cursor: Exclusive lower-bound ``patch_id`` for keyset pagination.
+                Pass ``0`` (default) to fetch the first page.
+            limit: Maximum number of rows to return.  Defaults to ``20``.
+            include_image: When ``True`` (default), ``patch_image`` bytes are
+                included in each returned dict.
+            label_pairs: Unused but kept for API compatibility with
+                ``fetch_predicted``.
+            image_id: Optional filter to only return patches for a specific
+                image.
+            label_class_ids: Optional filter to only return patches for specific
+                label classes.
+
+        Returns:
+            A list of flat dicts merging patch columns
+            (``patch_id``, ``patch_uid``, ``label_class_id``, ``image_id``,
+            ``downsample_factor``, ``centroid_x``, ``centroid_y``, ``polygon``,
+            and ``patch_image`` when *include_image* is ``True``).
+        """
+        return self._paginated_patch(
+            cursor=cursor,
+            limit=limit,
+            include_image=include_image,
+            image_id=image_id,
+            label_class_ids=label_class_ids,
+        )
+
     def _paginated_pred_join(
         self,
         pred_filter_sql: str,
@@ -722,6 +763,69 @@ class PatchStore:
             label_pairs=label_pairs
         )
 
+    def _paginated_patch(
+        self,
+        *,
+        cursor: int = 0,
+        limit: int = 20,
+        include_image: bool = True,
+        image_id: Optional[int] = None,
+        label_class_ids: Optional[List[int]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return a paginated, keyset-cursor page of patches from the patch table.
+
+        Only patches whose ``patch_id > cursor`` are returned, ordered
+        ascending — suitable for stable forward pagination.  ``LIMIT`` is
+        applied after the cursor filter.
+
+        Args:
+            cursor: Exclusive lower-bound on ``patch_id`` for keyset
+                pagination.  Pass ``0`` (default) to start from the first page.
+            limit: Maximum number of rows to return.  Defaults to ``20``.
+            include_image: When ``True`` (default), ``patch_image`` bytes are
+                included in each returned dict.  Set to ``False`` for
+                metadata-only queries.
+            image_id: Optional filter to only return patches for a specific
+                image.
+
+        Returns:
+            A list of flat dicts with keys: ``patch_id``, ``patch_uid``,
+            ``label_class_id``, ``image_id``,
+            ``downsample_factor``, ``centroid_x``, ``centroid_y``, ``polygon``
+            (and ``patch_image`` when *include_image* is ``True``).
+        """
+        Patch = patch_model(self.project_id)
+        t = Patch.__table__
+
+        cols = [
+            t.c.patch_id,
+            t.c.patch_uid,
+            t.c.label_class_id,
+            t.c.image_id,
+            t.c.downsample_factor,
+            t.c.centroid_x,
+            t.c.centroid_y,
+            func.ST_AsGeoJSON(t.c.polygon).label("polygon"),
+        ]
+        if include_image:
+            cols.append(t.c.patch_image)
+
+        stmt = (
+            select(*cols)
+            .select_from(t)
+            .where(t.c.patch_id > cursor)
+            .order_by(t.c.patch_id)
+            .limit(limit)
+        )
+        if image_id is not None:
+            stmt = stmt.where(t.c.image_id == image_id)
+        if label_class_ids is not None and len(label_class_ids) > 0:
+            stmt = stmt.where(t.c.label_class_id.in_(label_class_ids))
+
+        rows = self._session.execute(stmt).mappings().all()
+        return [dict(r) for r in rows]
+
+
 
     def get_patch_by_id(self, patch_id: int) -> Optional[Dict[str, Any]]:
         """Return a single patch row dict by patch_id, including patch_image.
@@ -733,7 +837,7 @@ class PatchStore:
             A dict with patch columns (including ``patch_image``), or ``None``
             if no matching row exists.
         """
-        from patchsorter.db.head_client.models import patch_model
+
 
         Patch = patch_model(self.project_id)
         row = (

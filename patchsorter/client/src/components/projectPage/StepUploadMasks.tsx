@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Form } from 'react-bootstrap'
+import { ACCEPTED_MASK_EXTS_REGEX, ACCEPT_MASK_ATTR } from '../../constants'
 
 interface StepUploadMasksProps {
     files: File[]
@@ -28,7 +29,7 @@ export default function StepUploadMasks({
 
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault()
-        const dropped = Array.from(e.dataTransfer.files).filter(f => /\.geojson$/i.test(f.name))
+        const dropped = Array.from(e.dataTransfer.files).filter(f => ACCEPTED_MASK_EXTS_REGEX.test(f.name))
         if (dropped.length) onAddFiles(dropped)
         setDragOver(false)
     }
@@ -84,13 +85,13 @@ export default function StepUploadMasks({
                                     <div className="mb-2" style={{ fontSize: '2rem' }}>🗺️</div>
                                     <div>Drag &amp; drop GeoJSON mask files here, or <strong>click to browse</strong></div>
                                     <div className="text-muted mt-1" style={{ fontSize: '0.8rem' }}>
-                                        Accepts: .geojson only
+                                        Accepts: {ACCEPT_MASK_ATTR}
                                     </div>
                                 </div>
                                 <input
                                     type="file"
                                     multiple
-                                    accept=".geojson"
+                                    accept={ACCEPT_MASK_ATTR}
                                     style={{ display: 'none' }}
                                     onChange={handleBrowse}
                                 />

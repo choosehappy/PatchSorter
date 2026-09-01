@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button } from 'react-bootstrap'
 import ConfirmationModal from '../ConfirmationModal'
+import { Button, OverlayTrigger, Tooltip } from 'react-bootstrap'
 
 interface ActionsFooterProps {
     projectId: number
@@ -10,6 +10,8 @@ interface ActionsFooterProps {
     onClearImageSelection: () => void
     onClearLabelClassSelection: () => void
     onOpenUploadWizard?: () => void
+    onOpenExportModal?: () => void
+    onCreateLabelClass?: () => void
 }
 
 export default function ActionsFooter({
@@ -19,12 +21,19 @@ export default function ActionsFooter({
     onClearImageSelection,
     onClearLabelClassSelection,
     onOpenUploadWizard,
+    onOpenExportModal,
+    onCreateLabelClass,
 }: ActionsFooterProps) {
     const navigate = useNavigate()
     const [confirmTarget, setConfirmTarget] = useState<'images' | 'labelClasses' | null>(null)
 
     const hasImages = selectedImageIds.size > 0
     const hasLabelClasses = selectedLabelClassIds.size > 0
+    const exportEnabled = hasImages && hasLabelClasses
+
+    const exportText = exportEnabled
+        ? `Export ${selectedLabelClassIds.size} label class${selectedLabelClassIds.size > 1 ? 'es' : ''} from ${selectedImageIds.size} image${selectedImageIds.size > 1 ? 's' : ''}`
+        : 'Export patch labels'
 
     const clearAll = () => {
         onClearImageSelection()
@@ -59,7 +68,7 @@ export default function ActionsFooter({
                         <Button
                             variant="outline-secondary"
                             size="sm"
-                            onClick={() => console.log('Create Label Class not implemented yet')}
+                            onClick={() => onCreateLabelClass?.()}
                         >
                             Create Label Class
                         </Button>
@@ -72,6 +81,36 @@ export default function ActionsFooter({
                             Enter Upload Wizard
                         </Button>
 
+                        {exportEnabled ? (
+                            <Button
+                                variant="outline-secondary"
+                                size="sm"
+                                onClick={onOpenExportModal}
+                            >
+                                {exportText}
+                            </Button>
+                        ) : (
+                            <OverlayTrigger
+                                placement="top"
+                                overlay={
+                                    <Tooltip id="export-disabled-tooltip">
+                                        Select both label classes and images to enable export
+                                    </Tooltip>
+                                }
+                            >
+                                <span className="d-inline-block" tabIndex={0}>
+                                    <Button
+                                        variant="outline-secondary"
+                                        size="sm"
+                                        disabled
+                                        style={{ pointerEvents: 'none' }}
+                                    >
+                                        {exportText}
+                                    </Button>
+                                </span>
+                            </OverlayTrigger>
+                        )}
+
                         {(hasImages || hasLabelClasses) && (
                             <>
                                 <div
@@ -83,21 +122,13 @@ export default function ActionsFooter({
                                     }}
                                 />
                                 {hasImages && (
-                                    <>
-                                        <Button
-                                            variant="outline-secondary"
-                                            size="sm"
-                                        >
-                                            Export Patches for {selectedImageIds.size} Image{selectedImageIds.size > 1 ? 's' : ''}
-                                        </Button>
-                                        <Button
-                                            variant="outline-danger"
-                                            size="sm"
-                                            onClick={() => setConfirmTarget('images')}
-                                        >
-                                            Delete {selectedImageIds.size} Image{selectedImageIds.size > 1 ? 's' : ''}
-                                        </Button>
-                                    </>
+                                    <Button
+                                        variant="outline-danger"
+                                        size="sm"
+                                        onClick={() => setConfirmTarget('images')}
+                                    >
+                                        Delete {selectedImageIds.size} Image{selectedImageIds.size > 1 ? 's' : ''}
+                                    </Button>
                                 )}
 
                                 {hasLabelClasses && (

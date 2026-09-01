@@ -15,6 +15,7 @@ from patchsorter.config.constants import (
     PATCH_CSV_EXTS,
     PATCH_BATCH_SIZE,
     PatchExtractionMethod,
+    LargeImageMetadataKeys,
 )
 from patchsorter.utils.fsmanager import FileStoreManager, scan_folder
 from patchsorter.api.v1.upload.models import ProcessRow
@@ -151,7 +152,7 @@ def _validate_mixed(
 
         try:
             ts = large_image.open(str(img_path))
-            base_mag = ts.getMetadata().get("magnification")
+            base_mag = ts.getMetadata().get(LargeImageMetadataKeys.BASE_MAGNIFICATION)
         except Exception:
             base_mag = None
 
@@ -204,7 +205,7 @@ def _validate_image_csv(csv_content: bytes, session_id: str = "", project_id: in
                 else:
                     try:
                         ts = large_image.open(str(img_full))
-                        base_mag = ts.getMetadata().get("magnification")
+                        base_mag = ts.getMetadata().get(LargeImageMetadataKeys.BASE_MAGNIFICATION)
                     except Exception:
                         base_mag = None
 
@@ -283,17 +284,18 @@ def process_row(
     if process_row_arg.base_mag is not None:
         base_mag = process_row_arg.base_mag
     else:
-        base_mag = ts.getMetadata().get("magnification")
+        base_mag = ts.getMetadata().get(LargeImageMetadataKeys.BASE_MAGNIFICATION)
     if base_mag is None:
         raise ValueError(
             f"base_mag not provided and could not be extracted from image metadata "
             f"for {image_path}"
         )
 
-    # Collect image metadata
-    base_width = ts.getMetadata().get("width", 0)
-    base_height = ts.getMetadata().get("height", 0)
-    deepzoom_tilesize = ts.getMetadata().get("tileWidth", 256)
+    # Collect image metadata (single getMetadata() call)
+    meta = ts.getMetadata()
+    base_width = meta.get(LargeImageMetadataKeys.IMAGE_WIDTH, 0)
+    base_height = meta.get(LargeImageMetadataKeys.IMAGE_HEIGHT, 0)
+    deepzoom_tilesize = meta.get(LargeImageMetadataKeys.TILE_WIDTH, 256)
 
     # Get patch iterator based on available mask and/or CSV
     iterator: GeometryIterable = create_patch_iterator(mask_path, csv_path)
@@ -369,7 +371,11 @@ def process_row(
 
     # Move image to permanent storage after the DB session commits cleanly
     if process_row_arg.image.startswith(f"{session_id}/"):
-        fsman.nas_write.move_to_permanent(session_id, project_id, image_id, image_filename)
+        final_path = fsman.nas_write.move_to_permanent(session_id, project_id, image_id, image_filename)
+
+        # Change the image_path in the DB to the new permanent path
+        with get_client().get_session() as session:
+            ImageStore(session).update(image_id=image_id, project_id=project_id, image_path=final_path)
 
     return {"image_id": image_id, "patch_count": total_patches}
 

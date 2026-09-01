@@ -16,6 +16,8 @@ import threading
 import time
 from pathlib import Path
 
+from patchsorter.config.constants import GC_INTERVAL_SECONDS, GC_TTL_SECONDS
+
 log = logging.getLogger(__name__)
 
 # Imported at module level so tests can patch them.
@@ -103,8 +105,8 @@ def _cleanup_abandoned_temp_dirs(live_session_ids: set[str]) -> None:
 
 
 def start_gc_thread(
-    ttl_seconds: int = 3600,
-    interval_seconds: int = 300,
+    ttl_seconds: int = GC_TTL_SECONDS,
+    interval_seconds: int = GC_INTERVAL_SECONDS,
 ) -> threading.Thread:
     """Start and return a daemon thread that periodically cleans up expired sessions."""
 

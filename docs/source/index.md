@@ -33,6 +33,7 @@ Manuscript available [here](https://www.nature.com/articles/s41746-024-01150-4)
 
 installation
 usage
+accepted_formats
 unit_testing
 cli
 design_material_draft1/index.md
