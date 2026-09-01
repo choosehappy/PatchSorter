@@ -22,7 +22,7 @@ from ray.train.torch import TorchTrainer
 from ray.train import ScalingConfig
 
 from patchsorter.db import head_client, worker_client
-from patchsorter.db.head_client.database_manager import DatabaseManager
+from patchsorter.db.head_client.database_manager import CitusShardMap, DatabaseManager
 from patchsorter.db.head_client.label_class import LabelClassStore
 from patchsorter.api.v1.label_class.models import LabelClassResponse
 from patchsorter.db.head_client.settings import SettingsStore
@@ -194,29 +194,32 @@ class ShardDataset:
         self,
         worker_sm: Any,
         project_id: int,
-        assigned_shards: List[int],
+        assigned_patch_shards: List[int],
+        shard_map: CitusShardMap,
         batch_size: int,
     ) -> None:
         self._worker_sm = worker_sm
         self._project_id = project_id
-        self._assigned_shards = assigned_shards
+        self._assigned_patch_shards = assigned_patch_shards
         self._batch_size = batch_size
+        self._shard_map = shard_map
 
     def __iter__(self) -> Iterator[Tuple[int, List[Dict[str, Any]]]]:
         """Yield ``(shard_id, batch)`` tuples, one session opened per batch."""
-        for shard_id in self._assigned_shards:
+        for patch_shard_id in self._assigned_patch_shards:
             with self._worker_sm.get_session() as session:
                 store = WorkerPatchStore(self._project_id, session)
-                cursor = store.get_cursor_from_shard(shard_id)
+                pred_patch_latest_shard_id = self._shard_map.get_b_shard_for_a_shard(patch_shard_id)    # This is an O(1) lookup in the shard map, not a DB query.
+                cursor = store.get_cursor_from_shard(pred_latest_shard_id=pred_patch_latest_shard_id)
             while True:
                 with self._worker_sm.get_session() as session:
                     batch = WorkerPatchStore(
                         self._project_id, session
-                    ).fetch_patch_batch(shard_id, cursor, self._batch_size)
+                    ).fetch_patch_batch(patch_shard_id, cursor, self._batch_size)
                 if not batch:
                     break
                 cursor = batch[-1]["patch_id"]
-                yield shard_id, batch
+                yield patch_shard_id, batch
 
 
 # ---------------------------------------------------------------------------
@@ -552,7 +555,6 @@ class DLActor:
         self._project_id = project_id
         self._training_enabled: bool = False  # frozen by default until explicitly unfrozen
         self._termination_signal: bool = False
-        self._training_ref: Optional[ray.ObjectRef] = None
         self._app_config = app_config or {}
         self._label_classes = label_classes
 
@@ -589,7 +591,7 @@ class DLActor:
         Args:
             num_workers: Number of Ray Train workers to use.
         """
-        self._training_ref = _launch_training.remote(
+        _launch_training(
             self._project_id,
             self._app_config,
             num_workers,
@@ -601,7 +603,6 @@ class DLActor:
 # Internal helper — launched as a detached Ray task
 # ---------------------------------------------------------------------------
 
-@ray.remote
 def _launch_training(
     project_id: int,
     app_config: Dict[str, Any],
