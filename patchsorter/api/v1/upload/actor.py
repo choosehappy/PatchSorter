@@ -371,7 +371,11 @@ def process_row(
 
     # Move image to permanent storage after the DB session commits cleanly
     if process_row_arg.image.startswith(f"{session_id}/"):
-        fsman.nas_write.move_to_permanent(session_id, project_id, image_id, image_filename)
+        final_path = fsman.nas_write.move_to_permanent(session_id, project_id, image_id, image_filename)
+
+        # Change the image_path in the DB to the new permanent path
+        with get_client().get_session() as session:
+            ImageStore(session).update(image_id=image_id, project_id=project_id, image_path=final_path)
 
     return {"image_id": image_id, "patch_count": total_patches}
 

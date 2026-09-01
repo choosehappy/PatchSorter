@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -188,3 +189,22 @@ class ImageStore:
             text("DELETE FROM image WHERE image_id = :image_id"),
             {"image_id": image_id},
         )
+
+    def update(self, image_id: int, project_id: int, image_path: Path | None) -> Optional[Image]:
+        """Update an image row.
+
+        Args:
+            image_id: The integer ID of the image to update.
+            project_id: The integer ID of the owning project.
+            image_path: The new path to the image file.
+
+        Returns:
+            The updated Image ORM instance if found, None otherwise.
+        """
+        row = self.get(image_id, project_id)
+        if row is None:
+            return None
+        if image_path is not None:
+            row.image_path = str(image_path)
+
+        return row

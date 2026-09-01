@@ -10,6 +10,8 @@ import ActionsFooter from '../components/projectPage/ActionsFooter'
 import UploadWizardModal from '../components/projectPage/UploadWizardModal'
 import ExportModal from '../components/projectPage/ExportModal'
 import TaskChildrenGrid from '../components/projectPage/TaskChildrenGrid'
+import CreateLabelClassModal from '../components/projectPage/CreateLabelClassModal'
+import EditLabelClassModal from '../components/projectPage/EditLabelClassModal'
 import {
     getProjectProjectsProjectIdGet,
     listLabelClassesProjectsProjectIdLabelClassesGet,
@@ -25,6 +27,8 @@ export default function ProjectPage() {
     const [showUploadWizard, setShowUploadWizard] = useState(false)
     const [showExportModal, setShowExportModal] = useState(false)
     const [exportTaskId, setExportTaskId] = useState<string | null>(null)
+    const [showCreateLabelClass, setShowCreateLabelClass] = useState(false)
+    const [editingLabelClass, setEditingLabelClass] = useState<any>(null)
 
     const handleExportStarted = useCallback((data: { task_id: string; manifest_urls: string[] }) => {
         setExportTaskId(data.task_id)
@@ -58,6 +62,7 @@ export default function ProjectPage() {
     const handleExportComplete = useCallback((urls: string[]) => {
         setExportTaskId(null)
     }, [])
+
 
     const { data: project, isLoading: projectLoading } = useQuery({
         queryKey: ['project', projectId],
@@ -93,6 +98,7 @@ export default function ProjectPage() {
                 onMutated={() => queryClient.invalidateQueries({ queryKey: ['labelClasses', projectId] })}
                 selectedIds={selectedLabelClassIds}
                 onSelectionChange={setSelectedLabelClassIds}
+                onEdit={setEditingLabelClass}
             />
             <ImagesTable
                 projectId={projectId}
@@ -111,6 +117,7 @@ export default function ProjectPage() {
                 onClearLabelClassSelection={() => setSelectedLabelClassIds(new Set())}
                 onOpenUploadWizard={() => setShowUploadWizard(true)}
                 onOpenExportModal={() => setShowExportModal(true)}
+                onCreateLabelClass={() => setShowCreateLabelClass(true)}
             />
             {showUploadWizard && (
                 <UploadWizardModal
@@ -126,6 +133,29 @@ export default function ProjectPage() {
                     onClose={() => setShowExportModal(false)}
                     onExportStarted={handleExportStarted}
                     onExportComplete={handleExportComplete}
+                />
+            )}
+            {showCreateLabelClass && (
+                <CreateLabelClassModal
+                    projectId={projectId}
+                    show={showCreateLabelClass}
+                    onClose={() => setShowCreateLabelClass(false)}
+                    onSuccess={() => {
+                        queryClient.invalidateQueries({ queryKey: ['labelClasses', projectId] })
+                        toast.success('Label class created successfully')
+                    }}
+                />
+            )}
+            {editingLabelClass && (
+                <EditLabelClassModal
+                    projectId={projectId}
+                    labelClass={editingLabelClass}
+                    show={!!editingLabelClass}
+                    onClose={() => setEditingLabelClass(null)}
+                    onSuccess={() => {
+                        queryClient.invalidateQueries({ queryKey: ['labelClasses', projectId] })
+                        toast.success('Label class updated successfully')
+                    }}
                 />
             )}
         </Container>
