@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from sqlalchemy import case, func, select, text
 
 from patchsorter.db.head_client import get_client as get_head_client
@@ -121,3 +121,16 @@ def create_project(body: CreateProjectRequest) -> ProjectResponse:
     db_mgr = DatabaseManager(client)
     db_mgr.setup_project(row.get("project_id"))
     return ProjectResponse(**row)
+
+
+@router.delete("/projects/{project_id}", status_code=204)
+def delete_project(project_id: int):
+    client = get_head_client()
+    with client.get_session() as session:
+        store = ProjectStore(session)
+        try:
+            store.get(project_id)
+        except RuntimeError:
+            raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+    db_mgr = DatabaseManager(client)
+    db_mgr.delete_project(project_id)

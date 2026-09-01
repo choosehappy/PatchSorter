@@ -823,6 +823,36 @@ export type CreateProjectProjectsPostResponses = {
 
 export type CreateProjectProjectsPostResponse = CreateProjectProjectsPostResponses[keyof CreateProjectProjectsPostResponses];
 
+export type DeleteProjectProjectsProjectIdDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+    };
+    query?: never;
+    url: '/projects/{project_id}';
+};
+
+export type DeleteProjectProjectsProjectIdDeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteProjectProjectsProjectIdDeleteError = DeleteProjectProjectsProjectIdDeleteErrors[keyof DeleteProjectProjectsProjectIdDeleteErrors];
+
+export type DeleteProjectProjectsProjectIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteProjectProjectsProjectIdDeleteResponse = DeleteProjectProjectsProjectIdDeleteResponses[keyof DeleteProjectProjectsProjectIdDeleteResponses];
+
 export type GetProjectProjectsProjectIdGetData = {
     body?: never;
     path: {

@@ -30,3 +30,6 @@ class CreateProjectRequest(BaseModel):
 class UpdateProjectRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+
+
+

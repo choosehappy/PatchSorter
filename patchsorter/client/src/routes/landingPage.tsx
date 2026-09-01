@@ -7,7 +7,7 @@ import { SlickgridReact } from 'slickgrid-react'
 import type { Column, GridOption, SlickgridReactInstance } from 'slickgrid-react'
 import '@slickgrid-universal/common/dist/styles/css/slickgrid-theme-bootstrap.css'
 import type { ProjectResponse, ProjectStatsResponse } from '../api_client'
-import { listProjectsProjectsGet, getProjectStatsProjectsProjectIdStatsGet } from '../api_client'
+import { listProjectsProjectsGet, getProjectStatsProjectsProjectIdStatsGet, deleteProjectProjectsProjectIdDelete } from '../api_client'
 import CreateProjectModal from '../components/landingPage/CreateProjectModal'
 import EditProjectModal from '../components/landingPage/EditProjectModal'
 import LandingActionsFooter from '../components/landingPage/LandingActionsFooter'
@@ -33,6 +33,9 @@ export default function LandingPage() {
     const [showCreateModal, setShowCreateModal] = useState(false)
     const [editingProject, setEditingProject] = useState<ProjectResponse | null>(null)
     const [showEditModal, setShowEditModal] = useState(false)
+    const [showDeleteModal, setShowDeleteModal] = useState(false)
+    const [projectToDelete, setProjectToDelete] = useState<ProjectResponse | null>(null)
+    const [isDeleting, setIsDeleting] = useState(false)
 
     const { data: projects, isLoading } = useQuery({
         queryKey: ['projects'],
@@ -73,7 +76,7 @@ export default function LandingPage() {
         { id: 'num_label_classes', name: 'No. label classes', field: 'num_label_classes', sortable: true, width: 150, formatter: (_r: number, _c: number, v: unknown) => nullToDash(v) },
         { id: 'total_objects', name: 'No. total objects', field: 'total_objects', sortable: true, width: 160, formatter: (_r: number, _c: number, v: unknown) => nullToDash(v) },
         { id: 'labeled_count', name: 'No. labeled objects', field: 'labeled_count', sortable: true, width: 170, formatter: (_r: number, _c: number, v: unknown) => nullToDash(v) },
-        { id: 'actions', name: 'Actions', field: 'project_id', sortable: false, width: 140, formatter: (_r: number, _c: number, _v: unknown, _col: Column, dataContext: ProjectWithStats) => {
+        { id: 'actions', name: 'Actions', field: 'project_id', sortable: false, width: 180, formatter: (_r: number, _c: number, _v: unknown, _col: Column, dataContext: ProjectWithStats) => {
                 const btn = document.createElement('button')
                 btn.className = 'btn btn-outline-primary btn-sm me-1'
                 btn.textContent = 'Edit'
@@ -81,13 +84,21 @@ export default function LandingPage() {
                     setEditingProject(dataContext)
                     setShowEditModal(true)
                 }
-                const disabledBtn = document.createElement('button')
-                disabledBtn.className = 'btn btn-outline-secondary btn-sm'
-                disabledBtn.textContent = 'Settings'
-                disabledBtn.disabled = true
+                const settingsBtn = document.createElement('button')
+                settingsBtn.className = 'btn btn-outline-secondary btn-sm me-1'
+                settingsBtn.textContent = 'Settings'
+                settingsBtn.disabled = true
+                const deleteBtn = document.createElement('button')
+                deleteBtn.className = 'btn btn-outline-danger btn-sm'
+                deleteBtn.textContent = 'Delete'
+                deleteBtn.onclick = () => {
+                    setProjectToDelete(dataContext)
+                    setShowDeleteModal(true)
+                }
                 const wrapper = document.createElement('span')
                 wrapper.appendChild(btn)
-                wrapper.appendChild(disabledBtn)
+                wrapper.appendChild(settingsBtn)
+                wrapper.appendChild(deleteBtn)
                 return wrapper
             }
         },
@@ -144,6 +155,21 @@ export default function LandingPage() {
         queryClient.invalidateQueries({ queryKey: ['projects'] })
     }, [queryClient])
 
+    const handleDeleteProject = useCallback(async () => {
+        if (!projectToDelete) return
+        setIsDeleting(true)
+        try {
+            await deleteProjectProjectsProjectIdDelete({ path: { project_id: projectToDelete.project_id } })
+            queryClient.invalidateQueries({ queryKey: ['projects'] })
+            setShowDeleteModal(false)
+            setProjectToDelete(null)
+        } catch (error) {
+            console.error('Failed to delete project:', error)
+        } finally {
+            setIsDeleting(false)
+        }
+    }, [projectToDelete, queryClient])
+
     const containerHeight = useMemo(() => {
         if (isLoading) return 300
         const rows = Math.max(5, projectsWithStats.length)
@@ -194,6 +220,46 @@ export default function LandingPage() {
                 }}
                 onSuccess={handleEditSuccess}
             />
+
+            {showDeleteModal && projectToDelete && (
+                <div className="modal fade show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+                    <div className="modal-dialog modal-dialog-centered">
+                        <div className="modal-content">
+                            <div className="modal-header">
+                                <h5 className="modal-title">Delete Project</h5>
+                                <button type="button" className="btn-close" onClick={() => setShowDeleteModal(false)} />
+                            </div>
+                            <div className="modal-body">
+                                <p>
+                                    Are you sure you want to delete the project{' '}
+                                    <strong>{projectToDelete.project_name}</strong>?
+                                </p>
+                                <p className="text-danger">
+                                    This action cannot be undone. All project data, images, and settings will be permanently removed.
+                                </p>
+                            </div>
+                            <div className="modal-footer">
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={() => setShowDeleteModal(false)}
+                                    disabled={isDeleting}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-danger"
+                                    onClick={handleDeleteProject}
+                                    disabled={isDeleting}
+                                >
+                                    {isDeleting ? 'Deleting...' : 'Delete Project'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </Container>
     )
 }
