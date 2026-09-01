@@ -56,6 +56,9 @@ class LargeImageMetadataKeys(StrEnum):
     TILE_WIDTH = "tileWidth"
     BASE_MAGNIFICATION = "magnification"
 
+GC_TTL_SECONDS = 3600
+GC_INTERVAL_SECONDS = 300
+
 ANNOTATION_CLASS_COLOR_PALETTES: dict[str, list[str]] = {
     'default': [
         "#d5ff00", "#00ff00", "#ff937e", "#91d0cb",
