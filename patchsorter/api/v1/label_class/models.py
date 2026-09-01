@@ -12,3 +12,17 @@ class LabelClassResponse(BaseModel):
     event_ts: datetime
 
     model_config = {"from_attributes": True}
+
+
+class LabelClassCreate(BaseModel):
+    name: str
+    color_code: Optional[str] = None
+
+
+class LabelClassDefaultResponse(BaseModel):
+    color_code: str
+
+
+class LabelClassUpdate(BaseModel):
+    name: Optional[str] = None
+    color_code: Optional[str] = None

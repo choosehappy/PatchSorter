@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { Modal, Button } from 'react-bootstrap'
 import { toast } from 'react-toastify'
 import {
@@ -19,6 +19,7 @@ import StepUploadPatchCsv from './StepUploadPatchCsv'
 import StepUploadFileList from './StepUploadFileList'
 import StepReview from './StepReview'
 import StepComplete from './StepComplete'
+import StepDescription from './StepDescription'
 import TaskChildrenGrid from './TaskChildrenGrid'
 import './UploadWizardModal.css'
 
@@ -61,6 +62,48 @@ function getStepTitle(approach: Approach, step: Step): string {
         return STEP_BY_STEP_TITLES[step] ?? 'Upload'
     }
     return CSV_FILE_LIST_TITLES[step] ?? 'Upload'
+}
+
+const DOCS_ACCEPTED_FORMATS = 'https://patchsorter.readthedocs.io/en/latest/accepted_formats.html'
+
+const STEP_DESCRIPTIONS: Record<number, ReactNode> = {
+    [Step.ApproachSelection]: "Choose how you'd like to upload your data. If your filenames do not follow the expected naming conventions for images, masks, and patch CSVs, we recommend using the CSV File List approach.",
+    [Step.UploadImages]: (
+        <>
+            Upload digital pathology images. All OpenSlide-compatible formats are supported. See the{' '}
+            <a href={`${DOCS_ACCEPTED_FORMATS}#images`} target="_blank" rel="noopener noreferrer">
+                accepted formats documentation
+            </a>{' '}
+            for details.
+        </>
+    ),
+    [Step.UploadMasks]: (
+        <>
+            Upload mask files or provide a server directory path containing mask files. Masks must (1) match the base name of the corresponding image file, (2) be in GeoJSON format, and (3) contain Polygon geometries only. If you wish to upload patch CSVs without masks, you can skip this step. See{' '}
+            <a href={`${DOCS_ACCEPTED_FORMATS}#masks`} target="_blank" rel="noopener noreferrer">
+                accepted formats documentation
+            </a>{' '}
+            for details.
+        </>
+    ),
+    [Step.UploadPatchCsv]: (
+        <>
+            Upload patch CSV files or provide a server directory path containing patch CSV files. Patch CSVs must (1) match the base name of the corresponding image file, (2) be in CSV format, and (3) contain columns "centroid_x", "centroid_y", "width", "height", with optional columns "label", "patch_uid". See{' '}
+            <a href={`${DOCS_ACCEPTED_FORMATS}#patch-csv-files`} target="_blank" rel="noopener noreferrer">
+                accepted formats documentation
+            </a>{' '}
+            for details.
+        </>
+    ),
+    [Step.UploadFileList]: (
+        <>
+            Upload a CSV file with a header row <code>image,mask,patch_csv</code>. Each row should contain server paths relative to the <code>nas_read</code> mount for the scan image, and mask and/or patch_csv. Leave a column empty if not applicable. See{' '}
+            <a href={`${DOCS_ACCEPTED_FORMATS}#image-csv-file`} target="_blank" rel="noopener noreferrer">
+                accepted formats documentation
+            </a>{' '}
+            for details.
+        </>
+    ),
 }
 
 // ---------------------------------------------------------------------------
@@ -382,57 +425,72 @@ export default function UploadWizardModal({
 
                 {/* Step 0: choose approach */}
                 {currentStep === Step.ApproachSelection && (
-                    <StepApproachSelection onSelect={setApproach} />
+                    <>
+                        <StepDescription>{STEP_DESCRIPTIONS[currentStep]}</StepDescription>
+                        <StepApproachSelection onSelect={setApproach} />
+                    </>
                 )}
 
                 {/* Step 1: scan images */}
                 {approach === Approach.StepByStep && currentStep === Step.UploadImages && (
-                    <StepUploadImages
-                        files={images.current}
-                        onAddFiles={addImages}
-                        isFolder={isFolderByType['image']}
-                        onToggleFolder={v => setIsFolderForType('image', v)}
-                        serverPath={pathsByType['image']}
-                        onServerPathChange={p => updatePath('image', p)}
-                    />
+                    <>
+                        <StepDescription>{STEP_DESCRIPTIONS[currentStep]}</StepDescription>
+                        <StepUploadImages
+                            files={images.current}
+                            onAddFiles={addImages}
+                            isFolder={isFolderByType['image']}
+                            onToggleFolder={v => setIsFolderForType('image', v)}
+                            serverPath={pathsByType['image']}
+                            onServerPathChange={p => updatePath('image', p)}
+                        />
+                    </>
                 )}
 
                 {/* Step 2: masks */}
                 {approach === Approach.StepByStep && currentStep === Step.UploadMasks && (
-                    <StepUploadMasks
-                        files={masks.current}
-                        onAddFiles={addMasks}
-                        isFolder={isFolderByType['mask']}
-                        onToggleFolder={v => setIsFolderForType('mask', v)}
-                        serverPath={pathsByType['mask']}
-                        onServerPathChange={p => updatePath('mask', p)}
-                        includeMasks={includeMasks}
-                        onToggleInclude={setIncludeMasks}
-                        disabled={disabledMask}
-                    />
+                    <>
+                        <StepDescription>{STEP_DESCRIPTIONS[currentStep]}</StepDescription>
+                        <StepUploadMasks
+                            files={masks.current}
+                            onAddFiles={addMasks}
+                            isFolder={isFolderByType['mask']}
+                            onToggleFolder={v => setIsFolderForType('mask', v)}
+                            serverPath={pathsByType['mask']}
+                            onServerPathChange={p => updatePath('mask', p)}
+                            includeMasks={includeMasks}
+                            onToggleInclude={setIncludeMasks}
+                            disabled={disabledMask}
+                        />
+                    </>
                 )}
 
                 {/* Step 3: Patch CSV */}
                 {approach === Approach.StepByStep && currentStep === Step.UploadPatchCsv && (
-                    <StepUploadPatchCsv
-                        files={patchCsvFiles.current}
-                        onAddFiles={addPatchCsvs}
-                        isFolder={isFolderByType['patch_csv']}
-                        onToggleFolder={v => setIsFolderForType('patch_csv', v)}
-                        serverPath={pathsByType['patch_csv']}
-                        onServerPathChange={p => updatePath('patch_csv', p)}
-                        includePatchCsv={includePatchCsv}
-                        onToggleInclude={setIncludePatchCsv}
-                        disabled={disabledPatchCsv}
-                    />
+                    <>
+                        <StepDescription>{STEP_DESCRIPTIONS[currentStep]}</StepDescription>
+                        <StepUploadPatchCsv
+                            files={patchCsvFiles.current}
+                            onAddFiles={addPatchCsvs}
+                            isFolder={isFolderByType['patch_csv']}
+                            onToggleFolder={v => setIsFolderForType('patch_csv', v)}
+                            serverPath={pathsByType['patch_csv']}
+                            onServerPathChange={p => updatePath('patch_csv', p)}
+                            includePatchCsv={includePatchCsv}
+                            onToggleInclude={setIncludePatchCsv}
+                            disabled={disabledPatchCsv}
+                        />
+                    </>
                 )}
 
                 {/* Step 4: CSV file list */}
                 {approach === Approach.CsvFileList && currentStep === Step.UploadFileList && (
-                    <StepUploadFileList
-                        file={csvFile.current}
-                        onFile={setCsvFile}
-                    />
+                    <>
+                        <StepDescription>{STEP_DESCRIPTIONS[currentStep]}</StepDescription>
+                        <StepUploadFileList
+                            file={csvFile.current}
+                            onFile={setCsvFile}
+                        />
+                    </>
                 )}
 
                 {/* Step 5: review */}

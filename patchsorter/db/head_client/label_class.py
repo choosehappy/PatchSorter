@@ -6,13 +6,30 @@ from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
 from patchsorter.api.v1.label_class.models import LabelClassResponse
-from patchsorter.config.constants import UNASSIGNED_CLASS_ID
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID, ANNOTATION_CLASS_COLOR_PALETTES
 from patchsorter.db.head_client.models import LabelClass, build_table_name, build_pred_table_name
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 
 from patchsorter.config.constants import PredPatchSuffix
 
 
+
+
+class ColorPalette:
+    """Yield unused colors from the configured palette for a given project."""
+
+    def __init__(self, project_id: int) -> None:
+        self._color_list = ANNOTATION_CLASS_COLOR_PALETTES['default']
+        self._project_id = project_id
+
+    def get_unused_color(self, existing: List[LabelClassResponse]) -> str:
+        """Return the first palette color not already used by *existing* label classes."""
+        used_colors = {lc.color_code for lc in existing if lc.color_code is not None}
+        for color in self._color_list:
+            if color not in used_colors:
+                return color
+        # Exhausted the palette — fall back to the first entry
+        return self._color_list[0]
 
 
 class LabelClassStore:
@@ -57,6 +74,45 @@ class LabelClassStore:
             {"project_id": project_id, "name": name, "color_code": color_code},
         ).mappings().one()
         return dict(row)
+
+    def update(
+        self,
+        label_class_id: int,
+        project_id: int,
+        name: Optional[str] = None,
+        color_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update a label class and return the updated row.
+
+        Args:
+            label_class_id: The integer ID of the label class to update.
+            project_id: The integer ID of the owning project.
+            name: Optional new display name.
+            color_code: Optional new CSS colour string.
+
+        Returns:
+            A dict with all columns of the updated label-class row.
+
+        Raises:
+            RuntimeError: If the label class is not found.
+        """
+        row = (
+            self._session.query(LabelClass)
+            .filter(
+                LabelClass.label_class_id == label_class_id,
+                LabelClass.project_id == project_id,
+            )
+            .first()
+        )
+        if row is None:
+            raise RuntimeError(
+                f"Label class {label_class_id} not found in project {project_id}"
+            )
+        if name is not None:
+            row.name = name
+        if color_code is not None:
+            row.color_code = color_code
+        return {c.name: getattr(row, c.name) for c in row.__table__.columns}
 
     def list_by_project(self, project_id: int) -> List[LabelClassResponse]:
         """Return all label classes for a project ordered by ``label_class_id``.
