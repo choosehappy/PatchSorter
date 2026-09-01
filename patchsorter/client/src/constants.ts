@@ -4,8 +4,42 @@
 export const WORLD_SIZE = 4096
 
 
+// Upload
+export const ACCEPTED_IMAGE_EXTS = [
+  'tif',
+  'tiff',
+  'png',
+  'jpg',
+  'jpeg',
+  'svs',
+  'ndpi',
+  'vms',
+  'vmu',
+  'scn',
+  'mrxs',
+]
 
-// Quad base half-size in grid cells (scales by 2^(-zoom) for fixed visual size)
+export const ACCEPT_IMAGE_ATTR = ACCEPTED_IMAGE_EXTS.map(ext => `.${ext}`).join(', ')
+
+export const ACCEPTED_IMAGE_EXTS_REGEX = new RegExp(
+  `\\.(${ACCEPTED_IMAGE_EXTS.join('|')})$`,
+  'i',
+)
+
+export const ACCEPTED_MASK_EXTS = ['geojson']
+
+export const ACCEPT_MASK_ATTR = ACCEPTED_MASK_EXTS.map(ext => `.${ext}`).join(', ')
+
+export const ACCEPTED_MASK_EXTS_REGEX = new RegExp(
+  `\\.(${ACCEPTED_MASK_EXTS.join('|')})$`,
+  'i',
+)
+
+
+
+
+// Magnification options for review step editor
+export const MAGNIFICATION_OPTIONS: number[] = [5, 10, 20, 40]
 export const QUAD_HALF = 32
 export const QUAD_PADDING = 2
 

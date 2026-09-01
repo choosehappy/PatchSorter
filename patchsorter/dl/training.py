@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID
 from patchsorter.db.head_client.project import ProjectStore
 from torch.utils.tensorboard import SummaryWriter
 import ray
@@ -71,8 +72,7 @@ REPULSION_LAMBDA: float = 0.1
 _IDEAL_SPACING = GRID_SIZE / math.sqrt(BATCH_SIZE)
 REPULSION_MARGIN: float = _IDEAL_SPACING * 10.5
 
-_UNASSIGNED_CLASS_ID = 1
-"""Reserved ``label_class_id`` for the "Unlabeled" class."""
+
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ class LabelMap:
 
     def __init__(self, label_classes: List[LabelClassResponse]) -> None:
         valid = sorted(
-            [lc for lc in label_classes if lc.label_class_id != _UNASSIGNED_CLASS_ID],
+            [lc for lc in label_classes if lc.label_class_id != UNASSIGNED_CLASS_ID],
             key=lambda lc: lc.label_class_id,
         )
         self._id_to_idx: Dict[int, int] = {lc.label_class_id: i for i, lc in enumerate(valid)}
@@ -131,7 +131,7 @@ class LabelMap:
             A zero-based model class index (``0 .. n_classes-1``) for valid
             classes, or ``-1`` for the unassigned / ``None`` case.
         """
-        if label_class_id is None or label_class_id == _UNASSIGNED_CLASS_ID:
+        if label_class_id is None or label_class_id == UNASSIGNED_CLASS_ID:
             return -1
         return self._id_to_idx.get(label_class_id, -1)
 
@@ -146,7 +146,7 @@ class LabelMap:
             Returns ``1`` (unassigned) as a safe fallback for out-of-range
             indices.
         """
-        return self._idx_to_id.get(model_idx, _UNASSIGNED_CLASS_ID)
+        return self._idx_to_id.get(model_idx, UNASSIGNED_CLASS_ID)
 
 # ---------------------------------------------------------------------------
 # Image decoding helper

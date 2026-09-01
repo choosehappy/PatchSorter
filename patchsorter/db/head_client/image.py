@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -86,16 +87,20 @@ class ImageStore:
         ).mappings().one()
         return dict(row)
 
-    def get(self, image_id: int) -> Image:
+    def get(self, image_id: int, project_id: int) -> Optional[Image]:
         """Return a single image row as an Image ORM object.
 
         Args:
             image_id: The integer ID of the image.
+            project_id: The integer ID of the owning project.
 
         Returns:
-            The Image ORM instance for the given image_id.
+            The Image ORM instance if found, None otherwise.
         """
-        return self._session.query(Image).filter(Image.image_id == image_id).one()
+        return self._session.query(Image).filter_by(
+            image_id=image_id,
+            project_id=project_id,
+        ).first()
 
 
     def list_by_project(self, project_id: int) -> List[Image]:
@@ -113,6 +118,22 @@ class ImageStore:
             .filter(Image.project_id == project_id)
             .order_by(Image.image_id)
             .all()
+        )
+
+    def get_by_project_and_name(self, project_id: int, name: str) -> Optional[Image]:
+        """Return the image row matching *project_id* and *name*, or ``None``.
+
+        Args:
+            project_id: The integer ID of the project.
+            name: The image name (full filename with extension).
+
+        Returns:
+            The Image ORM instance if found, ``None`` otherwise.
+        """
+        return (
+            self._session.query(Image)
+            .filter_by(project_id=project_id, name=name)
+            .first()
         )
 
     def delete(self, image_id: int, project_id: int) -> None:
@@ -168,3 +189,22 @@ class ImageStore:
             text("DELETE FROM image WHERE image_id = :image_id"),
             {"image_id": image_id},
         )
+
+    def update(self, image_id: int, project_id: int, image_path: Path | None) -> Optional[Image]:
+        """Update an image row.
+
+        Args:
+            image_id: The integer ID of the image to update.
+            project_id: The integer ID of the owning project.
+            image_path: The new path to the image file.
+
+        Returns:
+            The updated Image ORM instance if found, None otherwise.
+        """
+        row = self.get(image_id, project_id)
+        if row is None:
+            return None
+        if image_path is not None:
+            row.image_path = str(image_path)
+
+        return row
