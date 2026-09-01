@@ -143,4 +143,4 @@ class ProjectStore:
         for model in [LabelClass, Image, Setting, Project]:
             self._session.execute(
                 delete(model).where(model.project_id == project_id)
-            )
+            # )

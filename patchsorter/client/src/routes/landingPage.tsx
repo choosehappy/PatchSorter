@@ -180,27 +180,30 @@ export default function LandingPage() {
         <Container fluid className="py-3 d-flex flex-column gap-4" style={{ paddingBottom: 80 }}>
             <section>
                 <h5>Projects</h5>
-                {isLoading ? (
+                {isLoading && (
                     <div className="d-flex justify-content-center align-items-center" style={{ height: containerHeight }}>
                         <span className="spinner-border spinner-border-lg text-primary" role="status">
                             <span className="visually-hidden">Loading...</span>
                         </span>
                     </div>
-                ) : projectsWithStats.length === 0 ? (
+                )}
+                {!isLoading && projectsWithStats.length === 0 && (
                     <div className="alert alert-info text-center" role="status">
                         No projects yet. Click <strong>'Create New Project'</strong> below.
                     </div>
-                ) : (
-                    <div id="projects-container" style={{ height: containerHeight, overflow: 'hidden' }}>
-                        <SlickgridReact
-                            gridId="projects-grid"
-                            columns={columns}
-                            options={gridOptions}
-                            dataset={dataset}
-                            onReactGridCreated={e => onGridReady(e.detail)}
-                        />
-                    </div>
                 )}
+                <div
+                    id="projects-container"
+                    style={{ height: containerHeight, overflow: 'hidden', display: (!isLoading && projectsWithStats.length > 0) ? 'block' : 'none' }}
+                >
+                    <SlickgridReact
+                        gridId="projects-grid"
+                        columns={columns}
+                        options={gridOptions}
+                        dataset={dataset}
+                        onReactGridCreated={e => onGridReady(e.detail)}
+                    />
+                </div>
             </section>
 
             <LandingActionsFooter onCreateProject={() => setShowCreateModal(true)} />
