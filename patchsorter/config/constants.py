@@ -35,6 +35,30 @@ PATCH_BATCH_SIZE = 1000
 
 UNASSIGNED_CLASS_ID = 1
 
+
+class PatchCSVColumns(StrEnum):
+    PATCH_ID = "patch_id"
+    PATCH_UID = "patch_uid"
+    LABEL_CLASS_ID = "label_class_id"
+    CENTROID_X = "centroid_x"
+    CENTROID_Y = "centroid_y"
+
+
+class PatchGeoJSONProperties(StrEnum):
+    LABEL = "label"
+    CLASS_ID = "class_id"
+    LABEL_CLASS_ID = "label_class_id"
+    UID = "uid"
+
+class LargeImageMetadataKeys(StrEnum):
+    IMAGE_WIDTH = "sizeX"
+    IMAGE_HEIGHT = "sizeY"
+    TILE_WIDTH = "tileWidth"
+    BASE_MAGNIFICATION = "magnification"
+
+GC_TTL_SECONDS = 3600
+GC_INTERVAL_SECONDS = 300
+
 ANNOTATION_CLASS_COLOR_PALETTES: dict[str, list[str]] = {
     'default': [
         "#d5ff00", "#00ff00", "#ff937e", "#91d0cb",

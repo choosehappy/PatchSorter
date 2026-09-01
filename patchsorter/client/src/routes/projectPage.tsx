@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Container } from 'react-bootstrap'
 import { toast } from 'react-toastify'
@@ -8,6 +8,8 @@ import LabelClassesTable from '../components/projectPage/LabelClassesTable'
 import ImagesTable from '../components/projectPage/ImagesTable'
 import ActionsFooter from '../components/projectPage/ActionsFooter'
 import UploadWizardModal from '../components/projectPage/UploadWizardModal'
+import ExportModal from '../components/projectPage/ExportModal'
+import TaskChildrenGrid from '../components/projectPage/TaskChildrenGrid'
 import CreateLabelClassModal from '../components/projectPage/CreateLabelClassModal'
 import EditLabelClassModal from '../components/projectPage/EditLabelClassModal'
 import {
@@ -23,8 +25,44 @@ export default function ProjectPage() {
     const [selectedImageIds, setSelectedImageIds] = useState<Set<number>>(new Set())
     const [selectedLabelClassIds, setSelectedLabelClassIds] = useState<Set<number>>(new Set())
     const [showUploadWizard, setShowUploadWizard] = useState(false)
+    const [showExportModal, setShowExportModal] = useState(false)
+    const [exportTaskId, setExportTaskId] = useState<string | null>(null)
     const [showCreateLabelClass, setShowCreateLabelClass] = useState(false)
     const [editingLabelClass, setEditingLabelClass] = useState<any>(null)
+
+    const handleExportStarted = useCallback((data: { task_id: string; manifest_urls: string[] }) => {
+        setExportTaskId(data.task_id)
+        if (data.manifest_urls.length > 0) {
+            const content = data.manifest_urls.join('\n')
+            const blob = new Blob([content], { type: 'text/plain' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = 'export_manifest.txt'
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+        }
+        toast(
+            <div>
+                <div>Exporting patches…</div>
+                <div>
+                    <TaskChildrenGrid
+                        parentTaskId={data.task_id}
+                        containerId={`toast-task-export-${data.task_id}`}
+                        onCompletion={() => {}}
+                    />
+                </div>
+            </div>,
+            { autoClose: false, closeOnClick: false, draggable: false }
+        )
+    }, [])
+
+    const handleExportComplete = useCallback((urls: string[]) => {
+        setExportTaskId(null)
+    }, [])
+
 
     const { data: project, isLoading: projectLoading } = useQuery({
         queryKey: ['project', projectId],
@@ -78,12 +116,23 @@ export default function ProjectPage() {
                 onClearImageSelection={() => setSelectedImageIds(new Set())}
                 onClearLabelClassSelection={() => setSelectedLabelClassIds(new Set())}
                 onOpenUploadWizard={() => setShowUploadWizard(true)}
+                onOpenExportModal={() => setShowExportModal(true)}
                 onCreateLabelClass={() => setShowCreateLabelClass(true)}
             />
             {showUploadWizard && (
                 <UploadWizardModal
                     projectId={projectId}
                     onClose={() => setShowUploadWizard(false)}
+                />
+            )}
+            {showExportModal && (
+                <ExportModal
+                    projectId={projectId}
+                    selectedImageIds={selectedImageIds}
+                    selectedLabelClassIds={selectedLabelClassIds}
+                    onClose={() => setShowExportModal(false)}
+                    onExportStarted={handleExportStarted}
+                    onExportComplete={handleExportComplete}
                 />
             )}
             {showCreateLabelClass && (

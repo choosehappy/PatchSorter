@@ -159,7 +159,7 @@ def patch_model(project_id: int) -> type:
             {
                 "__tablename__": build_table_name(project_id),
                 "patch_id":          Column(BigInteger, primary_key=True, autoincrement=True),
-                "patch_uid":         Column(Uuid, unique=False, nullable=False),
+                "patch_uid":         Column(Uuid, unique=False, nullable=True), # we don't need to enforce uniqueness since this is purely for user convenience and not used for any joins or lookups
                 "label_class_id":    Column(SmallInteger, nullable=False),
                 "image_id":          Column(Integer, nullable=False),
                 "downsample_factor": Column(Float, nullable=False),

@@ -174,7 +174,7 @@ def _makepatch_geojson(
         ValueError: If a feature is missing the ``uid`` property, or contains
             a ``Point``, ``MultiPolygon``, or other unsupported geometry type.
     """
-    base_mag = ImageStore(session).get(image_id).base_mag
+    base_mag = ImageStore(session).get(image_id, project_id).base_mag
     ts = large_image.open(image_filepath)
     scale = 1.0 / downsample_factor
     magnification = base_mag / downsample_factor

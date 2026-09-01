@@ -191,6 +191,30 @@ class UploadStore(FileStore):
         shutil.rmtree(session_dir, ignore_errors=True)
 
 
+class ExportStore(FileStore):
+    """Per-export-session temporary storage."""
+
+    def __init__(self) -> None:
+        super().__init__(Path("nas_write") / "export_sessions")
+
+    def get_session_dir(self, session_id: str) -> Path:
+        """Return the full path to the session directory."""
+        return self.full_path / session_id
+
+    def create_session_dir(self, session_id: str) -> None:
+        """Create the session directory."""
+        self.get_session_dir(session_id).mkdir(parents=True, exist_ok=True)
+
+    def cleanup_session(self, session_id: str) -> None:
+        """Remove the session directory tree."""
+        shutil.rmtree(self.get_session_dir(session_id), ignore_errors=True)
+
+    def get_csv_path(self, session_id: str, image_id: int, image_name: str) -> Path:
+        """Return the full path to a CSV file for the given image_id and image_name."""
+        csv_filename = f"patches_{image_id}_{image_name}.csv"
+        return self.get_session_dir(session_id) / csv_filename
+
+
 class FileStoreManager:
     """Lightweight container for the three store instances."""
 
@@ -198,3 +222,4 @@ class FileStoreManager:
         self.nas_write = NASWriteStore()
         self.nas_read = NASReadStore()
         self.upload = UploadStore()
+        self.export = ExportStore()
