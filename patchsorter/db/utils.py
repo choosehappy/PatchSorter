@@ -77,8 +77,8 @@ _SHARD_MAP_SQL = """
           ON s1.shardid = pl1.shardid
         JOIN pg_dist_placement pl2
           ON s2.shardid = pl2.shardid
-        WHERE s1.logicalrelid = :table_a::regclass
-          AND s2.logicalrelid = :table_b::regclass
+        WHERE s1.logicalrelid = CAST(:table_a AS regclass)
+          AND s2.logicalrelid = CAST(:table_b AS regclass)
           AND p1.colocationid = p2.colocationid
           AND pl1.groupid = :groupid
           AND pl2.groupid = :groupid
