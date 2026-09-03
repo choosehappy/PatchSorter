@@ -4,7 +4,7 @@ These were previously defined in the package root but have been moved
 here to keep the package `__init__` small.
 """
 from contextlib import contextmanager
-from typing import Any, Generator, List
+from typing import Any, Generator, Iterator, List, Tuple
 
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -148,3 +148,6 @@ class CitusShardMap:
             raise KeyError(f"shard_b={shard_b} not found in shard map")
         return int(row.iloc[0]["shard_a"])
 
+    def __iter__(self) -> Iterator[Tuple[int, int]]:
+        for _, row in self.map.iterrows():
+            yield int(row["shard_a"]), int(row["shard_b"])

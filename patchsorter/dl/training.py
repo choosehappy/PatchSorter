@@ -197,21 +197,21 @@ class ShardDataset:
         self,
         worker_sm: Any,
         project_id: int,
-        assigned_patch_shards: List[int],
+        assigned_shards: CitusShardMap,
         batch_size: int,
-        initial_patch_id_cursor: int = None
     ) -> None:
         self._worker_sm = worker_sm
         self._project_id = project_id
-        self._assigned_patch_shards = assigned_patch_shards
+        self._assigned_shards = assigned_shards
         self._batch_size = batch_size
 
     def __iter__(self) -> Iterator[Tuple[int, List[Dict[str, Any]]]]:
         """Yield ``(shard_id, batch)`` tuples, one session opened per batch."""
-        for patch_shard_id in self._assigned_patch_shards:
+        for patch_shard_id, pred_patch_latest_shard_id in self._assigned_shards:
             # 1 cheap local db round trip per shard.
             with self._worker_sm.get_session() as session:
-                cursor_id = WorkerPatchStore(self._project_id, session).get_cursor_from_shard(patch_shard_id=patch_shard_id)
+                cursor_id = WorkerPatchStore(self._project_id, session).get_cursor_from_shard(pred_patch_latest_shard_id)
+
             # cursor_id now holds the highest patch_id from the local shard
             while True:
                 with self._worker_sm.get_session() as session:
@@ -328,7 +328,6 @@ def train_worker(config: Dict[str, Any]) -> None:
         # Discover locally assigned shards on each cycle since table rotation changes shard placements.
         with head_sm.get_session() as session:
             local_worker_shard_map = PatchStore(project_id, session).get_local_worker_shard_map(context.get_local_world_size(), local_rank, local_node_group_id)
-            assigned_local_patch_shards = local_worker_shard_map.get_table_a_shard_list()
 
         cycle += 1
         logger.info("[Worker %d (local %d)] Starting cycle %d.", world_rank, local_rank, cycle)
@@ -359,7 +358,7 @@ def train_worker(config: Dict[str, Any]) -> None:
         backbone.train()
         joint_head.train()
         # The dataset gets access to the locally available shard set, filtered by the local rank of the worker
-        dataset = ShardDataset(worker_sm, project_id, assigned_local_patch_shards, patches_per_batch, None) # TODO: pass in cursor
+        dataset = ShardDataset(worker_sm, project_id, local_worker_shard_map, patches_per_batch) # TODO: pass in cursor
         for i, (shard_id, batch) in enumerate(dataset):
             if i % POLL_FROZEN_EVERY_N_BATCHES == 0:
                 wait_for_unfreeze(actor)
