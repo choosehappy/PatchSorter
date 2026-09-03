@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Dict, Generator, List
-
-from sqlalchemy import text
+from sqlalchemy import text, table, column, select, func
 from sqlalchemy.orm import Session
 
 from patchsorter.db.head_client.models import build_table_name, build_pred_table_name
@@ -29,6 +28,13 @@ class WorkerPatchStore:
         self._patch_table = build_table_name(project_id)
         self._pred_table_latest = build_pred_table_name(project_id, PredPatchSuffix.LATEST)
 
+    def get_local_group_id(self) -> int:
+        """Return the local group ID of the worker node."""
+        row = self._session.execute(
+            text("SELECT groupid FROM pg_dist_local_group")
+        ).mappings().one()
+        return row["groupid"]
+
 
     # ------------------------------------------------------------------ #
     # Patch reads                                                          #
@@ -41,16 +47,18 @@ class WorkerPatchStore:
         directly (shard_id is part of the table name, not a column).
 
         Args:
-            shard_id: Numeric Citus shard ID whose pred_patch_latest shard to query.
+            pred_latest_shard_id: Numeric Citus shard ID whose pred_patch_latest shard to query.
 
         Returns:
             The maximum ``patch_id`` in the shard, or 0 if no rows exist.
         """
-        shard_table = build_pred_table_name(self.project_id, PredPatchSuffix.LATEST, pred_latest_shard_id)
-        row = self._session.execute(
-            text(f"SELECT COALESCE(MAX(patch_id), 0) FROM {shard_table}")
-        ).mappings().one()
-        return row["coalesce"]
+        shard_table_name = build_pred_table_name(
+            self.project_id, PredPatchSuffix.LATEST, pred_latest_shard_id
+        )
+        shard_table = table(shard_table_name, column("patch_id"))
+
+        stmt = select(func.coalesce(func.max(shard_table.c.patch_id), 0))
+        return self._session.execute(stmt).scalar()
 
     def fetch_patch_batch(
         self,

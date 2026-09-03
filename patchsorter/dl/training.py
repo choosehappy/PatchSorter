@@ -22,11 +22,13 @@ from ray.train.torch import TorchTrainer
 from ray.train import ScalingConfig
 
 from patchsorter.db import head_client, worker_client
-from patchsorter.db.head_client.database_manager import CitusShardMap, DatabaseManager
+from patchsorter.db.head_client.database_manager import DatabaseManager
 from patchsorter.db.head_client.label_class import LabelClassStore
 from patchsorter.api.v1.label_class.models import LabelClassResponse
 from patchsorter.db.head_client.settings import SettingsStore
+from patchsorter.db.utils import CitusShardMap
 from patchsorter.db.worker_client.patch import WorkerPatchStore
+from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.dl.model import JointHead, backbone_init
 from patchsorter.dl.augmentations import get_transforms
 from patchsorter.dl.losses import (
@@ -60,6 +62,7 @@ PSEUDO_THRESH: float = 0.9
 N_TRAIN_STEPS: int = 500  # number of gradient steps per cycle (training inner loop)
 LOG_EVERY: int = 100      # log TensorBoard scalars every N batches
 FROZEN_POLL_INTERVAL_S: float = 2.0
+POLL_FROZEN_EVERY_N_BATCHES: int = 10  # check for unfreeze every N batches
 
 # Loss weights
 COORD_CONSISTENCY_LOSS: float = 1.0
@@ -195,30 +198,29 @@ class ShardDataset:
         worker_sm: Any,
         project_id: int,
         assigned_patch_shards: List[int],
-        shard_map: CitusShardMap,
         batch_size: int,
+        initial_patch_id_cursor: int = None
     ) -> None:
         self._worker_sm = worker_sm
         self._project_id = project_id
         self._assigned_patch_shards = assigned_patch_shards
         self._batch_size = batch_size
-        self._shard_map = shard_map
 
     def __iter__(self) -> Iterator[Tuple[int, List[Dict[str, Any]]]]:
         """Yield ``(shard_id, batch)`` tuples, one session opened per batch."""
         for patch_shard_id in self._assigned_patch_shards:
+            # 1 cheap local db round trip per shard.
             with self._worker_sm.get_session() as session:
-                store = WorkerPatchStore(self._project_id, session)
-                pred_patch_latest_shard_id = self._shard_map.get_b_shard_for_a_shard(patch_shard_id)    # This is an O(1) lookup in the shard map, not a DB query.
-                cursor = store.get_cursor_from_shard(pred_latest_shard_id=pred_patch_latest_shard_id)
+                cursor_id = WorkerPatchStore(self._project_id, session).get_cursor_from_shard(patch_shard_id=patch_shard_id)
+            # cursor_id now holds the highest patch_id from the local shard
             while True:
                 with self._worker_sm.get_session() as session:
                     batch = WorkerPatchStore(
                         self._project_id, session
-                    ).fetch_patch_batch(patch_shard_id, cursor, self._batch_size)
+                    ).fetch_patch_batch(patch_shard_id, cursor_id, self._batch_size)
                 if not batch:
                     break
-                cursor = batch[-1]["patch_id"]
+                cursor_id = batch[-1]["patch_id"]
                 yield patch_shard_id, batch
 
 
@@ -253,11 +255,15 @@ def train_worker(config: Dict[str, Any]) -> None:
     label_classes: List[LabelClassResponse] = config["label_classes"]
     patches_per_batch: int = app_config.get("dl_patches_per_batch", 1000)
     patch_size: int = app_config.get("patch_size", 64)
-    world_size: int = app_config.get("world_size", 4096)
-    GRID_SIZE_SCALE: float = world_size / GRID_SIZE
+    projection_space_size: int = app_config.get("world_size", 4096)
+    GRID_SIZE_SCALE: float = projection_space_size / GRID_SIZE
     head_sm = head_client.get_client(is_local=False)
     worker_sm = worker_client.get_client()
     dm = DatabaseManager(head_sm)
+
+    # Get the citus group id of the current worker, used to filter available shards within the shard map
+    # Note that this is a network round trip to the local postgres node to get the local group id.
+    local_node_group_id = WorkerPatchStore(project_id, worker_sm).get_local_group_id()
 
     # -------------------------------------------------------------------
     # Build label map from label_classes
@@ -266,7 +272,8 @@ def train_worker(config: Dict[str, Any]) -> None:
     n_classes = label_map.get_n_classes()
 
     context = get_context()
-    rank = context.get_world_rank()
+    world_rank = context.get_world_rank()
+    local_rank = context.get_local_rank()
     device = ray.train.torch.get_device()
 
     actor = ray.get_actor(dl_actor_name(project_id))
@@ -303,7 +310,7 @@ def train_worker(config: Dict[str, Any]) -> None:
     geom_transform, photo_transform = get_transforms(patch_size)
 
     writer = SummaryWriter(
-        log_dir=f"runs/worker_{rank}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        log_dir=f"runs/worker_{world_rank}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
     )
     niter_total = 0
 
@@ -312,25 +319,17 @@ def train_worker(config: Dict[str, Any]) -> None:
         # Termination and freeze checks happen only at cycle boundaries (after barriers),
         # ensuring all workers are in sync when they read the flags.
         if ray.get(actor.get_termination_signal.remote()):
-            logger.info("[Worker %d] Received termination signal. Shutting down.", rank)
+            logger.info("[Worker %d (local %d)] Received termination signal. Shutting down.", world_rank, local_rank)
             return
 
-        while not ray.get(actor.get_training_enabled.remote()):
-            logger.info("[Worker %d] Frozen. Waiting for unfreeze or termination.", rank)
-            time.sleep(FROZEN_POLL_INTERVAL_S)
-            if ray.get(actor.get_termination_signal.remote()):
-                logger.info("[Worker %d] Received termination while frozen. Shutting down.", rank)
-                return
+        wait_for_unfreeze(actor)
 
         # Discover locally assigned shards on each cycle since table rotation changes shard placements.
-        shard_map = dm.get_shard_map_for_patch_and_pred(project_id)
-        all_local_shards = shard_map.get_table_a_shard_list()
-        assigned_shards = compute_shard_assignments(
-            all_local_shards, context.get_local_world_size(), rank
-        )
+        local_worker_shard_map = PatchStore(project_id, worker_sm).get_local_worker_shard_map(context.get_local_world_size(), local_rank, local_node_group_id)
+        assigned_local_patch_shards = local_worker_shard_map.get_table_a_shard_list()
 
         cycle += 1
-        logger.info("[Worker %d] Starting cycle %d.", rank, cycle)
+        logger.info("[Worker %d (local %d)] Starting cycle %d.", world_rank, local_rank, cycle)
 
         # -------------------------------------------------------------------
         # TODO: Selective training loop (backprop phase goes here)
@@ -357,9 +356,12 @@ def train_worker(config: Dict[str, Any]) -> None:
         # -------------------------------------------------------------------
         backbone.train()
         joint_head.train()
+        # The dataset gets access to the locally available shard set, filtered by the local rank of the worker
+        dataset = ShardDataset(worker_sm, project_id, assigned_local_patch_shards, patches_per_batch, None) # TODO: pass in cursor
+        for i, (shard_id, batch) in enumerate(dataset):
+            if i % POLL_FROZEN_EVERY_N_BATCHES == 0:
+                wait_for_unfreeze(actor)
 
-        dataset = ShardDataset(worker_sm, project_id, assigned_shards, patches_per_batch)
-        for shard_id, batch in dataset:
             # Decode images
             imgs_np: List[np.ndarray] = []
             valid_patches: List[Dict[str, Any]] = []
@@ -486,14 +488,14 @@ def train_worker(config: Dict[str, Any]) -> None:
                     label_map.from_model_index(int(pred_classes[i].item())),
                 ))
 
-            pred_shard_id = shard_map.get_b_shard_for_a_shard(shard_id)
+            pred_shard_id = local_worker_shard_map.get_b_shard_for_a_shard(shard_id)
             with worker_sm.get_session() as session:
                 WorkerPatchStore(project_id, session).insert_predictions_to_shard(
                     pred_shard_id, records
                 )
             logger.debug(
-                "[Worker %d] Cycle %d — shard %d, wrote %d predictions.",
-                rank, cycle, shard_id, len(records),
+                "[Worker %d (local %d)] Cycle %d — shard %d, wrote %d predictions.",
+                world_rank, local_rank, cycle, shard_id, len(records),
             )
 
             if niter_total % LOG_EVERY == 0:
@@ -525,18 +527,18 @@ def train_worker(config: Dict[str, Any]) -> None:
 
             niter_total += 1
 
-        logger.info("[Worker %d] Cycle %d done. Waiting at barrier.", rank, cycle)
+        logger.info("[Worker %d (local %d)] Cycle %d done. Waiting at barrier.", world_rank, local_rank, cycle)
 
         # Barrier 1: all workers finished inserting for this cycle
         barrier()
 
-        if rank == 0:
+        if world_rank == 0:
             DatabaseManager(head_sm).rotate_pred_patch_tables(project_id)
             logger.info("[Rank 0] Cycle %d — table rotation complete.", cycle)
 
         # Barrier 2: rotation complete, all workers may proceed
         barrier()
-        logger.info("[Worker %d] Cycle %d complete. Starting next cycle.", rank, cycle)
+        logger.info("[Worker %d (local %d)] Cycle %d complete. Starting next cycle.", world_rank, local_rank, cycle)
 
 
 # ---------------------------------------------------------------------------
@@ -599,6 +601,8 @@ class DLActor:
         )
 
 
+
+
 # ---------------------------------------------------------------------------
 # Internal helper — launched as a detached Ray task
 # ---------------------------------------------------------------------------
@@ -628,17 +632,10 @@ def _launch_training(
     return trainer.fit()
 
 
-def compute_shard_assignments(
-    shard_ids: List[int], num_local_workers: int, rank: int
-) -> List[int]:
-    """Assign Citus shards to the current worker by round-robin modulo.
-
-    Args:
-        shard_ids: All shard IDs for the project.
-        num_local_workers: Number of local workers to divide shards among.
-        rank: Rank of the current worker.
-
-    Returns:
-        List of shard IDs assigned to this worker.
-    """
-    return [s for s in shard_ids if s % num_local_workers == rank]
+def wait_for_unfreeze(actor: ray.actor.ActorHandle) -> None:
+    while not ray.get(actor.get_training_enabled.remote()):
+        logger.info("Actor frozen. Waiting for unfreeze or termination.")
+        time.sleep(FROZEN_POLL_INTERVAL_S)
+        if ray.get(actor.get_termination_signal.remote()):
+            logger.info("Actor received termination while frozen. Shutting down.")
+            return
