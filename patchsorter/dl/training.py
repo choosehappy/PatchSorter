@@ -263,7 +263,8 @@ def train_worker(config: Dict[str, Any]) -> None:
 
     # Get the citus group id of the current worker, used to filter available shards within the shard map
     # Note that this is a network round trip to the local postgres node to get the local group id.
-    local_node_group_id = WorkerPatchStore(project_id, worker_sm).get_local_group_id()
+    with worker_sm.get_session() as session:
+        local_node_group_id = WorkerPatchStore(project_id, session).get_local_group_id()
 
     # -------------------------------------------------------------------
     # Build label map from label_classes
@@ -325,8 +326,9 @@ def train_worker(config: Dict[str, Any]) -> None:
         wait_for_unfreeze(actor)
 
         # Discover locally assigned shards on each cycle since table rotation changes shard placements.
-        local_worker_shard_map = PatchStore(project_id, worker_sm).get_local_worker_shard_map(context.get_local_world_size(), local_rank, local_node_group_id)
-        assigned_local_patch_shards = local_worker_shard_map.get_table_a_shard_list()
+        with head_sm.get_session() as session:
+            local_worker_shard_map = PatchStore(project_id, session).get_local_worker_shard_map(context.get_local_world_size(), local_rank, local_node_group_id)
+            assigned_local_patch_shards = local_worker_shard_map.get_table_a_shard_list()
 
         cycle += 1
         logger.info("[Worker %d (local %d)] Starting cycle %d.", world_rank, local_rank, cycle)
