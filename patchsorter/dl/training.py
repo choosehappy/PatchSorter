@@ -211,6 +211,7 @@ class ShardDataset:
             # 1 cheap local db round trip per shard.
             with self._worker_sm.get_session() as session:
                 cursor_id = WorkerPatchStore(self._project_id, session).get_cursor_from_shard(pred_patch_latest_shard_id)
+                logger.info(f"Obtained cursor_id {cursor_id} for pred_patch_latest_shard_id {pred_patch_latest_shard_id}")
 
             # cursor_id now holds the highest patch_id from the local shard
             while True:
@@ -219,8 +220,10 @@ class ShardDataset:
                         self._project_id, session
                     ).fetch_patch_batch(patch_shard_id, cursor_id, self._batch_size)
                 if not batch:
+                    logger.info(f"No more patches in shard {patch_shard_id}")
                     break
                 cursor_id = batch[-1]["patch_id"]
+                logger.info(f"Updated cursor_id to {cursor_id} for shard {patch_shard_id}")
                 yield patch_shard_id, batch
 
 
@@ -361,7 +364,13 @@ def train_worker(config: Dict[str, Any]) -> None:
         dataset = ShardDataset(worker_sm, project_id, local_worker_shard_map, patches_per_batch) # TODO: pass in cursor
         for i, (shard_id, batch) in enumerate(dataset):
             if i % POLL_FROZEN_EVERY_N_BATCHES == 0:
+                if ray.get(actor.get_termination_signal.remote()):
+                    logger.info("[Worker %d (local %d)] Received termination signal. Shutting down.", world_rank, local_rank)
+                    return
+
                 wait_for_unfreeze(actor)
+
+            
 
             # Decode images
             imgs_np: List[np.ndarray] = []
