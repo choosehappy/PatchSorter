@@ -500,7 +500,6 @@ export default function UploadWizardModal({
                         reviewData={reviewData}
                         isLoading={isReviewLoading}
                         onRowChange={handleRowChange}
-                        allHaveBaseMag={reviewData !== null && reviewData.length > 0 && reviewData.every(r => r.base_mag != null)}
                         onAllBaseMagChange={handleAllBaseMagChange}
                         selectedIndices={selectedIndices}
                         onSelectionChange={setSelectedIndices}

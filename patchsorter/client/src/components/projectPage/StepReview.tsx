@@ -10,16 +10,32 @@ interface StepReviewProps {
     reviewData: ReviewRow[] | null
     isLoading: boolean
     onRowChange: (index: number, updates: Partial<ReviewRow>) => void
-    allHaveBaseMag: boolean
+    missingMagCount: number
     onAllBaseMagChange: (value: number | null, indices: Set<number>) => void
     selectedIndices: Set<number>
     onSelectionChange: (indices: Set<number>) => void
 }
 
-export default function StepReview({ reviewData, isLoading, approach: _approach, onRowChange, allHaveBaseMag, onAllBaseMagChange, selectedIndices, onSelectionChange }: StepReviewProps) {
+export default function StepReview({ reviewData, isLoading, approach: _approach, onRowChange, onAllBaseMagChange, selectedIndices, onSelectionChange }: StepReviewProps) {
     const gridRef = useRef<SlickgridReactInstance | null>(null)
 
-    const errorCount = useMemo(() => reviewData?.filter(r => r.status === 'error').length ?? 0, [reviewData])
+    const errorCount = useMemo(() => {
+        if (!reviewData) return 0
+        let count = 0
+        for (const idx of selectedIndices) {
+            if (reviewData[idx]?.status === 'error') count++
+        }
+        return count
+    }, [reviewData, selectedIndices])
+
+    const missingMagCount = useMemo(() => {
+        if (!reviewData) return 0
+        let count = 0
+        for (const idx of selectedIndices) {
+            if (reviewData[idx]?.base_mag == null) count++
+        }
+        return count
+    }, [reviewData, selectedIndices])
 
     const buildColumns = useCallback((): Column[] => {
         const truncateStyle = 'text-truncate'
@@ -147,9 +163,9 @@ export default function StepReview({ reviewData, isLoading, approach: _approach,
                     Deselect rows with errors before you can proceed.
                 </div>
             )}
-            {!allHaveBaseMag && (
+            {missingMagCount > 0 && (
                 <div className="alert alert-warning py-2 mb-2" style={{ fontSize: '0.875rem' }}>
-                    PatchSorter was unable to determine the base magnification for some uploaded images. Select a dropdown value for each image or select base magnification to assign to all images. This action will overwrite any existing base magnification values.
+                    PatchSorter was unable to determine the base magnification for {missingMagCount} selected image{missingMagCount !== 1 ? 's' : ''}. Select a dropdown value for each image or select base magnification to assign to all images. This action will overwrite any existing base magnification values.
                 </div>
             )}
             <div className="mb-2 d-flex align-items-center gap-2">
