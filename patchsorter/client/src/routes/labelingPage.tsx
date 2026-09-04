@@ -403,7 +403,7 @@ export default function LabelingPage() {
                             />
                             Show Patch Grid
                         </label>
-                        <DLActorControl projectId={projectId} />
+
                         <div className="control-group">
                             <label>Query Limit: {PERFECT_SQUARE_LIMITS[queryLimitIndex]}</label>
                             <input
@@ -419,6 +419,7 @@ export default function LabelingPage() {
                                 <span>sparse</span>
                             </div>
                         </div>
+                        <DLActorControl projectId={projectId} />
                     </div>
                 </div>
 

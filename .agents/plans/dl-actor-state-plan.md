@@ -499,7 +499,7 @@ export default function DLActorControl({
                 {lifecycleMutation.isPending ? (
                     <><Spinner animation="border" size="sm" className="me-1" />Updating…</>
                 ) : (
-                    isActive ? 'DL: Active' : 'DL: Inactive'
+                    isActive ? 'DL: Ready' : 'DL: Not Ready'
                 )}
             </ToggleButton>
 
