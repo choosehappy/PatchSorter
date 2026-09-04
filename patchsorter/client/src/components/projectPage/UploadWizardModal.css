@@ -56,7 +56,7 @@
 /* ---- Review table container ---------------------------------------------- */
 #upload-review-container {
     max-height: 400px;
-    overflow-y: auto;
+    overflow: hidden;
 }
 
 /* ---- Approach description cards ------------------------------------------ */
