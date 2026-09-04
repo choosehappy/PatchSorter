@@ -16,6 +16,7 @@ from patchsorter.config.constants import (
     PATCH_BATCH_SIZE,
     PatchExtractionMethod,
     LargeImageMetadataKeys,
+    FileCategory,
 )
 from patchsorter.utils.fsmanager import FileStoreManager, scan_folder
 from patchsorter.api.v1.upload.models import ProcessRow
@@ -91,9 +92,9 @@ def _validate_mixed(
 
     # Define sources to scan.
     sources = [
-        ("image", fsman.upload.get_images_dir(session_id), image_folder, IMAGE_EXTS),
-        ("mask", fsman.upload.get_masks_dir(session_id), mask_folder, MASK_EXTS),
-        ("patch CSV", fsman.upload.get_patch_csvs_dir(session_id), patch_csv_folder, PATCH_CSV_EXTS),
+        (FileCategory.IMAGE, fsman.upload.get_images_dir(session_id), image_folder, IMAGE_EXTS),
+        (FileCategory.MASK, fsman.upload.get_masks_dir(session_id), mask_folder, MASK_EXTS),
+        (FileCategory.PATCH_CSV, fsman.upload.get_patch_csvs_dir(session_id), patch_csv_folder, PATCH_CSV_EXTS),
     ]
 
     results: dict[str, dict[str, Path]] = {}
@@ -117,7 +118,7 @@ def _validate_mixed(
 
         results[label] = merged
 
-    images, masks, csvs = results["image"], results["mask"], results["patch CSV"]
+    images, masks, csvs = results[FileCategory.IMAGE], results[FileCategory.MASK], results[FileCategory.PATCH_CSV]
             
     if not images:
         return {
@@ -150,13 +151,18 @@ def _validate_mixed(
             ))
             continue
 
-        try:
-            ts = large_image.open(str(img_path))
-            base_mag = ts.getMetadata().get(LargeImageMetadataKeys.BASE_MAGNIFICATION)
-        except Exception:
-            base_mag = None
 
         has_data = bool(mask_rel or csv_rel)
+
+        base_mag = None
+        if has_data:
+            try:
+                ts = large_image.open(str(img_path))
+                base_mag = ts.getMetadata().get(LargeImageMetadataKeys.BASE_MAGNIFICATION)
+            except Exception:
+                
+                pass
+
         rows.append(dict(
             image=img_rel,
             mask=mask_rel,
