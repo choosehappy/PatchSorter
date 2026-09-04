@@ -4,6 +4,7 @@ import type { Column, GridOption, SlickgridReactInstance } from 'slickgrid-react
 import type { ReviewRow, Approach } from './useUpload'
 import { Editors } from 'slickgrid-react'
 import { MAGNIFICATION_OPTIONS } from '../../constants'
+import { countMissingBaseMag } from './useReviewValidation'
 
 interface StepReviewProps {
     approach: Approach | null
@@ -29,14 +30,7 @@ export default function StepReview({ reviewData, isLoading, approach: _approach,
         return count
     }, [reviewData, selectedIndices])
 
-    const missingMagCount = useMemo(() => {
-        if (!reviewData) return 0
-        let count = 0
-        for (const idx of selectedIndices) {
-            if (reviewData[idx]?.base_mag == null) count++
-        }
-        return count
-    }, [reviewData, selectedIndices])
+    const missingMagCount = useMemo(() => countMissingBaseMag(reviewData, selectedIndices), [reviewData, selectedIndices])
 
     const buildColumns = useCallback((): Column[] => {
         const truncateStyle = 'text-truncate'
