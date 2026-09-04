@@ -155,12 +155,12 @@ def _validate_mixed(
         has_data = bool(mask_rel or csv_rel)
 
         base_mag = None
-        if has_data:
+        if has_data: # only attempt to read base magnification if there is associated mask or CSV data
             try:
                 ts = large_image.open(str(img_path))
                 base_mag = ts.getMetadata().get(LargeImageMetadataKeys.BASE_MAGNIFICATION)
             except Exception:
-                
+
                 pass
 
         rows.append(dict(
