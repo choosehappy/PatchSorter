@@ -45,9 +45,13 @@ export default function LabelClassesTable({ labelClasses, isLoading, selectedIds
         enableCheckboxSelector: true,
         enableSelection: true,
         checkboxSelector: { hideInFilterHeaderRow: false },
-        rowHeight: 40,
+        rowHeight: 50,
         forceFitColumns: true,
-        autoResize: { container: '#label-classes-container' },
+        autoResize: { 
+            container: '#label-classes-container',
+            maxHeight: 400,
+            minHeight: 150,
+     },
     }
 
     const handleSelectedRowsChanged = (e: CustomEvent<{ eventData: unknown; args: OnSelectedRowsChangedEventArgs }>) => {

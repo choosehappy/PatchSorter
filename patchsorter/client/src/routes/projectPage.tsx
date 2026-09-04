@@ -78,7 +78,8 @@ export default function ProjectPage() {
     })
 
     return (
-        <Container fluid className="py-3 d-flex flex-column gap-4" style={{ paddingBottom: 80 }}>
+        <div>
+            <Container fluid className="py-3 d-flex flex-column gap-4" style={{ overflowY: 'auto', maxHeight: '100%' }}>
             <div>
                 <h5>Description</h5>
                 <p className="mb-0">
@@ -109,55 +110,56 @@ export default function ProjectPage() {
                 selectedIds={selectedImageIds}
                 onSelectionChange={setSelectedImageIds}
             />
+            </Container>
             <ActionsFooter
+            projectId={projectId}
+            selectedImageIds={selectedImageIds}
+            selectedLabelClassIds={selectedLabelClassIds}
+            onClearImageSelection={() => setSelectedImageIds(new Set())}
+            onClearLabelClassSelection={() => setSelectedLabelClassIds(new Set())}
+            onOpenUploadWizard={() => setShowUploadWizard(true)}
+            onOpenExportModal={() => setShowExportModal(true)}
+            onCreateLabelClass={() => setShowCreateLabelClass(true)}
+        />
+        {showUploadWizard && (
+            <UploadWizardModal
+                projectId={projectId}
+                onClose={() => setShowUploadWizard(false)}
+            />
+        )}
+        {showExportModal && (
+            <ExportModal
                 projectId={projectId}
                 selectedImageIds={selectedImageIds}
                 selectedLabelClassIds={selectedLabelClassIds}
-                onClearImageSelection={() => setSelectedImageIds(new Set())}
-                onClearLabelClassSelection={() => setSelectedLabelClassIds(new Set())}
-                onOpenUploadWizard={() => setShowUploadWizard(true)}
-                onOpenExportModal={() => setShowExportModal(true)}
-                onCreateLabelClass={() => setShowCreateLabelClass(true)}
+                onClose={() => setShowExportModal(false)}
+                onExportStarted={handleExportStarted}
+                onExportComplete={handleExportComplete}
             />
-            {showUploadWizard && (
-                <UploadWizardModal
-                    projectId={projectId}
-                    onClose={() => setShowUploadWizard(false)}
-                />
-            )}
-            {showExportModal && (
-                <ExportModal
-                    projectId={projectId}
-                    selectedImageIds={selectedImageIds}
-                    selectedLabelClassIds={selectedLabelClassIds}
-                    onClose={() => setShowExportModal(false)}
-                    onExportStarted={handleExportStarted}
-                    onExportComplete={handleExportComplete}
-                />
-            )}
-            {showCreateLabelClass && (
-                <CreateLabelClassModal
-                    projectId={projectId}
-                    show={showCreateLabelClass}
-                    onClose={() => setShowCreateLabelClass(false)}
-                    onSuccess={() => {
-                        queryClient.invalidateQueries({ queryKey: ['labelClasses', projectId] })
-                        toast.success('Label class created successfully')
-                    }}
-                />
-            )}
-            {editingLabelClass && (
-                <EditLabelClassModal
-                    projectId={projectId}
-                    labelClass={editingLabelClass}
-                    show={!!editingLabelClass}
-                    onClose={() => setEditingLabelClass(null)}
-                    onSuccess={() => {
-                        queryClient.invalidateQueries({ queryKey: ['labelClasses', projectId] })
-                        toast.success('Label class updated successfully')
-                    }}
-                />
-            )}
-        </Container>
+        )}
+        {showCreateLabelClass && (
+            <CreateLabelClassModal
+                projectId={projectId}
+                show={showCreateLabelClass}
+                onClose={() => setShowCreateLabelClass(false)}
+                onSuccess={() => {
+                    queryClient.invalidateQueries({ queryKey: ['labelClasses', projectId] })
+                    toast.success('Label class created successfully')
+                }}
+            />
+        )}
+        {editingLabelClass && (
+            <EditLabelClassModal
+                projectId={projectId}
+                labelClass={editingLabelClass}
+                show={!!editingLabelClass}
+                onClose={() => setEditingLabelClass(null)}
+                onSuccess={() => {
+                    queryClient.invalidateQueries({ queryKey: ['labelClasses', projectId] })
+                    toast.success('Label class updated successfully')
+                }}
+            />
+        )}
+        </div>
     )
 }

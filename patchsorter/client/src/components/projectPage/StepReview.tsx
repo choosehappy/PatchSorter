@@ -93,11 +93,11 @@ export default function StepReview({ reviewData, isLoading, approach: _approach,
         checkboxSelector: { hideInFilterHeaderRow: false },
         rowHeight: 32,
         forceFitColumns: true,
-        autoResize: { container: '#upload-review-container' },
         editable: true,
         autoEdit: true,
         autoCommitEdit: true,
         enableCellNavigation: true,
+        autoResize: { container: '#upload-review-container', maxHeight: 400, minHeight: 200 },
         ...({ headerRowOptions: { filterPlugin: { filterCollectionMetadataItem: { placeholder: 'Search' } } } } as GridOption),
     }
 
