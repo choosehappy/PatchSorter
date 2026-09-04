@@ -18,6 +18,7 @@ interface StepReviewProps {
 
 export default function StepReview({ reviewData, isLoading, approach: _approach, onRowChange, onAllBaseMagChange, selectedIndices, onSelectionChange }: StepReviewProps) {
     const gridRef = useRef<SlickgridReactInstance | null>(null)
+    const hasInitializedSelection = useRef(false)
 
     const errorCount = useMemo(() => {
         if (!reviewData) return 0
@@ -130,12 +131,20 @@ export default function StepReview({ reviewData, isLoading, approach: _approach,
     }, [onSelectionChange])
 
     useEffect(() => {
-        if (gridRef.current) {
+        if (gridRef.current && !hasInitializedSelection.current) {
             gridRef.current.slickGrid.invalidate()
             if (dataset.length > 0) {
                 const allRows = dataset.map((_, i) => i)
                 gridRef.current.slickGrid.setSelectedRows(allRows)
             }
+            hasInitializedSelection.current = true
+        }
+    }, [dataset])
+
+    useEffect(() => {
+        if (gridRef.current && hasInitializedSelection.current) {
+            gridRef.current.slickGrid.invalidate()
+            gridRef.current.slickGrid.render()
         }
     }, [dataset])
 
