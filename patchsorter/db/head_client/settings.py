@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, model_validator
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from patchsorter.db.head_client.models import SettingOverride
@@ -69,6 +69,17 @@ class SettingsStore:
 
     def __init__(self, session: Session) -> None:
         self._session = session
+        self._overrides_cache: Optional[Dict[tuple, str]] = None
+        self._overrides_cache_project_id: Optional[int] = None
+
+    def _get_overrides_cache(self, project_id: Optional[int]) -> Dict[tuple, str]:
+        if self._overrides_cache is None or self._overrides_cache_project_id != project_id:
+            self._overrides_cache = self._load_overrides_map(project_id)
+            self._overrides_cache_project_id = project_id
+        return self._overrides_cache
+
+    def _invalidate_cache(self) -> None:
+        self._overrides_cache = None
 
     # ------------------------------------------------------------------
     # Typed reads
@@ -187,6 +198,7 @@ class SettingsStore:
                 project_id=scoped_project_id,
                 value=setting_value,
             ))
+        self._invalidate_cache()
 
     def reset(self, setting_key: str, project_id: Optional[int] = None) -> None:
         """Delete the override for *setting_key*, reverting it to the schema default.
@@ -207,26 +219,21 @@ class SettingsStore:
         )
         if override is not None:
             self._session.delete(override)
+        self._invalidate_cache()
 
     def reset_all(self, project_id: Optional[int] = None, scope: Optional[str] = None) -> None:
         """Delete all overrides for the given scope, reverting everything to defaults.
-
-        Args:
-            project_id: The project scope, ignored for application-scoped
-                settings.
-            scope: Restrict to ``"application"`` or ``"project"`` settings.
-                If ``None``, resets both.
+        ...
         """
         schema = self._load_settings_schema()
         keys = {k for k, e in schema.items() if scope is None or e.scope == scope}
-        rows = self._session.scalars(
-            select(SettingOverride).where(
+        self._session.execute(
+            delete(SettingOverride).where(
                 SettingOverride.setting_key.in_(keys),
                 (SettingOverride.project_id == project_id) | (SettingOverride.project_id.is_(None)),
             )
-        ).all()
-        for row in rows:
-            self._session.delete(row)
+        )
+        self._invalidate_cache()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -234,12 +241,8 @@ class SettingsStore:
 
     def _resolve_raw(self, entry: SettingDef, project_id: Optional[int]) -> str:
         scoped_project_id = project_id if entry.scope == "project" else None
-        override = self._session.scalar(
-            select(SettingOverride)
-            .where(SettingOverride.setting_key == entry.key)
-            .where(SettingOverride.project_id == scoped_project_id)
-        )
-        return override.value if override is not None else entry.default
+        overrides = self._get_overrides_cache(project_id)
+        return overrides.get((entry.key, scoped_project_id), entry.default)
 
     def _load_overrides_map(self, project_id: Optional[int]) -> Dict[tuple, str]:
         rows = self._session.scalars(
