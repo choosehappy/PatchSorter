@@ -49,6 +49,18 @@ class SettingDef(BaseModel):
         return self
 
 
+class ResolvedSetting(SettingDef):
+    """A `SettingDef` plus the setting's current effective value.
+
+    Returned by the raw-value accessors (`get_raw`, `get_all_raw`,
+    `_resolve_raw`) so callers get both the schema metadata (type, scope,
+    default, allowed_values, disabled) and the resolved value in one object,
+    without a second lookup against the schema.
+    """
+
+    value: str
+
+
 class SettingsStore:
     """Data-access methods for project/application settings.
 
@@ -95,7 +107,7 @@ class SettingsStore:
         """
         entry = self._require_entry(setting_key)
         self._require_type(entry, {SettingType.STRING, SettingType.ENUM})
-        return self._resolve_raw(entry, project_id)
+        return self._resolve_raw(entry, project_id).value
 
     def get_int(self, setting_key: str, project_id: Optional[int] = None) -> int:
         """Return the effective value of an INTEGER setting.
@@ -106,7 +118,7 @@ class SettingsStore:
         """
         entry = self._require_entry(setting_key)
         self._require_type(entry, {SettingType.INTEGER})
-        return int(self._resolve_raw(entry, project_id))
+        return int(self._resolve_raw(entry, project_id).value)
 
     def get_bool(self, setting_key: str, project_id: Optional[int] = None) -> bool:
         """Return the effective value of a BOOLEAN setting.
@@ -117,20 +129,24 @@ class SettingsStore:
         """
         entry = self._require_entry(setting_key)
         self._require_type(entry, {SettingType.BOOLEAN})
-        return self._resolve_raw(entry, project_id).lower() in ("true", "1")
+        return self._resolve_raw(entry, project_id).value.lower() in ("true", "1")
 
-    def get_raw(self, setting_key: str, project_id: Optional[int] = None) -> str:
-        """Return the effective value as its stored raw string, regardless of type.
+    def get_raw(self, setting_key: str, project_id: Optional[int] = None) -> ResolvedSetting:
+        """Return the schema definition and effective value for *setting_key*, regardless of type.
 
         Useful for generic display/export code that doesn't care about the
-        declared type. Prefer :meth:`get_str`/:meth:`get_int`/:meth:`get_bool`
-        wherever the caller knows what type it expects.
+        declared type but wants both the value and its metadata (type,
+        scope, default, allowed_values, disabled) in one place. Prefer
+        :meth:`get_str`/:meth:`get_int`/:meth:`get_bool` wherever the caller
+        knows what type it expects and only needs the value.
         """
         entry = self._require_entry(setting_key)
         return self._resolve_raw(entry, project_id)
 
-    def get_all_raw(self, project_id: Optional[int] = None, scope: Optional[str] = None) -> Dict[str, str]:
-        """Return effective raw string values for every setting in *scope*.
+    def get_all_raw(
+        self, project_id: Optional[int] = None, scope: Optional[str] = None
+    ) -> Dict[str, ResolvedSetting]:
+        """Return schema definitions and effective values for every setting in *scope*.
 
         Args:
             project_id: The project scope to resolve project-scoped settings
@@ -139,18 +155,22 @@ class SettingsStore:
                 If ``None``, returns both.
 
         Returns:
-            A dict mapping setting_key to its raw string value. Every setting
-            defined in the schema (matching *scope*) is present, whether or
-            not it has an override row.
+            A dict mapping setting_key to a :class:`ResolvedSetting` (schema
+            metadata plus resolved value). Every setting defined in the
+            schema (matching *scope*) is present, whether or not it has an
+            override row.
         """
         schema = self._load_settings_schema()
         overrides = self._load_overrides_map(project_id)
-        result: Dict[str, str] = {}
+        result: Dict[str, ResolvedSetting] = {}
+
+        # Per setting resolution is performed lazily
         for key, entry in schema.items():
             if scope is not None and entry.scope != scope:
                 continue
             scoped_project_id = project_id if entry.scope == "project" else None
-            result[key] = overrides.get((key, scoped_project_id), entry.default)
+            value = overrides.get((key, scoped_project_id), entry.default)
+            result[key] = ResolvedSetting(**entry.model_dump(), value=value)
         return result
 
     def get_definition(self, setting_key: str) -> SettingDef:
@@ -239,10 +259,11 @@ class SettingsStore:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _resolve_raw(self, entry: SettingDef, project_id: Optional[int]) -> str:
+    def _resolve_raw(self, entry: SettingDef, project_id: Optional[int]) -> ResolvedSetting:
         scoped_project_id = project_id if entry.scope == "project" else None
         overrides = self._get_overrides_cache(project_id)
-        return overrides.get((entry.key, scoped_project_id), entry.default)
+        value = overrides.get((entry.key, scoped_project_id), entry.default)
+        return ResolvedSetting(**entry.model_dump(), value=value)
 
     def _load_overrides_map(self, project_id: Optional[int]) -> Dict[tuple, str]:
         rows = self._session.scalars(
@@ -269,19 +290,21 @@ class SettingsStore:
 
     @staticmethod
     def _validate_setting(key: str, value: str, entry: SettingDef) -> None:
-        if entry.type == SettingType.INTEGER:
-            try:
-                int(value)
-            except ValueError:
-                raise ValueError(f"Setting {key!r} expects an integer value, got {value!r}")
-        elif entry.type == SettingType.BOOLEAN:
-            if value.lower() not in ("true", "false", "1", "0"):
-                raise ValueError(f"Setting {key!r} expects a boolean value, got {value!r}")
-        elif entry.type == SettingType.ENUM:
-            allowed = entry.allowed_values or []
-            if value not in allowed:
-                raise ValueError(f"Setting {key!r} must be one of {allowed}, got {value!r}")
-        # STRING accepts any value
+        match entry.type:
+            case SettingType.INTEGER:
+                try:
+                    int(value)
+                except ValueError:
+                    raise ValueError(f"Setting {key!r} expects an integer value, got {value!r}")
+            case SettingType.BOOLEAN:
+                if value.lower() not in ("true", "false", "1", "0"):
+                    raise ValueError(f"Setting {key!r} expects a boolean value, got {value!r}")
+            case SettingType.ENUM:
+                allowed = entry.allowed_values or []
+                if value not in allowed:
+                    raise ValueError(f"Setting {key!r} must be one of {allowed}, got {value!r}")
+            case SettingType.STRING:
+                pass  # accepts any value
 
     @staticmethod
     @lru_cache(maxsize=1)
