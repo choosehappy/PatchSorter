@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from patchsorter.db.head_client.models import build_table_name, build_pred_table_name
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
-from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.config.constants import PredPatchSuffix
 
 
@@ -49,9 +48,7 @@ class ProjectStore:
             ),
             {"name": name, "description": description},
         ).mappings().one()
-        result = dict(row)
-        SettingsStore(self._session).seed_project_settings(result["project_id"])
-        return result
+        return dict(row)
 
     def update(self, project_id: int, name: Optional[str] = None, description: Optional[str] = None) -> Dict[str, Any]:
         """Update a project's name and/or description.

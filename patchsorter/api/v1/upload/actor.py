@@ -16,6 +16,8 @@ from patchsorter.config.constants import (
     PATCH_BATCH_SIZE,
     PatchExtractionMethod,
     LargeImageMetadataKeys,
+    SettingType,
+    SettingScope,
 )
 from patchsorter.utils.fsmanager import FileStoreManager, scan_folder
 from patchsorter.api.v1.upload.models import ProcessRow
@@ -44,6 +46,18 @@ from patchsorter.utils.patch_extraction import (
 # Core logic extracted into plain functions for testability.
 # The actor delegates to these; tests call them directly with a tmpdir.
 # ------------------------------------------------------------------
+
+
+def _parse_value(value: str, setting_type: SettingType) -> object:
+    """Convert a raw string setting value to its Python type."""
+    match setting_type:
+        case SettingType.INTEGER:
+            return int(value)
+        case SettingType.BOOLEAN:
+            return value.lower() in ("true", "1")
+        case SettingType.ENUM | SettingType.STRING:
+            return value
+
 
 def _check_image_duplicate(project_id: int, image_name: str) -> str | None:
     """Check if an image with *image_name* already exists in *project_id*.
@@ -399,7 +413,11 @@ class UploadSessionActor:
 
         # Load project settings from the DB at actor startup
         with get_client().get_session() as session:
-            self._settings = SettingsStore(session).get_all_as_dict(project_id=project_id)
+            raw = SettingsStore(session).get_all_raw(project_id=project_id, scope=SettingScope.PROJECT)
+            self._settings = {
+                k: _parse_value(v.value, v.type)
+                for k, v in raw.items()
+            }
 
     def __ray_shutdown__(self) -> None:
         try:

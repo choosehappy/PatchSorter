@@ -10,7 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from patchsorter.db.head_client.models import SettingOverride
-from patchsorter.config.constants import SettingType
+from patchsorter.config.constants import SettingType, SettingScope
 
 _SETTINGS_DEFAULTS_PATH = Path(__file__).parent.parent.parent / "config" / "settings_defaults.toml"
 
@@ -36,7 +36,7 @@ class SettingDef(BaseModel):
     """
 
     key: str
-    scope: str
+    scope: SettingScope
     type: SettingType
     default: str
     allowed_values: Optional[List[str]] = None
@@ -50,7 +50,7 @@ class SettingDef(BaseModel):
 
 
 class ResolvedSetting(SettingDef):
-    """A `SettingDef` plus the setting's current effective value.
+    """A `SettingDef` plus the setting's current effective value and scope.
 
     Returned by the raw-value accessors (`get_raw`, `get_all_raw`,
     `_resolve_raw`) so callers get both the schema metadata (type, scope,
@@ -59,6 +59,7 @@ class ResolvedSetting(SettingDef):
     """
 
     value: str
+    project_id: int | None = None
 
 
 class SettingsStore:
@@ -144,15 +145,15 @@ class SettingsStore:
         return self._resolve_raw(entry, project_id)
 
     def get_all_raw(
-        self, project_id: Optional[int] = None, scope: Optional[str] = None
+        self, project_id: Optional[int] = None, scope: Optional[SettingScope] = None
     ) -> Dict[str, ResolvedSetting]:
         """Return schema definitions and effective values for every setting in *scope*.
 
         Args:
             project_id: The project scope to resolve project-scoped settings
                 against. Ignored for application-scoped settings.
-            scope: Restrict to ``"application"`` or ``"project"`` settings.
-                If ``None``, returns both.
+            scope: Restrict to ``SettingScope.APPLICATION`` or
+                ``SettingScope.PROJECT`` settings. If ``None``, returns both.
 
         Returns:
             A dict mapping setting_key to a :class:`ResolvedSetting` (schema
@@ -168,9 +169,9 @@ class SettingsStore:
         for key, entry in schema.items():
             if scope is not None and entry.scope != scope:
                 continue
-            scoped_project_id = project_id if entry.scope == "project" else None
+            scoped_project_id = project_id if entry.scope == SettingScope.PROJECT else None
             value = overrides.get((key, scoped_project_id), entry.default)
-            result[key] = ResolvedSetting(**entry.model_dump(), value=value)
+            result[key] = ResolvedSetting(**entry.model_dump(), value=value, project_id=scoped_project_id)
         return result
 
     def get_definition(self, setting_key: str) -> SettingDef:
@@ -204,7 +205,7 @@ class SettingsStore:
             raise SettingDisabledError(f"Setting {setting_key!r} is read-only")
         self._validate_setting(setting_key, setting_value, entry)
 
-        scoped_project_id = project_id if entry.scope == "project" else None
+        scoped_project_id = project_id if entry.scope == SettingScope.PROJECT else None
         override = self._session.scalar(
             select(SettingOverride)
             .where(SettingOverride.setting_key == setting_key)
@@ -231,7 +232,7 @@ class SettingsStore:
             KeyError: If *setting_key* is not present in the schema.
         """
         entry = self._require_entry(setting_key)
-        scoped_project_id = project_id if entry.scope == "project" else None
+        scoped_project_id = project_id if entry.scope == SettingScope.PROJECT else None
         override = self._session.scalar(
             select(SettingOverride)
             .where(SettingOverride.setting_key == setting_key)
@@ -241,7 +242,7 @@ class SettingsStore:
             self._session.delete(override)
         self._invalidate_cache()
 
-    def reset_all(self, project_id: Optional[int] = None, scope: Optional[str] = None) -> None:
+    def reset_all(self, project_id: Optional[int] = None, scope: Optional[SettingScope] = None) -> None:
         """Delete all overrides for the given scope, reverting everything to defaults.
         ...
         """
@@ -260,10 +261,10 @@ class SettingsStore:
     # ------------------------------------------------------------------
 
     def _resolve_raw(self, entry: SettingDef, project_id: Optional[int]) -> ResolvedSetting:
-        scoped_project_id = project_id if entry.scope == "project" else None
+        scoped_project_id = project_id if entry.scope == SettingScope.PROJECT else None
         overrides = self._get_overrides_cache(project_id)
         value = overrides.get((entry.key, scoped_project_id), entry.default)
-        return ResolvedSetting(**entry.model_dump(), value=value)
+        return ResolvedSetting(**entry.model_dump(), value=value, project_id=scoped_project_id)
 
     def _load_overrides_map(self, project_id: Optional[int]) -> Dict[tuple, str]:
         rows = self._session.scalars(

@@ -52,13 +52,10 @@ def get_project_stats(project_id: int) -> ProjectStatsResponse:
 
         # patch_size from settings
         settings_store = SettingsStore(session)
-        patch_size_obj = settings_store.get("patch_size", project_id)
-        patch_size = None
-        if patch_size_obj:
-            try:
-                patch_size = int(patch_size_obj.setting_value)
-            except (ValueError, TypeError):
-                patch_size = None
+        try:
+            patch_size = settings_store.get_int("patch_size", project_id)
+        except (KeyError, TypeError):
+            patch_size = None
 
         # num_label_classes
         num_label_classes = session.execute(

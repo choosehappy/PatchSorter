@@ -41,8 +41,8 @@ def list_patches(
         store = PatchStore(project_id, session)
         if use_bbox:
             settings_store = SettingsStore(session)
-            max_level = int(settings_store.get("max_level", project_id).setting_value)
-            world_size = int(settings_store.get("world_size", project_id).setting_value)
+            max_level = settings_store.get_int("max_level", project_id)
+            world_size = settings_store.get_int("world_size", project_id)
             i_min, j_min, i_max, j_max = _world_to_grid_bbox(
                 x_min, y_min, x_max, y_max, max_level, max_level, world_size
             )
@@ -123,8 +123,8 @@ def assign_labels_by_polygon(
     client = get_head_client()
     with client.get_session() as session:
         settings_store = SettingsStore(session)
-        max_level = int(settings_store.get("max_level", project_id).setting_value)
-        world_size = int(settings_store.get("world_size", project_id).setting_value)
+        max_level = settings_store.get_int("max_level", project_id)
+        world_size = settings_store.get_int("world_size", project_id)
         x_min, y_min, x_max, y_max = polygon.bounds
         i_min, j_min, i_max, j_max = _world_to_grid_bbox(
             x_min, y_min, x_max, y_max, max_level, max_level, world_size

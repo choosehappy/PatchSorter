@@ -22,7 +22,7 @@ from patchsorter.db.head_client.image import ImageStore
 from patchsorter.db.head_client.label_class import LabelClassStore
 from patchsorter.db.head_client.log import LogStore
 from patchsorter.db.head_client.models import (
-    Base, Image, LabelClass, Log, Project, Setting,
+    Base, Image, LabelClass, Log, Project, SettingOverride,
     all_project_models, confusion_matrix_model, patch_model, pred_patch_model,
 )
 from patchsorter.db.head_client.patch import PatchStore
@@ -41,7 +41,7 @@ __all__ = [
     "PatchStore",
     "Project",
     "ProjectStore",
-    "Setting",
+    "SettingOverride",
     "SettingsStore",
     "all_project_models",
     "confusion_matrix_model",
