@@ -172,7 +172,7 @@ class SettingsStore:
             scoped_project_id = project_id if entry.scope == SettingScope.PROJECT else None
             value = overrides.get((key, scoped_project_id), entry.default)
             result[key] = ResolvedSetting(**entry.model_dump(), value=value, project_id=scoped_project_id)
-        return result
+        return result 
 
     def get_definition(self, setting_key: str) -> SettingDef:
         """Return the schema definition for *setting_key* (type, scope, default, etc.)."""

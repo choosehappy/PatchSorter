@@ -71,8 +71,8 @@ allowed_values = ["use estimated object size", "use manual object radius", "fit 
 # This setting is only used when patch_extraction_method is "use manual object radius"
 # Should be set to the radius of the object in microns
 scope   = "project"
-default = "10.0"
-type    = "string"
+default = "10"
+type    = "integer"
 
 # ---------------------------------------------------------------------------
 # Application-scoped settings

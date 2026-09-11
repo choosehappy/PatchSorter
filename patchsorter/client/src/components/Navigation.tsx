@@ -65,7 +65,9 @@ const Navigation = ({ currentProject }: NavigationProps) => {
                             )}
                             <span className="ms-2">Notifications</span>
                         </Nav.Link>
-                        <Nav.Link>Settings</Nav.Link>
+                        <Nav.Link as={Link} to="/settings" className="text-white">
+                            Settings
+                        </Nav.Link>
                     </Nav>
                 </Container>
             </Navbar>
