@@ -6,6 +6,7 @@ import './index.css'
 import Root from './routes/root.tsx'
 import LabelingPage from './routes/labelingPage.tsx'
 import ProjectPage from './routes/projectPage.tsx'
+import LandingPage from './routes/landingPage.tsx'
 
 const queryClient = new QueryClient()
 
@@ -14,6 +15,7 @@ const router = createBrowserRouter([
         path: '/',
         element: <Root />,
         children: [
+            { index: true, element: <LandingPage /> },
             { path: '/project/:projectId/', element: <ProjectPage /> },
             { path: '/project/:projectId/labeler', element: <LabelingPage /> },
         ],

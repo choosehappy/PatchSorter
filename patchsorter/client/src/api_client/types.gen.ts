@@ -73,6 +73,20 @@ export type ConfusionMatrixResponse = {
 };
 
 /**
+ * CreateProjectRequest
+ */
+export type CreateProjectRequest = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Description
+     */
+    description?: string | null;
+};
+
+/**
  * ExportRequest
  *
  * Request body for starting a patch CSV export.
@@ -530,6 +544,20 @@ export type SettingResponse = {
 export type SumOver = 'gt' | 'pred';
 
 /**
+ * UpdateProjectRequest
+ */
+export type UpdateProjectRequest = {
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Description
+     */
+    description?: string | null;
+};
+
+/**
  * UploadFilesResponse
  */
 export type UploadFilesResponse = {
@@ -770,6 +798,61 @@ export type ListProjectsProjectsGetResponses = {
 
 export type ListProjectsProjectsGetResponse = ListProjectsProjectsGetResponses[keyof ListProjectsProjectsGetResponses];
 
+export type CreateProjectProjectsPostData = {
+    body: CreateProjectRequest;
+    path?: never;
+    query?: never;
+    url: '/projects/';
+};
+
+export type CreateProjectProjectsPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateProjectProjectsPostError = CreateProjectProjectsPostErrors[keyof CreateProjectProjectsPostErrors];
+
+export type CreateProjectProjectsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProjectResponse;
+};
+
+export type CreateProjectProjectsPostResponse = CreateProjectProjectsPostResponses[keyof CreateProjectProjectsPostResponses];
+
+export type DeleteProjectProjectsProjectIdDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+    };
+    query?: never;
+    url: '/projects/{project_id}';
+};
+
+export type DeleteProjectProjectsProjectIdDeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteProjectProjectsProjectIdDeleteError = DeleteProjectProjectsProjectIdDeleteErrors[keyof DeleteProjectProjectsProjectIdDeleteErrors];
+
+export type DeleteProjectProjectsProjectIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteProjectProjectsProjectIdDeleteResponse = DeleteProjectProjectsProjectIdDeleteResponses[keyof DeleteProjectProjectsProjectIdDeleteResponses];
+
 export type GetProjectProjectsProjectIdGetData = {
     body?: never;
     path: {
@@ -801,23 +884,14 @@ export type GetProjectProjectsProjectIdGetResponses = {
 export type GetProjectProjectsProjectIdGetResponse = GetProjectProjectsProjectIdGetResponses[keyof GetProjectProjectsProjectIdGetResponses];
 
 export type UpdateProjectProjectsProjectIdPutData = {
-    body?: never;
+    body: UpdateProjectRequest;
     path: {
         /**
          * Project Id
          */
         project_id: number;
     };
-    query?: {
-        /**
-         * Name
-         */
-        name?: string | null;
-        /**
-         * Description
-         */
-        description?: string | null;
-    };
+    query?: never;
     url: '/projects/{project_id}';
 };
 

@@ -97,6 +97,12 @@ class NASWriteStore(FileStore):
         """Return the **full path** to the project directory."""
         return self.full_path / "projects" / f"proj_{project_id}"
 
+    def delete_project_directory(self, project_id: int) -> None:
+        """Remove the nas_write directory for *project_id*."""
+        project_path = self.get_project_path(project_id)
+        if project_path.exists():
+            shutil.rmtree(project_path, ignore_errors=True)
+
     def get_project_image_path(self, project_id: int, image_id: int) -> Path:
         """Return the **full path** to the image directory within a project."""
         return self.get_project_path(project_id) / "images" / f"img_{image_id}"
