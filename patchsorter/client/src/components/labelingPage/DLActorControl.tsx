@@ -74,6 +74,7 @@ export default function DLActorControl({ projectId, pollIntervalMs = 3000 }: DLA
                 onClick={() => lifecycleMutation.mutate(!isActive)}
                 onMouseEnter={() => setLifecycleHover(true)}
                 onMouseLeave={() => setLifecycleHover(false)}
+                style={{ minWidth: 130 }}
             >
                 {lifecycleMutation.isPending && <Spinner animation="border" size="sm" className="me-1" />}
                 {lifecycleLabel}
@@ -87,6 +88,7 @@ export default function DLActorControl({ projectId, pollIntervalMs = 3000 }: DLA
                     onClick={() => freezeMutation.mutate(!isFrozen)}
                     onMouseEnter={() => setFreezeHover(true)}
                     onMouseLeave={() => setFreezeHover(false)}
+                    style={{ minWidth: 100 }}
                 >
                     {freezeLabel}
                 </button>
