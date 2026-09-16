@@ -59,6 +59,16 @@ class SessionManager:
         """Return a raw psycopg connection from the engine pool."""
         return self.engine.raw_connection()
 
+# This query finds, for every shard in *table_a*, the shard in *table_b*
+# that holds the same set of hash-key ranges (shardminvalue / shardmaxvalue).
+# It does this by:
+#   1. Joining the two tables' pg_dist_shard rows on matching min/max bounds
+#      (rows with identical bounds are the same logical shard pair).
+#   2. Filtering to only shards that belong to colocated partitions
+#      (same colocationid) and that are placed on the same Citus worker node
+#      (same groupid).
+#
+# Returns: (shard_a, shard_b) pairs — one row per matching shard pair.
 _SHARD_MAP_SQL = """
     SELECT shard_a, shard_b
     FROM (
@@ -68,7 +78,7 @@ _SHARD_MAP_SQL = """
         FROM pg_dist_shard s1
         JOIN pg_dist_shard s2
           ON s1.shardminvalue = s2.shardminvalue
-         AND s1.shardmaxvalue = s2.shardmaxvalue
+          AND s1.shardmaxvalue = s2.shardmaxvalue
         JOIN pg_dist_partition p1
           ON s1.logicalrelid = p1.logicalrelid
         JOIN pg_dist_partition p2
@@ -85,7 +95,7 @@ _SHARD_MAP_SQL = """
     ) shard_map
 """
 
-
+# An additional filter implements round-robin distribution of local shards (shards placed on a Citus worker node) to ray train workers.
 _WORKER_FILTER = "WHERE rn % :num_workers = :current_worker_rank"
 
 
@@ -94,6 +104,19 @@ def build_local_node_shard_map_query(
     table_b: str,
     groupid: int,
 ) -> text:
+    """Build a shard mapping query for a single local node.
+
+    Returns all shard pairs between *table_a* and *table_b* that reside on
+    the worker group identified by *groupid*.
+
+    Args:
+        table_a: Name of the first (reference) table.
+        table_b: Name of the second table to map against.
+        groupid: Citus worker group ID to filter placements.
+
+    Returns:
+        A SQLAlchemy ``text`` object with bound parameters ready to execute.
+    """
     return text(_SHARD_MAP_SQL).bindparams(
         table_a=table_a,
         table_b=table_b,
@@ -108,6 +131,22 @@ def build_local_worker_shard_map_query(
     current_worker_rank: int,
     groupid: int,
 ) -> text:
+    """Build a shard mapping query filtered to a single ray train worker.
+
+    Like ``build_local_node_shard_map_query`` but adds a modulo filter so
+    that each ray train worker only sees its own subset of shard pairs.
+
+    Args:
+        table_a: Name of the first (reference) table.
+        table_b: Name of the second table to map against.
+        num_workers: Total number of ray train worker processes assigned to the local node.
+        current_worker_rank: This ray train worker's rank (0-based index).
+        groupid: Citus worker group ID to filter placements.
+
+    Returns:
+        A SQLAlchemy ``text`` object with bound parameters and the worker
+        filter clause appended.
+    """
     query = text(f"{_SHARD_MAP_SQL.rstrip()}\n{_WORKER_FILTER}")
     return query.bindparams(
         table_a=table_a,
