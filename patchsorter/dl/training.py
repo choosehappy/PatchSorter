@@ -593,12 +593,7 @@ class DLActor:
         self._termination_signal = value
 
     def start_dl_proc(self, num_workers: int = 8) -> None:
-        """Launch the distributed training loop as a non-blocking Ray remote task.
-
-        Creates a :class:`~ray.train.torch.TorchTrainer` and calls ``.fit()``
-        inside a separate Ray task so that the actor remains responsive to
-        ``get_training_enabled`` / ``set_training_enabled`` calls while training
-        runs.
+        """Launch the distributed training loop
 
         Args:
             num_workers: Number of Ray Train workers to use.
