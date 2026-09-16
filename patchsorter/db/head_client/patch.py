@@ -54,7 +54,7 @@ class PatchStore:
     #     return CitusShardMap.from_rows(rows)
 
     def get_local_worker_shard_map(self, num_workers: int, worker_rank: int, group_id) -> CitusShardMap:
-        """Return the subset of Citus shards that reside on a **specific worker**.
+        """Return the subset of Citus shards that reside on a **specific ray train worker**.
 
         Queries both the project's ``patch`` table and its
         ``pred_patch_latest`` table to collect all physical shard IDs that hold
@@ -62,8 +62,8 @@ class PatchStore:
         *worker_rank*.
 
         Args:
-            num_workers: Total number of Citus worker nodes in the cluster.
-            worker_rank: The 0-based rank of the target worker (must be in
+            num_workers: Total number of ray train worker processes in the group (Citus worker node).
+            worker_rank: The 0-based rank of the target ray train worker (must be in
                 ``[0, num_workers)``).
             group_id: Citus ``group_id`` identifying the node (typically the
                 node's ``nodeid`` from ``pg_dist_node``).
