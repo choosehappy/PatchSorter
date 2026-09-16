@@ -361,7 +361,7 @@ def train_worker(config: Dict[str, Any]) -> None:
         backbone.train()
         joint_head.train()
         # The dataset gets access to the locally available shard set, filtered by the local rank of the worker
-        dataset = ShardDataset(worker_sm, project_id, local_worker_shard_map, patches_per_batch) # TODO: pass in cursor
+        dataset = ShardDataset(worker_sm, project_id, local_worker_shard_map, patches_per_batch)
         for i, (shard_id, batch) in enumerate(dataset):
             if i % POLL_FROZEN_EVERY_N_BATCHES == 0:
 
