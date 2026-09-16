@@ -49,21 +49,19 @@ def start_processing(project_id: int) -> None:
             pass
 
     # Wait for actor to leave Ray's namespace; force-kill on the final retry
-    for attempt in range(MAX_START_RETRIES):
-        if _get_actor_handle(project_id) is None:
-            break
-        if attempt == MAX_START_RETRIES - 1:
-            actor = _get_actor_handle(project_id)
-            if actor is not None:
+    attempt = 0
+    while (actor_handle := _get_actor_handle(project_id)) is not None:
+        if attempt >= MAX_START_RETRIES - 1:
+            if actor_handle is not None:
                 logger.warning(
                     "Force-killing actor for project %d after %d retries.",
                     project_id,
                     MAX_START_RETRIES,
                 )
-                # NOTE: may not need this
-                #ray.kill(actor, no_restart=True)
+                ray.kill(actor_handle, no_restart=True)
         else:
             time.sleep(START_RETRY_DELAY_S)
+        attempt += 1
 
     app_config, label_classes = _get_project_config(project_id)
     actor = DLActor.options(  # type: ignore[attr-defined]
