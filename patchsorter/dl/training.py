@@ -322,11 +322,11 @@ def train_worker(config: Dict[str, Any]) -> None:
     while True:
         # Termination and freeze checks happen only at cycle boundaries (after barriers),
         # ensuring all workers are in sync when they read the flags.
+
+        wait_for_unfreeze(actor)
         if ray.get(actor.get_termination_signal.remote()):
             logger.info("[Worker %d (local %d)] Received termination signal. Shutting down.", world_rank, local_rank)
             return
-
-        wait_for_unfreeze(actor)
 
         # Discover locally assigned shards on each cycle since table rotation changes shard placements.
         with head_sm.get_session() as session:
@@ -364,12 +364,12 @@ def train_worker(config: Dict[str, Any]) -> None:
         dataset = ShardDataset(worker_sm, project_id, local_worker_shard_map, patches_per_batch) # TODO: pass in cursor
         for i, (shard_id, batch) in enumerate(dataset):
             if i % POLL_FROZEN_EVERY_N_BATCHES == 0:
+
+                wait_for_unfreeze(actor)
+                
                 if ray.get(actor.get_termination_signal.remote()):
                     logger.info("[Worker %d (local %d)] Received termination signal. Shutting down.", world_rank, local_rank)
                     return
-
-                wait_for_unfreeze(actor)
-
             
 
             # Decode images
