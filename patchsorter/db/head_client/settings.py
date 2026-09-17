@@ -41,6 +41,7 @@ class SettingDef(BaseModel):
     default: str
     allowed_values: Optional[List[str]] = None
     disabled: bool = False
+    description: str = ""
 
     @model_validator(mode="after")
     def _check_enum_has_values(self) -> "SettingDef":
@@ -167,7 +168,9 @@ class SettingsStore:
 
         # Per setting resolution is performed lazily
         for key, entry in schema.items():
-            if scope is not None and entry.scope != scope:
+            if scope is not None and entry.scope != scope: # Skip settings that don't match the requested scope
+                continue
+            if project_id is None and entry.scope == SettingScope.PROJECT:  # Don't include project-scoped settings if no project_id is provided
                 continue
             scoped_project_id = project_id if entry.scope == SettingScope.PROJECT else None
             value = overrides.get((key, scoped_project_id), entry.default)
