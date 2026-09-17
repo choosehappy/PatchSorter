@@ -34,6 +34,8 @@ const Navigation = ({ currentProject }: NavigationProps) => {
     const unread = notificationCenter?.unreadCount ?? 0;
     const location = useLocation();
     const isLabeler = currentProject && location.pathname === `/project/${currentProject.id}/labeler`;
+    const isProjectSettings = currentProject && location.pathname === `/project/${currentProject.id}/settings`;
+    const isApplicationSettings = location.pathname === `/settings`;
 
     return (
         <>
@@ -55,6 +57,20 @@ const Navigation = ({ currentProject }: NavigationProps) => {
                                 </Nav.Link>
                             </Item>
                         )}
+                        {currentProject && isProjectSettings && (
+                            <Item href={`/project/${currentProject.id}/settings`}>
+                                <Nav.Link as={Link} to={`/project/${currentProject.id}/settings`} className="text-white">
+                                    Settings
+                                </Nav.Link>
+                            </Item>
+                        )}
+                        {isApplicationSettings && (
+                            <Item href="/settings">
+                                <Nav.Link as={Link} to="/settings" className="text-white">
+                                    Settings
+                                </Nav.Link>
+                            </Item>
+                        )}
                     </Nav>
                     <Nav className="justify-content-end">
                         <Nav.Link>Metrics</Nav.Link>
@@ -65,8 +81,8 @@ const Navigation = ({ currentProject }: NavigationProps) => {
                             )}
                             <span className="ms-2">Notifications</span>
                         </Nav.Link>
-                        <Nav.Link as={Link} to={currentProject ? `/settings?projectId=${currentProject.id}` : "/settings"} className="text-white">
-                            {currentProject ? `Settings (Project ${currentProject.id})` : 'Settings'}
+                        <Nav.Link as={Link} to={currentProject ? `/project/${currentProject.id}/settings` : "/settings"} className="text-white">
+                            {currentProject ? `Project Settings` : 'Settings'}
                         </Nav.Link>
                     </Nav>
                 </Container>

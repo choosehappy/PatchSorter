@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { listSettingsSettingsGet, updateSettingSettingsSettingKeyPatch } from '../api_client';
 import { FormSelect, FormCheck, FormControl, Button, Card, Col, Row } from 'react-bootstrap';
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 
 function SettingInput({ setting, onDirtyChange }: { setting: import('../api_client').ResolvedSetting; onDirtyChange: (key: string, isDirty: boolean) => void }) {
     const [localValue, setLocalValue] = useState(setting.value);
@@ -89,8 +89,8 @@ function SettingInput({ setting, onDirtyChange }: { setting: import('../api_clie
 }
 
 export default function SettingsPage() {
-    const [searchParams] = useSearchParams();
-    const projectId = searchParams.get('project_id');
+    const { projectId: projectIdParam } = useParams<{ projectId: string }>();
+    const projectId = projectIdParam ? Number(projectIdParam) : null;
     const queryClient = useQueryClient();
 
     const { data: settings, isLoading } = useQuery({
