@@ -65,8 +65,8 @@ const Navigation = ({ currentProject }: NavigationProps) => {
                             )}
                             <span className="ms-2">Notifications</span>
                         </Nav.Link>
-                        <Nav.Link as={Link} to="/settings" className="text-white">
-                            Settings
+                        <Nav.Link as={Link} to={currentProject ? `/settings?projectId=${currentProject.id}` : "/settings"} className="text-white">
+                            {currentProject ? `Settings (Project ${currentProject.id})` : 'Settings'}
                         </Nav.Link>
                     </Nav>
                 </Container>
