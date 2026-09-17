@@ -63,6 +63,9 @@ function SettingInput({ setting, onDirtyChange }: { setting: import('../api_clie
                 <strong>{setting.key}</strong>
                 <span className="text-muted small">({setting.type})</span>
             </div>
+            {setting.description && (
+                <p className="text-muted small mb-2">{setting.description}</p>
+            )}
             <div className="mb-2">
                 {renderInput()}
             </div>

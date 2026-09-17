@@ -486,6 +486,10 @@ export type ResolvedSetting = {
      */
     disabled?: boolean;
     /**
+     * Description
+     */
+    description?: string;
+    /**
      * Value
      */
     value: string;
