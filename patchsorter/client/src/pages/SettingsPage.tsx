@@ -1,16 +1,56 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listSettingsSettingsGet, updateSettingSettingsSettingKeyPatch } from '../api_client';
 import { FormSelect, FormCheck, FormControl, Button, Card, Col, Row } from 'react-bootstrap';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
+import { toast } from 'react-toastify';
 
-function SettingInput({ setting, onDirtyChange }: { setting: import('../api_client').ResolvedSetting; onDirtyChange: (key: string, isDirty: boolean) => void }) {
+function SettingInput({ setting, onSaved }: { setting: import('../api_client').ResolvedSetting; onSaved: () => void }) {
     const [localValue, setLocalValue] = useState(setting.value);
     const isDirty = localValue !== setting.value;
+    const isDifferentFromDefault = localValue !== setting.default;
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        setLocalValue(setting.value);
+    }, [setting.value]);
 
     const handleChange = (val: string) => {
         setLocalValue(val);
-        onDirtyChange(setting.key, val !== setting.value);
+    };
+
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            await updateSettingSettingsSettingKeyPatch({
+                path: { setting_key: setting.key },
+                body: { value: localValue },
+                query: setting.project_id !== null ? { project_id: setting.project_id } : undefined,
+            });
+            toast.success(`Saved ${setting.key}`);
+            onSaved();
+        } catch (err: any) {
+            toast.error(`Failed to save ${setting.key}: ${err?.message || 'Unknown error'}`);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleReset = async () => {
+        setSaving(true);
+        try {
+            await updateSettingSettingsSettingKeyPatch({
+                path: { setting_key: setting.key },
+                body: { value: setting.default },
+                query: setting.project_id !== null ? { project_id: setting.project_id } : undefined,
+            });
+            toast.success(`Reset ${setting.key} to default`);
+            onSaved();
+        } catch (err: any) {
+            toast.error(`Failed to reset ${setting.key}: ${err?.message || 'Unknown error'}`);
+        } finally {
+            setSaving(false);
+        }
     };
 
     const renderInput = () => {
@@ -72,15 +112,25 @@ function SettingInput({ setting, onDirtyChange }: { setting: import('../api_clie
             <div className="d-flex gap-2">
                 <small className="text-muted">Default: {setting.default}</small>
                 {isDirty && (
+                    <>
+                        <Button
+                            size="sm"
+                            variant="primary"
+                            disabled={saving}
+                            onClick={handleSave}
+                        >
+                            {saving ? 'Saving...' : 'Save'}
+                        </Button>
+                    </>
+                )}
+                {isDifferentFromDefault && (
                     <Button
                         size="sm"
                         variant="outline-secondary"
-                        onClick={() => {
-                            setLocalValue(setting.value);
-                            onDirtyChange(setting.key, false);
-                        }}
+                        disabled={saving}
+                        onClick={handleReset}
                     >
-                        Reset
+                        {saving ? 'Saving...' : 'Reset'}
                     </Button>
                 )}
             </div>
@@ -101,32 +151,8 @@ export default function SettingsPage() {
             }).then(r => r.data),
     });
 
-    const updateMutation = useMutation({
-        mutationFn: async ({ key, value, pid }: { key: string; value: string; pid: number | null }) => {
-            const response = await updateSettingSettingsSettingKeyPatch({
-                path: { setting_key: key },
-                body: { value },
-                query: pid !== null ? { project_id: pid } : undefined,
-            });
-            return response.data;
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['settings', projectId] });
-        },
-    });
-
-    const [dirty, setDirty] = useState<Set<string>>(new Set());
-
-    const handleDirtyChange = (key: string, isDirty: boolean) => {
-        setDirty(prev => {
-            const next = new Set(prev);
-            if (isDirty) {
-                next.add(key);
-            } else {
-                next.delete(key);
-            }
-            return next;
-        });
+    const handleSaved = () => {
+        queryClient.invalidateQueries({ queryKey: ['settings', projectId] });
     };
 
     if (isLoading) {
@@ -139,19 +165,6 @@ export default function SettingsPage() {
 
     const appSettings = settings.filter(s => s.scope === 'application');
     const projectSettings = settings.filter(s => s.scope === 'project');
-
-    const handleSaveAll = (sectionSettings: import('../api_client').ResolvedSetting[]) => {
-        const sectionDirty = sectionSettings.filter(s => dirty.has(s.key));
-        if (sectionDirty.length === 0) return;
-
-        Promise.all(
-            sectionDirty.map(s =>
-                updateMutation.mutateAsync({ key: s.key, value: s.value, pid: s.project_id ?? null })
-            )
-        ).catch(err => {
-            console.error('Failed to save settings:', err);
-        });
-    };
 
     return (
         <div className="container-fluid mt-4">
@@ -167,18 +180,9 @@ export default function SettingsPage() {
                                 <SettingInput
                                     key={setting.key}
                                     setting={setting}
-                                    onDirtyChange={handleDirtyChange}
+                                    onSaved={handleSaved}
                                 />
                             ))}
-                            {appSettings.length > 0 && (
-                                <Button
-                                    variant="primary"
-                                    onClick={() => handleSaveAll(appSettings)}
-                                    disabled={appSettings.every(s => !dirty.has(s.key))}
-                                >
-                                    Save Application Settings
-                                </Button>
-                            )}
                         </Card.Body>
                     </Card>
                 </Col>
@@ -193,18 +197,9 @@ export default function SettingsPage() {
                                 <SettingInput
                                     key={setting.key}
                                     setting={setting}
-                                    onDirtyChange={handleDirtyChange}
+                                    onSaved={handleSaved}
                                 />
                             ))}
-                            {projectSettings.length > 0 && (
-                                <Button
-                                    variant="primary"
-                                    onClick={() => handleSaveAll(projectSettings)}
-                                    disabled={projectSettings.every(s => !dirty.has(s.key))}
-                                >
-                                    Save Project Settings
-                                </Button>
-                            )}
                         </Card.Body>
                     </Card>
                 </Col>
