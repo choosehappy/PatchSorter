@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listSettingsSettingsGet, updateSettingSettingsSettingKeyPatch } from '../api_client';
 import { FormSelect, FormCheck, FormControl, Button, Card, Col, Row } from 'react-bootstrap';
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 
 function SettingInput({ setting, onSaved }: { setting: import('../api_client').ResolvedSetting; onSaved: () => void }) {
@@ -192,7 +192,7 @@ export default function SettingsPage() {
                             <h5 className="mb-0">Project Settings</h5>
                         </Card.Header>
                         <Card.Body>
-                            {projectSettings.length === 0 && <p className="text-muted">No project settings.</p>}
+                            {projectSettings.length === 0 && <p className="text-muted">Enter a project from the <Link to="/">landing page</Link> and click "Project Settings" to view and modify project settings.</p>}
                             {projectSettings.map(setting => (
                                 <SettingInput
                                     key={setting.key}
