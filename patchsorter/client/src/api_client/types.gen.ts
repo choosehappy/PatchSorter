@@ -573,6 +573,16 @@ export type UpdateProjectRequest = {
 };
 
 /**
+ * UpdateSettingRequest
+ */
+export type UpdateSettingRequest = {
+    /**
+     * Value
+     */
+    value: string;
+};
+
+/**
  * UploadFilesResponse
  */
 export type UploadFilesResponse = {
