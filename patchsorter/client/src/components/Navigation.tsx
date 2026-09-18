@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { Navbar, Nav, Container } from 'react-bootstrap';
-import { CaretRightFill, BellFill } from 'react-bootstrap-icons';
+import { CaretRightFill, BellFill, GearFill, GraphUp } from 'react-bootstrap-icons';
 import Badge from 'react-bootstrap/Badge';
 import { useState } from 'react';
 import { useNotificationCenter } from 'react-toastify/addons/use-notification-center';
@@ -36,6 +36,8 @@ const Navigation = ({ currentProject }: NavigationProps) => {
     const isLabeler = currentProject && location.pathname === `/project/${currentProject.id}/labeler`;
     const isProjectSettings = currentProject && location.pathname === `/project/${currentProject.id}/settings`;
     const isApplicationSettings = location.pathname === `/settings`;
+    const settingsActive = isProjectSettings || isApplicationSettings;
+
 
     return (
         <>
@@ -73,16 +75,28 @@ const Navigation = ({ currentProject }: NavigationProps) => {
                         )}
                     </Nav>
                     <Nav className="justify-content-end">
-                        <Nav.Link>Metrics</Nav.Link>
-                        <Nav.Link onClick={() => setShowNotifications(true)} className="position-relative d-flex align-items-center">
-                            <BellFill className="text-white" />
+                        <Nav.Link onClick={(e: React.MouseEvent<HTMLElement>) => {
+                                e.currentTarget.blur();
+                            }} className="d-flex align-items-center">
+                            <GraphUp className="ms-2" />
+                            <span className="ms-2">Metrics</span>
+                        </Nav.Link>
+                        <Nav.Link onClick={(e: React.MouseEvent<HTMLElement>) => {
+                                e.currentTarget.blur();
+                                setShowNotifications(true)
+                            }} className="position-relative d-flex align-items-center">
+                            <BellFill className="ms-2" />
                             {unread > 0 && (
                                 <Badge bg="danger" pill style={{ position: 'absolute', top: '6px', right: '6px', transform: 'translate(50%,-50%)' }}>{unread}</Badge>
                             )}
                             <span className="ms-2">Notifications</span>
                         </Nav.Link>
-                        <Nav.Link as={Link} to={currentProject ? `/project/${currentProject.id}/settings` : "/settings"} className="text-white">
-                            {currentProject ? `Project Settings` : 'Settings'}
+                        <Nav.Link onClick={(e: React.MouseEvent<HTMLElement>) => {
+                                e.currentTarget.blur();
+                            }} as={Link} active={settingsActive} to={currentProject ? `/project/${currentProject.id}/settings` : "/settings"} className="ms-2">
+                            <GearFill className="ms-2" />
+                            <span className="ms-2">{currentProject ? `Project Settings` : 'Settings'}</span>
+                            
                         </Nav.Link>
                     </Nav>
                 </Container>
