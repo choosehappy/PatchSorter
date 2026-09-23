@@ -109,7 +109,10 @@ export default function ImagesTable({ projectId, images, labelClasses, isLoading
         checkboxSelector: { hideInFilterHeaderRow: false },
         rowHeight: 64,
         forceFitColumns: true,
-        autoResize: { container: '#images-container' },
+        autoResize: { container: '#images-container',
+            maxHeight: 800,
+            minHeight: 200,
+         },
     }
 
     const onGridReady = useCallback((reactGrid: SlickgridReactInstance) => {
@@ -135,7 +138,7 @@ export default function ImagesTable({ projectId, images, labelClasses, isLoading
     return (
         <section>
             <h5>Images</h5>
-            <div id="images-container" style={{ height, overflow: 'hidden' }}>
+            <div id="images-container" style={{ height, overflow: 'hidden'}}>
                 <SlickgridReact
                     gridId="images-grid"
                     columns={buildColumns()}

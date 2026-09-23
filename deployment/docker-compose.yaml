@@ -50,7 +50,8 @@ services:
             count: all
             capabilities: [gpu]
     volumes:
-      - /data/jjaco34:/opt/PatchSorter/mounts/nas_read
+      - nas_read:/opt/PatchSorter/mounts/nas_read # This can be changed to a server-side directory if needed.
+      - nas_write:/opt/PatchSorter/mounts/nas_write
 
 networks:
   ps_net:
@@ -58,3 +59,5 @@ networks:
 
 volumes:
   citus_data:
+  nas_read:
+  nas_write:

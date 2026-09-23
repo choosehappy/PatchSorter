@@ -15,7 +15,7 @@ export default function Root() {
     });
 
     return (
-        <div className="d-flex flex-column" style={{ height: '100vh' }}>
+        <div className="d-flex flex-column" style={{ height: '100vh', overflow: 'hidden' }}>
             <Navigation currentProject={project ? { id: String(project.project_id), name: project.project_name } : null} />
             <ToastContainer
                 position="bottom-right"
@@ -29,7 +29,9 @@ export default function Root() {
                 pauseOnHover
                 theme="light"
             />
-            <Outlet />
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+                <Outlet />
+            </div>
         </div>
     );
 }

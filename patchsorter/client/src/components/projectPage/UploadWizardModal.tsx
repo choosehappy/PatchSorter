@@ -11,6 +11,7 @@ import {
     type ReviewRow,
 } from '../../api_client'
 import { useUpload, Approach, Step } from './useUpload'
+import { countMissingBaseMag } from './useReviewValidation'
 import UploadStepIndicator from './UploadStepIndicator'
 import StepApproachSelection from './StepApproachSelection'
 import StepUploadImages from './StepUploadImages'
@@ -406,7 +407,7 @@ export default function UploadWizardModal({
         reviewData !== null &&
         selectedIndices.size > 0 &&
         !hasErrorsInSelection &&
-        reviewData.every(r => r.base_mag != null)
+        countMissingBaseMag(reviewData, selectedIndices) === 0
 
     // Disable the label toggle that would leave zero label sources
     const disabledMask = !includePatchCsv
@@ -500,7 +501,6 @@ export default function UploadWizardModal({
                         reviewData={reviewData}
                         isLoading={isReviewLoading}
                         onRowChange={handleRowChange}
-                        allHaveBaseMag={reviewData !== null && reviewData.length > 0 && reviewData.every(r => r.base_mag != null)}
                         onAllBaseMagChange={handleAllBaseMagChange}
                         selectedIndices={selectedIndices}
                         onSelectionChange={setSelectedIndices}
