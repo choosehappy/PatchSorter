@@ -11,7 +11,6 @@ interface StepReviewProps {
     reviewData: ReviewRow[] | null
     isLoading: boolean
     onRowChange: (index: number, updates: Partial<ReviewRow>) => void
-    missingMagCount: number
     onAllBaseMagChange: (value: number | null, indices: Set<number>) => void
     selectedIndices: Set<number>
     onSelectionChange: (indices: Set<number>) => void
