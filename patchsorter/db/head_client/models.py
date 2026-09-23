@@ -55,7 +55,7 @@ class Project(Base):
 
     images        = relationship("Image",       back_populates="project")
     label_classes = relationship("LabelClass",  back_populates="project")
-    settings      = relationship("Setting",     back_populates="project")
+    settings      = relationship("SettingOverride",     back_populates="project")
 
 
 class Image(Base):
@@ -96,28 +96,23 @@ class LabelClass(Base):
     project = relationship("Project", back_populates="label_classes")
 
 
-class Setting(Base):
+class SettingOverride(Base):
     __tablename__ = "settings"
     __table_args__ = (
-        UniqueConstraint("project_id", "setting_key", name="uq_project_setting"),
-        CheckConstraint(
-            f"setting_type IN ({', '.join(repr(t.value) for t in SettingType)})",
-            name="ck_setting_type",
-        ),
-        CheckConstraint(
-            f"setting_type != '{SettingType.ENUM}' OR allowed_values IS NOT NULL",
-            name="chk_enum_has_values",
+        UniqueConstraint("project_id", "setting_key", name="uq_project_settings"),
+        Index(
+            "uq_app_settings",
+            "setting_key",
+            unique=True,
+            postgresql_where=Column("project_id").is_(None),
         ),
     )
 
-    setting_id     = Column(Integer, primary_key=True, autoincrement=True)
-    project_id     = Column(Integer, ForeignKey("project.project_id", name="fk_project"))
-    setting_key    = Column(Text, nullable=False)
-    setting_value  = Column(Text, nullable=False)
-    default_value  = Column(Text, nullable=False)
-    setting_type   = Column(Text, nullable=False)
-    allowed_values = Column(Text)
-    disabled       = Column(Boolean, nullable=False, server_default="false")
+    override_id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id  = Column(Integer, ForeignKey("project.project_id", name="fk_project"), nullable=True)
+    setting_key = Column(Text, nullable=False)
+    value       = Column(Text, nullable=False)
+    updated_at  = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now()) # TODO: Get rid of custom TIMESTAMP type
 
     project = relationship("Project", back_populates="settings")
 

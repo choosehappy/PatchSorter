@@ -96,9 +96,7 @@ def seeded_project(
             ).mappings().one()
         )
 
-        # Seed application-scoped settings (e.g. patch_query_range)
-        SettingsStore(session).seed_app_settings()
-        # world_size is disabled by default but required by sample endpoints
+        # Seed application-scoped settings manually (world_size is disabled)
         session.execute(
             text(
                 """
@@ -113,7 +111,7 @@ def seeded_project(
             text(
                 """
                 INSERT INTO settings (project_id, setting_key, setting_value, default_value, setting_type, allowed_values, disabled)
-                VALUES (1, 'max_level', '0', '0', 'integer', NULL, false)
+                VALUES (1, 'max_level', '12', '12', 'integer', NULL, false)
                 ON CONFLICT (project_id, setting_key) DO NOTHING
                 """
             )

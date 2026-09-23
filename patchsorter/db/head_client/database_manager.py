@@ -5,8 +5,9 @@ from patchsorter.db.utils import SessionManager
 from patchsorter.db.head_client.models import Base, Project, all_project_models, build_table_name, build_pred_table_name
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
-from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.config.constants import PredPatchSuffix
+from patchsorter.db.head_client.project import ProjectStore
+from patchsorter.utils.fsmanager import NASWriteStore
 # Clear per-project model caches so they are not in Base.metadata
 # when create_all() runs.  Project tables must only be created by
 # setup_project().
@@ -162,9 +163,6 @@ class DatabaseManager:
                 
 
             conn.commit()
-
-        with self.sm.get_session() as session:
-            SettingsStore(session).seed_app_settings()
 
     def rotate_pred_patch_tables(self, project_id: int) -> None:
         """Rotate ``pred_patch_latest`` → ``pred_patch_last`` via a 3-way rename.
@@ -584,5 +582,21 @@ class DatabaseManager:
             for level in range(8, 13):
                 cm_store = ConfusionMatrixStore(project_id, level, session)
                 cm_store.clear_confusion_matrix()
+
+    def delete_project(self, project_id: int) -> None:
+        """Delete a project and all its associated data, including filesystem.
+
+        This is a destructive and irreversible operation.
+
+        Args:
+            project_id: The integer ID of the project to delete.
+        """
+
+        with self.sm.get_session() as session:
+            store = ProjectStore(session)
+            store.delete(project_id)
+
+        nas_store = NASWriteStore()
+        nas_store.delete_project_directory(project_id)
 
 

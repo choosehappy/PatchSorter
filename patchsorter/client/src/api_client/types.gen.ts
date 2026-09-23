@@ -73,6 +73,20 @@ export type ConfusionMatrixResponse = {
 };
 
 /**
+ * CreateProjectRequest
+ */
+export type CreateProjectRequest = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Description
+     */
+    description?: string | null;
+};
+
+/**
  * ExportRequest
  *
  * Request body for starting a patch CSV export.
@@ -457,6 +471,49 @@ export type ProjectStatsResponse = {
 };
 
 /**
+ * ResolvedSetting
+ *
+ * A `SettingDef` plus the setting's current effective value and scope.
+ *
+ * Returned by the raw-value accessors (`get_raw`, `get_all_raw`,
+ * `_resolve_raw`) so callers get both the schema metadata (type, scope,
+ * default, allowed_values, disabled) and the resolved value in one object,
+ * without a second lookup against the schema.
+ */
+export type ResolvedSetting = {
+    /**
+     * Key
+     */
+    key: string;
+    scope: SettingScope;
+    type: SettingType;
+    /**
+     * Default
+     */
+    default: string;
+    /**
+     * Allowed Values
+     */
+    allowed_values?: Array<string> | null;
+    /**
+     * Disabled
+     */
+    disabled?: boolean;
+    /**
+     * Description
+     */
+    description?: string;
+    /**
+     * Value
+     */
+    value: string;
+    /**
+     * Project Id
+     */
+    project_id?: number | null;
+};
+
+/**
  * ReviewRow
  */
 export type ReviewRow = {
@@ -487,47 +544,43 @@ export type ReviewRow = {
 };
 
 /**
- * SettingResponse
+ * SettingScope
  */
-export type SettingResponse = {
-    /**
-     * Setting Id
-     */
-    setting_id: number;
-    /**
-     * Project Id
-     */
-    project_id: number | null;
-    /**
-     * Setting Key
-     */
-    setting_key: string;
-    /**
-     * Setting Value
-     */
-    setting_value: string;
-    /**
-     * Default Value
-     */
-    default_value: string;
-    /**
-     * Setting Type
-     */
-    setting_type: string;
-    /**
-     * Allowed Values
-     */
-    allowed_values: string | null;
-    /**
-     * Disabled
-     */
-    disabled: boolean;
-};
+export type SettingScope = 'application' | 'project';
+
+/**
+ * SettingType
+ */
+export type SettingType = 'enum' | 'string' | 'boolean' | 'integer';
 
 /**
  * SumOver
  */
 export type SumOver = 'gt' | 'pred';
+
+/**
+ * UpdateProjectRequest
+ */
+export type UpdateProjectRequest = {
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Description
+     */
+    description?: string | null;
+};
+
+/**
+ * UpdateSettingRequest
+ */
+export type UpdateSettingRequest = {
+    /**
+     * Value
+     */
+    value: string;
+};
 
 /**
  * UploadFilesResponse
@@ -770,6 +823,61 @@ export type ListProjectsProjectsGetResponses = {
 
 export type ListProjectsProjectsGetResponse = ListProjectsProjectsGetResponses[keyof ListProjectsProjectsGetResponses];
 
+export type CreateProjectProjectsPostData = {
+    body: CreateProjectRequest;
+    path?: never;
+    query?: never;
+    url: '/projects/';
+};
+
+export type CreateProjectProjectsPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateProjectProjectsPostError = CreateProjectProjectsPostErrors[keyof CreateProjectProjectsPostErrors];
+
+export type CreateProjectProjectsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProjectResponse;
+};
+
+export type CreateProjectProjectsPostResponse = CreateProjectProjectsPostResponses[keyof CreateProjectProjectsPostResponses];
+
+export type DeleteProjectProjectsProjectIdDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+    };
+    query?: never;
+    url: '/projects/{project_id}';
+};
+
+export type DeleteProjectProjectsProjectIdDeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteProjectProjectsProjectIdDeleteError = DeleteProjectProjectsProjectIdDeleteErrors[keyof DeleteProjectProjectsProjectIdDeleteErrors];
+
+export type DeleteProjectProjectsProjectIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteProjectProjectsProjectIdDeleteResponse = DeleteProjectProjectsProjectIdDeleteResponses[keyof DeleteProjectProjectsProjectIdDeleteResponses];
+
 export type GetProjectProjectsProjectIdGetData = {
     body?: never;
     path: {
@@ -801,23 +909,14 @@ export type GetProjectProjectsProjectIdGetResponses = {
 export type GetProjectProjectsProjectIdGetResponse = GetProjectProjectsProjectIdGetResponses[keyof GetProjectProjectsProjectIdGetResponses];
 
 export type UpdateProjectProjectsProjectIdPutData = {
-    body?: never;
+    body: UpdateProjectRequest;
     path: {
         /**
          * Project Id
          */
         project_id: number;
     };
-    query?: {
-        /**
-         * Name
-         */
-        name?: string | null;
-        /**
-         * Description
-         */
-        description?: string | null;
-    };
+    query?: never;
     url: '/projects/{project_id}';
 };
 
@@ -1246,37 +1345,76 @@ export type AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostRespon
 
 export type AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponse = AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses[keyof AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses];
 
-export type ListSettingsProjectsProjectIdSettingsGetData = {
+export type ListSettingsSettingsGetData = {
     body?: never;
-    path: {
+    path?: never;
+    query?: {
         /**
          * Project Id
          */
-        project_id: number;
+        project_id?: number | null;
+        /**
+         * Scope
+         */
+        scope?: string | null;
     };
-    query?: never;
-    url: '/projects/{project_id}/settings/';
+    url: '/settings/';
 };
 
-export type ListSettingsProjectsProjectIdSettingsGetErrors = {
+export type ListSettingsSettingsGetErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type ListSettingsProjectsProjectIdSettingsGetError = ListSettingsProjectsProjectIdSettingsGetErrors[keyof ListSettingsProjectsProjectIdSettingsGetErrors];
+export type ListSettingsSettingsGetError = ListSettingsSettingsGetErrors[keyof ListSettingsSettingsGetErrors];
 
-export type ListSettingsProjectsProjectIdSettingsGetResponses = {
+export type ListSettingsSettingsGetResponses = {
     /**
-     * Response List Settings Projects  Project Id  Settings  Get
+     * Response List Settings Settings  Get
      *
      * Successful Response
      */
-    200: Array<SettingResponse>;
+    200: Array<ResolvedSetting>;
 };
 
-export type ListSettingsProjectsProjectIdSettingsGetResponse = ListSettingsProjectsProjectIdSettingsGetResponses[keyof ListSettingsProjectsProjectIdSettingsGetResponses];
+export type ListSettingsSettingsGetResponse = ListSettingsSettingsGetResponses[keyof ListSettingsSettingsGetResponses];
+
+export type UpdateSettingSettingsSettingKeyPatchData = {
+    body: UpdateSettingRequest;
+    path: {
+        /**
+         * Setting Key
+         */
+        setting_key: string;
+    };
+    query?: {
+        /**
+         * Project Id
+         */
+        project_id?: number | null;
+    };
+    url: '/settings/{setting_key}';
+};
+
+export type UpdateSettingSettingsSettingKeyPatchErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateSettingSettingsSettingKeyPatchError = UpdateSettingSettingsSettingKeyPatchErrors[keyof UpdateSettingSettingsSettingKeyPatchErrors];
+
+export type UpdateSettingSettingsSettingKeyPatchResponses = {
+    /**
+     * Successful Response
+     */
+    200: ResolvedSetting;
+};
+
+export type UpdateSettingSettingsSettingKeyPatchResponse = UpdateSettingSettingsSettingKeyPatchResponses[keyof UpdateSettingSettingsSettingKeyPatchResponses];
 
 export type ListImagesProjectsProjectIdImagesGetData = {
     body?: never;

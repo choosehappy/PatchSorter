@@ -21,6 +21,11 @@ class SettingType(StrEnum):
     INTEGER = "integer"
 
 
+class SettingScope(StrEnum):
+    APPLICATION = "application"
+    PROJECT = "project"
+
+
 class PatchExtractionMethod(StrEnum):
     USE_ESTIMATED_OBJECT_SIZE = "use estimated object size"
     USE_MANUAL_OBJECT_RADIUS = "use manual object radius"

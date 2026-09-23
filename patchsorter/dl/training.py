@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-from patchsorter.config.constants import UNASSIGNED_CLASS_ID
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID, SettingType, SettingScope
 from patchsorter.db.head_client.project import ProjectStore
 from torch.utils.tensorboard import SummaryWriter
 import ray
@@ -609,6 +609,18 @@ def _launch_training(
 # Public entry point
 # ---------------------------------------------------------------------------
 
+
+def _parse_setting_value(value: str, setting_type: SettingType) -> object:
+    """Convert a raw string setting value to its Python type."""
+    match setting_type:
+        case SettingType.INTEGER:
+            return int(value)
+        case SettingType.BOOLEAN:
+            return value.lower() in ("true", "1")
+        case SettingType.ENUM | SettingType.STRING:
+            return value
+
+
 def startup_dl_actor(project_id: int) -> "DLActor":
     """Create the named ``dl_actor`` if it does not exist, then start training.
 
@@ -627,7 +639,12 @@ def startup_dl_actor(project_id: int) -> "DLActor":
     head_sm = head_client.get_client()
     with head_sm.get_session() as session:
         settings_store = SettingsStore(session)
-        app_config = settings_store.get_all_as_dict(project_id)
+        # TODO: This is unnecessary
+        raw = settings_store.get_all_raw(project_id, scope=SettingScope.PROJECT)
+        app_config = {
+            k: _parse_setting_value(v.value, v.type)
+            for k, v in raw.items()
+        }
 
         # Fetch label classes for the worker to build the LabelMap
         label_class_store = LabelClassStore(session)
