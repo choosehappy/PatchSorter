@@ -5,9 +5,8 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from patchsorter.db.head_client.models import LabelClass, all_project_models, build_table_name, build_pred_table_name, Image, Setting, Project
+from patchsorter.db.head_client.models import LabelClass, all_project_models, build_table_name, build_pred_table_name, SettingOverride, Image, Project
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
-from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.config.constants import PredPatchSuffix
 
 from sqlalchemy import delete
@@ -52,9 +51,7 @@ class ProjectStore:
             ),
             {"name": name, "description": description},
         ).mappings().one()
-        result = dict(row)
-        SettingsStore(self._session).seed_project_settings(result["project_id"])
-        return result
+        return dict(row)
 
     def update(self, project_id: int, name: Optional[str] = None, description: Optional[str] = None) -> Dict[str, Any]:
         """Update a project's name and/or description.
@@ -140,7 +137,7 @@ class ProjectStore:
         for model in all_project_models(project_id):
             self._session.execute(DropTable(model.__table__, if_exists=True))
 
-        for model in [LabelClass, Image, Setting, Project]:
+        for model in [LabelClass, Image, SettingOverride, Project]:
             self._session.execute(
                 delete(model).where(model.project_id == project_id)
-            # )
+            )

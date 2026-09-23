@@ -34,10 +34,10 @@ router = APIRouter()
 def info(project_id: int) -> WorldInfo:
     client = get_head_client()
     with client.get_session() as session:
-        settings_store = SettingsStore(session)
-        world_size = int(settings_store.get("world_size", project_id).setting_value)
-        osm_zoom_offset = int(settings_store.get("osm_zoom_offset", project_id).setting_value)
-        max_level = int(settings_store.get("max_level", project_id).setting_value)
+            settings_store = SettingsStore(session)
+            world_size = settings_store.get_int("world_size", project_id)
+            osm_zoom_offset = settings_store.get_int("osm_zoom_offset", project_id)
+            max_level = settings_store.get_int("max_level", project_id)
     return WorldInfo(
         world={
             "x_min": 0,
@@ -62,9 +62,9 @@ def serve_tile(
     client = get_head_client()
     with client.get_session() as session:
         settings_store = SettingsStore(session)
-        world_size = int(settings_store.get("world_size", project_id).setting_value)
-        osm_zoom_offset = int(settings_store.get("osm_zoom_offset", project_id).setting_value)
-        max_level = int(settings_store.get("max_level", project_id).setting_value)
+        world_size = settings_store.get_int("world_size", project_id)
+        osm_zoom_offset = settings_store.get_int("osm_zoom_offset", project_id)
+        max_level = settings_store.get_int("max_level", project_id)
         label_store = LabelClassStore(session)
         label_classes = label_store.list_by_project(project_id)
         session.expunge_all()
@@ -118,9 +118,9 @@ def get_confusion_matrix(
         client = get_head_client()
         with client.get_session() as session:
             settings_store = SettingsStore(session)
-            world_size = int(settings_store.get("world_size", project_id).setting_value)
-            osm_zoom_offset = int(settings_store.get("osm_zoom_offset", project_id).setting_value)
-            max_level = int(settings_store.get("max_level", project_id).setting_value)
+            world_size = settings_store.get_int("world_size", project_id)
+            osm_zoom_offset = settings_store.get_int("osm_zoom_offset", project_id)
+            max_level = settings_store.get_int("max_level", project_id)
             label_store = LabelClassStore(session)
             label_classes = label_store.list_by_project(project_id)
 

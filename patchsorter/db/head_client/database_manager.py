@@ -5,7 +5,6 @@ from patchsorter.db.utils import SessionManager
 from patchsorter.db.head_client.models import Base, Project, all_project_models, build_table_name, build_pred_table_name
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
-from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.config.constants import PredPatchSuffix
 from patchsorter.db.head_client.project import ProjectStore
 from patchsorter.utils.fsmanager import NASWriteStore
@@ -164,9 +163,6 @@ class DatabaseManager:
                 
 
             conn.commit()
-
-        with self.sm.get_session() as session:
-            SettingsStore(session).seed_app_settings()
 
     def rotate_pred_patch_tables(self, project_id: int) -> None:
         """Rotate ``pred_patch_latest`` → ``pred_patch_last`` via a 3-way rename.
