@@ -79,7 +79,7 @@ export default function ProjectPage() {
 
     return (
         <div>
-            <Container fluid className="py-3 d-flex flex-column gap-4" style={{ overflowY: 'auto', maxHeight: '100%' }}>
+            <Container fluid className="py-3 d-flex flex-column gap-4" style={{ overflowY: 'auto', maxHeight: '100%', paddingBottom:80 }}>
             <div>
                 <h5>Description</h5>
                 <p className="mb-0">
