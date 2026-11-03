@@ -4,6 +4,7 @@ import pytest
 
 from patchsorter.config.constants import SettingType, SettingScope
 from patchsorter.db.head_client import ProjectStore, SettingsStore
+from patchsorter.db.head_client.settings import SettingDef
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +91,7 @@ def test_get_int_returns_override(db_session, project):
 
 def test_get_int_raises_type_mismatch(db_session):
     """get_int() raises SettingTypeMismatchError for non-INTEGER settings."""
-    with pytest.raises(TypeError, match="string"):
+    with pytest.raises(TypeError, match="enum"):
         SettingsStore(db_session).get_int("log_level")
 
 
@@ -109,18 +110,16 @@ def test_get_str_scoped_by_project(db_session, project):
     assert result == 500
 
 
-def test_get_bool_returns_default(db_session):
-    """get_bool() returns the schema default for BOOLEAN settings."""
-    result = SettingsStore(db_session).get_bool("flag")
-    assert result is False
+def test_get_bool_raises_type_mismatch(db_session):
+    """get_bool() raises SettingTypeMismatchError for non-BOOLEAN settings."""
+    with pytest.raises(TypeError, match="integer"):
+        SettingsStore(db_session).get_bool("dl_num_workers")
 
 
-def test_get_bool_returns_override(db_session):
-    """get_bool() returns the override value for BOOLEAN settings."""
-    store = SettingsStore(db_session)
-    store.update("flag", "true")
-    result = store.get_bool("flag")
-    assert result is True
+def test_get_bool_raises_key_error_for_unknown_setting(db_session):
+    """get_bool() raises KeyError for unknown setting key."""
+    with pytest.raises(KeyError):
+        SettingsStore(db_session).get_bool("nonexistent_flag")
 
 
 # ---------------------------------------------------------------------------
@@ -254,10 +253,10 @@ def test_reset_all_with_scope_filter(db_session, project):
 # ---------------------------------------------------------------------------
 
 def _schema_for(key, setting_type, allowed_values=None):
-    entry = {"type": setting_type, "scope": SettingScope.APPLICATION}
+    entry = {"type": setting_type, "scope": SettingScope.APPLICATION, "default": "false"}
     if allowed_values is not None:
         entry["allowed_values"] = allowed_values
-    return {key: entry}
+    return SettingDef(key=key, **entry)
 
 
 def test_validate_setting_integer_valid():
