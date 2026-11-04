@@ -40,20 +40,66 @@ class WorkerPatchStore:
     # Patch reads                                                          #
     # ------------------------------------------------------------------ #
 
-    def get_cursor_from_shard(self, pred_latest_shard_id: int) -> int:
-        """Return the resume cursor (highest patch_id) from the worker's pred_patch_latest shard table.
+    def get_colocated_pred_shard_id(self, patch_shard_id: int) -> int:
+        """Return the pred_patch_latest shard ID colocated with a patch shard.
 
-        Queries the physical shard table ``project{N}_pred_patch_latest_{shard_id}``
-        directly (shard_id is part of the table name, not a column).
+        The patch and pred_patch_latest tables are colocated, so the shard
+        holding the same hash-key range as *patch_shard_id* is found by
+        matching ``shardminvalue``/``shardmaxvalue`` in ``pg_dist_shard``.
 
         Args:
-            pred_latest_shard_id: Numeric Citus shard ID whose pred_patch_latest shard to query.
+            patch_shard_id: Numeric Citus shard ID of the patch table whose
+                colocated pred_patch_latest shard to resolve.
 
         Returns:
-            The maximum ``patch_id`` in the shard, or 0 if no rows exist.
+            Numeric Citus shard ID of the colocated pred_patch_latest shard.
+
+        Raises:
+            ValueError: If no colocated pred_patch_latest shard is found.
         """
+        row = self._session.execute(
+            text(
+                "SELECT s2.shardid AS pred_shard_id "
+                "FROM pg_dist_shard s1 "
+                "JOIN pg_dist_shard s2 "
+                "  ON s1.shardminvalue = s2.shardminvalue AND s1.shardmaxvalue = s2.shardmaxvalue "
+                "WHERE s1.logicalrelid = CAST(:patch_table AS regclass) "
+                "  AND s2.logicalrelid = CAST(:pred_table AS regclass) "
+                "  AND s1.shardid = :patch_shard_id"
+            ),
+            {
+                "patch_table": self._patch_table,
+                "pred_table": self._pred_table_latest,
+                "patch_shard_id": patch_shard_id,
+            },
+        ).mappings().one_or_none()
+        if row is None:
+            raise ValueError(
+                f"No colocated pred_patch_latest shard found for patch shard {patch_shard_id}"
+            )
+        return row["pred_shard_id"]
+
+    def get_cursor_from_shard(self, patch_shard_id: int) -> int:
+        """Return the resume cursor (highest patch_id) from the pred_patch_latest shard colocated with a patch shard.
+
+        Queries the physical shard table
+        ``project{N}_pred_patch_latest_{shard_id}`` directly (shard_id is
+        part of the table name, not a column).
+
+        Args:
+            patch_shard_id: Numeric Citus shard ID of the patch table whose
+                colocated pred_patch_latest shard to query.
+
+        Returns:
+            The maximum ``patch_id`` in the colocated shard, or 0 if no rows
+            exist.
+
+        Raises:
+            ValueError: If no colocated pred_patch_latest shard is found.
+        """
+        pred_shard_id = self.get_colocated_pred_shard_id(patch_shard_id)
         shard_table_name = build_pred_table_name(
-            self.project_id, PredPatchSuffix.LATEST, pred_latest_shard_id
+            self.project_id, PredPatchSuffix.LATEST, pred_shard_id
         )
         shard_table = table(shard_table_name, column("patch_id"))
 
@@ -141,16 +187,17 @@ class WorkerPatchStore:
     # Prediction writes                                                    #
     # ------------------------------------------------------------------ #
 
-    def insert_predictions_to_shard(
+    def insert_predictions(
         self,
-        shard_id: int,
         records: List[tuple],
     ) -> int:
-        """Insert prediction rows into the local pred_patch_latest shard via COPY.
+        """Insert prediction rows into pred_patch_latest via COPY on this worker.
 
-        Writes directly to the physical shard table
-        ``project{N}_pred_patch_latest_{shard_id}`` on this worker, bypassing
-        coordinator routing for maximum throughput.
+        Writes to the logical ``project{N}_pred_patch_latest`` table via a
+        direct connection to this worker node. Citus 14 automatically
+        maintains worker metadata (MX), so the planner routes the COPY to the
+        local shard placement without a coordinator round trip — the caller
+        does not need to resolve a physical shard table.
 
         Each element of *records* must be a tuple of::
 
@@ -159,7 +206,6 @@ class WorkerPatchStore:
         where ``event_ts`` is a :class:`datetime.datetime`.
 
         Args:
-            shard_id: The shard ID whose pred_patch_latest shard to write to.
             records: List of 7-tuples to insert.
 
         Returns:
@@ -167,11 +213,10 @@ class WorkerPatchStore:
         """
         if not records:
             return 0
-        shard_table = build_pred_table_name(self.project_id, PredPatchSuffix.LATEST, shard_id)
         raw_conn = self._session.connection().connection
         with raw_conn.cursor() as cur:
             with cur.copy(
-                f"COPY {shard_table} "
+                f"COPY {self._pred_table_latest} "
                 f"(patch_id, embed_x, embed_y, grid_cell_i, grid_cell_j, event_ts, label_class_id) "
                 f"FROM STDIN"
             ) as copy:

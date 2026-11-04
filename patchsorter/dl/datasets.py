@@ -20,7 +20,6 @@ from torch.utils.data import IterableDataset, get_worker_info
 
 from patchsorter.config.constants import UNASSIGNED_CLASS_ID
 from patchsorter.db import worker_client
-from patchsorter.db.utils import CitusShardMap
 from patchsorter.db.worker_client.patch import WorkerPatchStore
 from patchsorter.dl.augmentations import get_transforms
 
@@ -165,8 +164,8 @@ class IterableShardDataset(IterableDataset):
 
     Args:
         project_id: Project whose patch shards are read.
-        assigned_shards: Ordered list of ``(patch_shard_id, pred_patch_latest_shard_id)``
-            pairs assigned to this Ray Train worker.
+        assigned_shards: Ordered list of Citus shard IDs of the patch table
+            assigned to this Ray Train worker.
         batch_size: Maximum number of patch rows per yielded batch.
         patch_size: Spatial size (pixels) patches are decoded/resized to.
         nviews: Number of augmented views to produce per patch.
@@ -175,7 +174,7 @@ class IterableShardDataset(IterableDataset):
     def __init__(
         self,
         project_id: int,
-        assigned_shards: CitusShardMap,
+        assigned_shards: List[int],
         batch_size: int,
         patch_size: int,
         nviews: int,
@@ -186,7 +185,7 @@ class IterableShardDataset(IterableDataset):
         self.patch_size = patch_size
         self.nviews = nviews
 
-    def _shard_subset(self) -> CitusShardMap:
+    def _shard_subset(self) -> List[int]:
         """Partition ``assigned_shards`` across this ``DataLoader``'s worker processes."""
         info = get_worker_info()
         if info is None or info.num_workers <= 1:
@@ -197,12 +196,12 @@ class IterableShardDataset(IterableDataset):
         worker_sm = worker_client.get_client()
         geom_transform, photo_transform = get_transforms(self.patch_size)
 
-        for patch_shard_id, pred_patch_latest_shard_id in self._shard_subset():
+        for patch_shard_id in self._shard_subset():
             with worker_sm.get_session() as session:
                 cursor_id = WorkerPatchStore(
                     self.project_id, session
-                ).get_cursor_from_shard(pred_patch_latest_shard_id)
-            logger.info("Obtained cursor_id %d for pred_patch_latest_shard_id %d", cursor_id, pred_patch_latest_shard_id)
+                ).get_cursor_from_shard(patch_shard_id)
+            logger.info("Obtained cursor_id %d for patch_shard_id %d", cursor_id, patch_shard_id)
 
             while True:
                 with worker_sm.get_session() as session:
@@ -235,15 +234,15 @@ class CandidatePool:
 
     Args:
         project_id: Project whose patch shards are read.
-        assigned_shards: Ordered list of ``(patch_shard_id, pred_patch_latest_shard_id)``
-            pairs assigned to this Ray Train worker.
+        assigned_shards: Ordered list of patch-table Citus shard IDs assigned
+            to this Ray Train worker.
         pool_size: Maximum number of candidates held per shard.
     """
 
     def __init__(
         self,
         project_id: int,
-        assigned_shards: CitusShardMap,
+        assigned_shards: List[int],
         pool_size: int = 2048,
     ) -> None:
         self.project_id = project_id
@@ -268,7 +267,7 @@ class CandidatePool:
         with self._worker_sm.get_session() as session:
             store = WorkerPatchStore(self.project_id, session)
             rows = store.fetch_candidate_pool_from_local_shards(
-                self.assigned_shards.get_table_a_shard_list(),
+                self.assigned_shards,
                 limit=self.pool_size,
                 decay=GT_SCORE_DECAY,
                 init_score=GT_SCORE_INIT,
@@ -312,10 +311,10 @@ class EnrichedInfiniteIterableDataset(IterableDataset):
 
     Args:
         project_id: Project whose patch shards are read.
-        assigned_shards: Full set of ``(patch_shard_id, pred_patch_latest_shard_id)``
-            pairs local to this Postgres node (not partitioned per Ray worker —
-            enrichment is oversampling, not exactly-once partitioning, so overlap
-            across workers on the same node is harmless).
+        assigned_shards: Full set of patch-table Citus shard IDs local to
+            this Postgres node (not partitioned per Ray worker — enrichment
+            is oversampling, not exactly-once partitioning, so overlap across
+            workers on the same node is harmless).
         batch_size: Number of enrichment items to draw per yielded batch.
         patch_size: Spatial size (pixels) patches are decoded/resized to.
         nviews: Number of augmented views to produce per patch.
@@ -326,7 +325,7 @@ class EnrichedInfiniteIterableDataset(IterableDataset):
     def __init__(
         self,
         project_id: int,
-        assigned_shards: CitusShardMap,
+        assigned_shards: List[int],
         batch_size: int,
         patch_size: int,
         nviews: int,

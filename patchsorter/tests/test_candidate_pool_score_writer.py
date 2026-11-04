@@ -8,7 +8,6 @@ teardown.
 import math
 import time
 import uuid
-from collections import namedtuple
 from typing import Any, Dict, List
 
 import numpy as np
@@ -18,14 +17,12 @@ from sqlalchemy import text
 
 from patchsorter.config.constants import UNASSIGNED_CLASS_ID
 from patchsorter.db.head_client import ImageStore, LabelClassStore, PatchStore
-from patchsorter.db.utils import CitusShardMap
 from patchsorter.dl import datasets
 from patchsorter.dl.datasets import GT_SCORE_IN_MEMORY_DECAY, CandidatePool
 from patchsorter.dl.scoring import ScoreWriter
 
 PROJECT_ID = 1
 FAKE_SHARD_ID = 900001
-ShardRow = namedtuple("ShardRow", "shard_a shard_b")
 
 
 @pytest.fixture
@@ -64,7 +61,7 @@ def seeded(test_db, _project1_tables, monkeypatch) -> Dict[str, Any]:
         "sm": test_db,
         "ids": [by_uid[u] for u in labeled],
         "unlabeled_id": by_uid[unlabeled],
-        "shards": CitusShardMap([ShardRow(FAKE_SHARD_ID, FAKE_SHARD_ID)]),
+        "shards": [FAKE_SHARD_ID],
     }
 
     with test_db.get_session() as s:

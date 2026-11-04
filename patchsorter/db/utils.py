@@ -4,9 +4,8 @@ These were previously defined in the package root but have been moved
 here to keep the package `__init__` small.
 """
 from contextlib import contextmanager
-from typing import Any, Generator, Iterator, List, Tuple
+from typing import Generator
 
-import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.engine import URL
@@ -68,86 +67,61 @@ class SessionManager:
         """
         self.engine.dispose()
 
-# This query finds, for every shard in *table_a*, the shard in *table_b*
-# that holds the same set of hash-key ranges (shardminvalue / shardmaxvalue).
-# It does this by:
-#   1. Joining the two tables' pg_dist_shard rows on matching min/max bounds
-#      (rows with identical bounds are the same logical shard pair).
-#   2. Filtering to only shards that belong to colocated partitions
-#      (same colocationid) and that are placed on the same Citus worker node
-#      (same groupid).
+# This query finds every shard of *table_name* that is placed on a given
+# Citus worker node (``groupid``). It does this by joining the table's
+# ``pg_dist_shard`` rows against ``pg_dist_placement`` on ``shardid``,
+# filtering to the target ``groupid``.
 #
-# Returns: (shard_a, shard_b) pairs — one row per matching shard pair.
-_SHARD_MAP_SQL = """
-    SELECT shard_a, shard_b
+# Returns: shard_id — one row per local shard.
+_LOCAL_SHARDS_SQL = """
+    SELECT shard_id
     FROM (
-        SELECT s1.shardid AS shard_a,
-               s2.shardid AS shard_b,
-               ROW_NUMBER() OVER (ORDER BY s1.shardid) AS rn
-        FROM pg_dist_shard s1
-        JOIN pg_dist_shard s2
-          ON s1.shardminvalue = s2.shardminvalue
-          AND s1.shardmaxvalue = s2.shardmaxvalue
-        JOIN pg_dist_partition p1
-          ON s1.logicalrelid = p1.logicalrelid
-        JOIN pg_dist_partition p2
-          ON s2.logicalrelid = p2.logicalrelid
-        JOIN pg_dist_placement pl1
-          ON s1.shardid = pl1.shardid
-        JOIN pg_dist_placement pl2
-          ON s2.shardid = pl2.shardid
-        WHERE s1.logicalrelid = CAST(:table_a AS regclass)
-          AND s2.logicalrelid = CAST(:table_b AS regclass)
-          AND p1.colocationid = p2.colocationid
-          AND pl1.groupid = :groupid
-          AND pl2.groupid = :groupid
-    ) shard_map
+        SELECT s.shardid AS shard_id,
+               ROW_NUMBER() OVER (ORDER BY s.shardid) AS rn
+        FROM pg_dist_shard s
+        JOIN pg_dist_placement pl
+          ON s.shardid = pl.shardid
+        WHERE s.logicalrelid = CAST(:table_name AS regclass)
+          AND pl.groupid = :groupid
+    ) local_shards
 """
 
 # An additional filter implements round-robin distribution of local shards (shards placed on a Citus worker node) to ray train workers.
 _WORKER_FILTER = "WHERE rn % :num_workers = :current_worker_rank"
 
 
-def build_local_node_shard_map_query(
-    table_a: str,
-    table_b: str,
+def build_local_node_shards_query(
+    table_name: str,
     groupid: int,
 ) -> text:
-    """Build a shard mapping query for a single local node.
-
-    Returns all shard pairs between *table_a* and *table_b* that reside on
-    the worker group identified by *groupid*.
+    """Build a query returning every shard of *table_name* local to a node.
 
     Args:
-        table_a: Name of the first (reference) table.
-        table_b: Name of the second table to map against.
+        table_name: Name of the distributed table to inspect.
         groupid: Citus worker group ID to filter placements.
 
     Returns:
         A SQLAlchemy ``text`` object with bound parameters ready to execute.
     """
-    return text(_SHARD_MAP_SQL).bindparams(
-        table_a=table_a,
-        table_b=table_b,
+    return text(_LOCAL_SHARDS_SQL).bindparams(
+        table_name=table_name,
         groupid=groupid,
     )
 
 
-def build_local_worker_shard_map_query(
-    table_a: str,
-    table_b: str,
+def build_local_worker_shards_query(
+    table_name: str,
     num_workers: int,
     current_worker_rank: int,
     groupid: int,
 ) -> text:
-    """Build a shard mapping query filtered to a single ray train worker.
+    """Build a query returning the shards of *table_name* assigned to one ray train worker.
 
-    Like ``build_local_node_shard_map_query`` but adds a modulo filter so
-    that each ray train worker only sees its own subset of shard pairs.
+    Like ``build_local_node_shards_query`` but adds a modulo filter so that
+    each ray train worker only sees its own subset of local shards.
 
     Args:
-        table_a: Name of the first (reference) table.
-        table_b: Name of the second table to map against.
+        table_name: Name of the distributed table to inspect.
         num_workers: Total number of ray train worker processes assigned to the local node.
         current_worker_rank: This ray train worker's rank (0-based index).
         groupid: Citus worker group ID to filter placements.
@@ -156,46 +130,10 @@ def build_local_worker_shard_map_query(
         A SQLAlchemy ``text`` object with bound parameters and the worker
         filter clause appended.
     """
-    query = text(f"{_SHARD_MAP_SQL.rstrip()}\n{_WORKER_FILTER}")
+    query = text(f"{_LOCAL_SHARDS_SQL.rstrip()}\n{_WORKER_FILTER}")
     return query.bindparams(
-        table_a=table_a,
-        table_b=table_b,
+        table_name=table_name,
         num_workers=num_workers,
         current_worker_rank=current_worker_rank,
         groupid=groupid,
     )
-
-
-
-class CitusShardMap:
-    def __init__(self, rows: List[Any]):
-        self.map = pd.DataFrame(
-            [(r.shard_a, r.shard_b) for r in rows],
-            columns=["shard_a", "shard_b"],
-        )
-
-    @staticmethod
-    def from_rows(rows: List[Any]) -> "CitusShardMap":
-        return CitusShardMap(rows)
-
-    def get_table_a_shard_list(self) -> List[int]:
-        return self.map["shard_a"].tolist()
-
-    def get_table_b_shard_list(self) -> List[int]:
-        return self.map["shard_b"].tolist()
-
-    def get_b_shard_for_a_shard(self, shard_a: int) -> int:
-        row = self.map[self.map["shard_a"] == shard_a]
-        if row.empty:
-            raise KeyError(f"shard_a={shard_a} not found in shard map")
-        return int(row.iloc[0]["shard_b"])
-
-    def get_a_shard_for_b_shard(self, shard_b: int) -> int:
-        row = self.map[self.map["shard_b"] == shard_b]
-        if row.empty:
-            raise KeyError(f"shard_b={shard_b} not found in shard map")
-        return int(row.iloc[0]["shard_a"])
-
-    def __iter__(self) -> Iterator[Tuple[int, int]]:
-        for _, row in self.map.iterrows():
-            yield int(row["shard_a"]), int(row["shard_b"])

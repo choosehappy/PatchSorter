@@ -183,7 +183,7 @@ def train_worker(config: Dict[str, Any]) -> None:
        labeled patches, adaptive-threshold pseudo-label loss for unlabeled
        ones). Predictions (``embed_x/y``, ``grid_cell_i/j``,
        ``label_class_id``) are saved for every sequential patch via
-       ``insert_predictions_to_shard`` using the first view's projection
+       ``insert_predictions`` using the first view's projection
        coordinates. ``train_priority`` scores are updated for the sequential
        part only.
     2. Barrier sync → rank-0 rotates tables → barrier sync.
@@ -276,10 +276,10 @@ def train_worker(config: Dict[str, Any]) -> None:
             # Discover locally assigned shards on each cycle since table rotation changes shard placements.
             with head_sm.get_session() as session:
                 patch_store = PatchStore(project_id, session)
-                local_worker_shard_map = patch_store.get_local_worker_shard_map(context.get_local_world_size(), local_rank, local_node_group_id)
+                local_worker_shards = patch_store.get_local_worker_shards(context.get_local_world_size(), local_rank, local_node_group_id)
                 # Enrichment sampling draws from every shard on this node, not just this worker's
                 # partition — unlike the sequential pass it doesn't need exactly-once coverage.
-                local_node_shard_map = patch_store.get_local_node_shard_map(local_node_group_id)
+                local_node_shards = patch_store.get_local_node_shards(local_node_group_id)
 
             cycle += 1
             logger.info("[Worker %d (local %d)] Starting cycle %d.", world_rank, local_rank, cycle)
@@ -294,7 +294,7 @@ def train_worker(config: Dict[str, Any]) -> None:
             joint_head.train()
 
             sequential_loader = DataLoader(
-                IterableShardDataset(project_id, local_worker_shard_map, patches_per_batch, patch_size, NVIEWS),
+                IterableShardDataset(project_id, local_worker_shards, patches_per_batch, patch_size, NVIEWS),
                 batch_size=None,
                 num_workers=dataloader_workers_sequential,
                 multiprocessing_context="spawn" if dataloader_workers_sequential > 0 else None,
@@ -308,7 +308,7 @@ def train_worker(config: Dict[str, Any]) -> None:
 
             enriched_loader = DataLoader(
                 EnrichedInfiniteIterableDataset(
-                    project_id, local_node_shard_map, enriched_batch_size, patch_size, NVIEWS,
+                    project_id, local_node_shards, enriched_batch_size, patch_size, NVIEWS,
                     pool_size=GT_POOL_SIZE, refresh_every_batches=GT_POOL_UPDATE_INTERVAL,
                 ),
                 batch_size=None,
@@ -461,11 +461,8 @@ def train_worker(config: Dict[str, Any]) -> None:
                             int(pred_classes[j].item()),
                         ))
 
-                    pred_shard_id = local_worker_shard_map.get_b_shard_for_a_shard(shard_id)
                     with worker_sm.get_session() as session:
-                        WorkerPatchStore(project_id, session).insert_predictions_to_shard(
-                            pred_shard_id, records
-                        )
+                        WorkerPatchStore(project_id, session).insert_predictions(records)
                     logger.debug(
                         "[Worker %d (local %d)] Cycle %d — shard %d, wrote %d predictions.",
                         world_rank, local_rank, cycle, shard_id, len(records),
