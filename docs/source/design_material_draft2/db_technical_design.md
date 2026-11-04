@@ -83,7 +83,7 @@ Same schema as `project{project_id}_pred_patch_latest`.
 
 - The primary key is `(label_class_id, project_id)`, so IDs are scoped to a project and every project starts at 0.
 - `label_class_id` *is* the model output index; there is no ID-to-index map. The model output dimension is `max(label_class_id) + 1` over the non-UNASSIGNED classes.
-- Every project has a reserved `unassigned` class with `label_class_id = -1`, inserted in the same transaction as the project by `ProjectStore.create`. The model has no output slot for it, so it must never index model output (`-1` would silently wrap to the last class in NumPy/PyTorch). Use `LabelMap.assert_valid_model_index` (`patchsorter/dl/label_map.py`) wherever a label indexes model output.
+- Every project has a reserved `unassigned` class with `label_class_id = -1`, inserted in the same transaction as the project by `ProjectStore.create`. The model has no output slot for it, so it must never index model output (`-1` would silently wrap to the last class in NumPy/PyTorch); mask it out first.
 - IDs are assigned by the `label_class_assign_id` BEFORE INSERT trigger as `max(existing id) + 1` per project, serialized with a per-project advisory lock. Callers cannot supply an ID (the only accepted explicit value is `-1`, used for the UNASSIGNED row), so allocation cannot be bypassed.
 - Names are unique among non-deleted classes of a project (partial unique index), so a name can be reused after its class is deleted.
 - Tables that reference `label_class_id` (`projectN_patch`, `projectN_pred_patch_*`, confusion matrix tables) are scoped to a project by table name and intentionally have no foreign key to `label_class`.

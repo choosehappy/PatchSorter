@@ -4,12 +4,12 @@ from sqlalchemy import (
     Index, Integer, LargeBinary, SmallInteger, Text, UniqueConstraint, Uuid, event
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
-from sqlalchemy.sql import func, text
+from sqlalchemy.sql import false, func, text
 from sqlalchemy.types import TIMESTAMP
 from typing import TYPE_CHECKING, Dict, Tuple
 
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
-from patchsorter.config.constants import PredPatchSuffix, SettingType
+from patchsorter.config.constants import PredPatchSuffix, SettingType, UNASSIGNED_CLASS_ID
 
 
 def build_table_name(project_id: int, shard: int | None = None) -> str:
@@ -81,19 +81,73 @@ class Image(Base):
     project = relationship("Project", back_populates="images")
 
 
+# Assigns label_class_id per project as max(id) + 1 (first user class is 0).
+# The only caller-supplied ID allowed is the reserved UNASSIGNED_CLASS_ID, so
+# the allocation cannot be bypassed by any writer. The advisory lock serializes
+# concurrent inserts for the same project. The function reads the table it fires
+# on via TG_TABLE_NAME so the same body works on a plain table and on the shards
+# of a Citus reference table (where it must be installed with run_command_on_shards).
+LABEL_CLASS_ID_FUNCTION_SQL = f"""
+CREATE OR REPLACE FUNCTION label_class_assign_id() RETURNS TRIGGER LANGUAGE plpgsql AS $body$
+BEGIN
+    IF NEW.label_class_id IS NOT NULL AND NEW.label_class_id <> {UNASSIGNED_CLASS_ID} THEN
+        RAISE EXCEPTION 'label_class_id is assigned automatically; got %', NEW.label_class_id;
+    END IF;
+    IF NEW.label_class_id IS NULL THEN
+        PERFORM pg_advisory_xact_lock(hashtext('label_class'), NEW.project_id);
+        EXECUTE format(
+            'SELECT COALESCE(MAX(label_class_id), {UNASSIGNED_CLASS_ID}) + 1 FROM %I.%I WHERE project_id = $1',
+            TG_TABLE_SCHEMA, TG_TABLE_NAME
+        ) INTO NEW.label_class_id USING NEW.project_id;
+    END IF;
+    RETURN NEW;
+END
+$body$;
+"""
+
+# ``%1$s`` is the target table; run_command_on_shards passes the shard name to format().
+# One statement per entry: run_command_on_shards does not reliably run multi-statement commands.
+LABEL_CLASS_ID_TRIGGER_STATEMENTS = (
+    "DROP TRIGGER IF EXISTS label_class_assign_id_trg ON %1$s",
+    "CREATE TRIGGER label_class_assign_id_trg BEFORE INSERT ON %1$s "
+    "FOR EACH ROW EXECUTE FUNCTION label_class_assign_id()",
+)
+
+
 class LabelClass(Base):
+    """Project-scoped label class.
+
+    ``label_class_id`` is assigned by a database trigger, sequentially per
+    project starting at 0, and corresponds directly to the model output index.
+    ``UNASSIGNED_CLASS_ID`` (-1) is created for every project by
+    ``ProjectStore.create`` and has no model output slot.
+
+    Deletion is soft: ``is_deleted`` is set and the row (and its ID / model
+    output slot) is kept so IDs are never reused.
+    """
+
     __tablename__ = "label_class"
     __table_args__ = (
-        UniqueConstraint("project_id", "name"),
+        # Only active classes must have unique names, so a name can be reused
+        # after the class that held it is soft-deleted.
+        Index(
+            "uq_label_class_active_name",
+            "project_id",
+            "name",
+            unique=True,
+            postgresql_where=text("NOT is_deleted"),
+        ),
     )
 
-    label_class_id = Column(Integer, primary_key=True)
-    project_id     = Column(Integer, ForeignKey("project.project_id"))
+    label_class_id = Column(Integer, primary_key=True, autoincrement=False)
+    project_id     = Column(Integer, ForeignKey("project.project_id"), primary_key=True)
     name           = Column(Text, nullable=False)
     color_code     = Column(Text)
     event_ts       = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    is_deleted     = Column(Boolean, nullable=False, server_default=false())
 
     project = relationship("Project", back_populates="label_classes")
+
 
 
 class SettingOverride(Base):

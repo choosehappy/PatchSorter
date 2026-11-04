@@ -18,6 +18,7 @@ import torch
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import IterableDataset, get_worker_info
 
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID
 from patchsorter.db import worker_client
 from patchsorter.db.utils import CitusShardMap
 from patchsorter.db.worker_client.patch import WorkerPatchStore
@@ -126,7 +127,6 @@ def _build_training_batch(
     rows: List[Dict[str, Any]],
     patch_size: int,
     nviews: int,
-    label_map: Any,
     geom_transform: Any,
     photo_transform: Any,
     shard_id: Optional[int] = None,
@@ -146,7 +146,10 @@ def _build_training_batch(
 
     imgs_tensor = _build_views_batch(imgs_np, nviews, geom_transform, photo_transform)
     raw_labels = torch.tensor(
-        [label_map.to_model_index(r["label_class_id"]) for r in valid_rows],
+        [
+            UNASSIGNED_CLASS_ID if r["label_class_id"] is None else int(r["label_class_id"])
+            for r in valid_rows
+        ],
         dtype=torch.long,
     )
     patch_ids = [r["patch_id"] for r in valid_rows]
@@ -167,8 +170,6 @@ class IterableShardDataset(IterableDataset):
         batch_size: Maximum number of patch rows per yielded batch.
         patch_size: Spatial size (pixels) patches are decoded/resized to.
         nviews: Number of augmented views to produce per patch.
-        label_map: A :class:`~patchsorter.dl.training.LabelMap` instance
-            (picklable — pure Python dict wrapper, no live DB state).
     """
 
     def __init__(
@@ -178,14 +179,12 @@ class IterableShardDataset(IterableDataset):
         batch_size: int,
         patch_size: int,
         nviews: int,
-        label_map: Any,
     ) -> None:
         self.project_id = project_id
         self.assigned_shards = assigned_shards
         self.batch_size = batch_size
         self.patch_size = patch_size
         self.nviews = nviews
-        self.label_map = label_map
 
     def _shard_subset(self) -> CitusShardMap:
         """Partition ``assigned_shards`` across this ``DataLoader``'s worker processes."""
@@ -216,7 +215,7 @@ class IterableShardDataset(IterableDataset):
                 cursor_id = rows[-1]["patch_id"]
 
                 batch = _build_training_batch(
-                    rows, self.patch_size, self.nviews, self.label_map,
+                    rows, self.patch_size, self.nviews,
                     geom_transform, photo_transform, shard_id=patch_shard_id,
                 )
                 if batch is not None:
@@ -320,7 +319,6 @@ class EnrichedInfiniteIterableDataset(IterableDataset):
         batch_size: Number of enrichment items to draw per yielded batch.
         patch_size: Spatial size (pixels) patches are decoded/resized to.
         nviews: Number of augmented views to produce per patch.
-        label_map: A :class:`~patchsorter.dl.training.LabelMap` instance.
         pool_size: Maximum number of candidates held in the in-memory pool.
         refresh_every_batches: How many draws between pool refreshes.
     """
@@ -332,7 +330,6 @@ class EnrichedInfiniteIterableDataset(IterableDataset):
         batch_size: int,
         patch_size: int,
         nviews: int,
-        label_map: Any,
         pool_size: int = 2048,
         refresh_every_batches: int = GT_POOL_UPDATE_INTERVAL,
     ) -> None:
@@ -341,7 +338,6 @@ class EnrichedInfiniteIterableDataset(IterableDataset):
         self.batch_size = batch_size
         self.patch_size = patch_size
         self.nviews = nviews
-        self.label_map = label_map
         self.pool_size = pool_size
         self.refresh_every_batches = max(1, refresh_every_batches)
 
@@ -363,7 +359,7 @@ class EnrichedInfiniteIterableDataset(IterableDataset):
                 pool.decay_in_memory_score(candidate_idx)
 
             batch = _build_training_batch(
-                rows, self.patch_size, self.nviews, self.label_map,
+                rows, self.patch_size, self.nviews,
                 geom_transform, photo_transform, shard_id=None,
             )
             yield batch

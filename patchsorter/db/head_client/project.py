@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from patchsorter.db.head_client.models import LabelClass, all_project_models, build_table_name, build_pred_table_name, SettingOverride, Image, Project
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
-from patchsorter.config.constants import PredPatchSuffix
+from patchsorter.config.constants import PredPatchSuffix, UNASSIGNED_CLASS_COLOR, UNASSIGNED_CLASS_ID, UNASSIGNED_CLASS_NAME
 
 from sqlalchemy import delete
 from sqlalchemy.schema import DropTable
@@ -40,6 +40,9 @@ class ProjectStore:
         Returns:
             A dict with ``project_id``, ``project_name``, ``description``,
             and ``creation_ts``.
+
+        The project's reserved UNASSIGNED label class is inserted in the same
+        transaction.
         """
         row = self._session.execute(
             text(
@@ -51,6 +54,20 @@ class ProjectStore:
             ),
             {"name": name, "description": description},
         ).mappings().one()
+        self._session.execute(
+            text(
+                """
+                INSERT INTO label_class (label_class_id, project_id, name, color_code)
+                VALUES (:lcid, :project_id, :name, :color)
+                """
+            ),
+            {
+                "lcid": UNASSIGNED_CLASS_ID,
+                "project_id": row["project_id"],
+                "name": UNASSIGNED_CLASS_NAME,
+                "color": UNASSIGNED_CLASS_COLOR,
+            },
+        )
         return dict(row)
 
     def update(self, project_id: int, name: Optional[str] = None, description: Optional[str] = None) -> Dict[str, Any]:

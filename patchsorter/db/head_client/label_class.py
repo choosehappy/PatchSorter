@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import or_, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from patchsorter.api.v1.label_class.models import LabelClassResponse
@@ -52,12 +52,14 @@ class LabelClassStore:
     ) -> Dict[str, Any]:
         """Insert a new label class and return the created row.
 
-        The current timestamp is assigned automatically.
+        The current timestamp is assigned automatically.  ``label_class_id``
+        is assigned by the ``label_class_assign_id`` database trigger (per
+        project, starting at 0), so it is not computed here.
 
         Args:
             project_id: Foreign key to the owning project.
-            name: Display name for the class.  Must be unique within the
-                project.
+            name: Display name for the class.  Must be unique among the
+                project's active (non-deleted) classes.
             color_code: Optional CSS colour string (e.g. ``"#FF5733"``).
 
         Returns:
@@ -101,6 +103,7 @@ class LabelClassStore:
             .filter(
                 LabelClass.label_class_id == label_class_id,
                 LabelClass.project_id == project_id,
+                LabelClass.is_deleted.is_(False),
             )
             .first()
         )
@@ -114,27 +117,27 @@ class LabelClassStore:
             row.color_code = color_code
         return {c.name: getattr(row, c.name) for c in row.__table__.columns}
 
-    def list_by_project(self, project_id: int) -> List[LabelClassResponse]:
-        """Return all label classes for a project ordered by ``label_class_id``.
+    def list_by_project(
+        self, project_id: int, include_deleted: bool = False
+    ) -> List[LabelClassResponse]:
+        """Return the label classes for a project ordered by ``label_class_id``.
 
         Args:
             project_id: The integer ID of the project.
+            include_deleted: Include soft-deleted classes.  Required when
+                sizing the model output, since deleted classes keep their slot.
 
         Returns:
             A list of LabelClassResponse Pydantic models.
         """
-        project_filter = or_(LabelClass.project_id == project_id, LabelClass.project_id.is_(None))
-
-        rows = (
-            self._session.query(LabelClass)
-            .filter(project_filter)
-            .order_by(LabelClass.label_class_id)
-            .all()
-        )
+        query = self._session.query(LabelClass).filter(LabelClass.project_id == project_id)
+        if not include_deleted:
+            query = query.filter(LabelClass.is_deleted.is_(False))
+        rows = query.order_by(LabelClass.label_class_id).all()
         return [LabelClassResponse.model_validate(row) for row in rows]
 
     def delete(self, label_class_id: int, project_id: int) -> None:
-        """Delete a label class following the Annotation Class Deletion Protocol.
+        """Soft-delete a label class following the Annotation Class Deletion Protocol.
 
         The "Unlabeled" class (``label_class_id = UNASSIGNED_CLASS_ID``) is reserved and cannot
         be deleted.
@@ -148,9 +151,12 @@ class LabelClassStore:
         3. Perform the same reset on ``project{N}_pred_patch_last``.
         4. Reset ``pred_label`` and ``gt_label`` in all five confusion-matrix
            tables that reference the deleted class back to ``UNASSIGNED_CLASS_ID``.
-        5. Delete the ``label_class`` row.
+        5. Set ``is_deleted = TRUE`` on the ``label_class`` row.
 
         Steps 1–4 must complete before step 5.
+
+        The row is kept, so the ID is never reused and the model output slot
+        stays stable.
 
         Args:
             label_class_id: The integer ID of the label class to delete.
@@ -160,10 +166,23 @@ class LabelClassStore:
         Raises:
             ValueError: If *label_class_id* is ``UNASSIGNED_CLASS_ID`` (the reserved Unlabeled
                 class).
+            RuntimeError: If the label class does not exist or is already deleted.
         """
         if label_class_id == UNASSIGNED_CLASS_ID:
             raise ValueError(
                 f"The 'Unlabeled' label class (id={UNASSIGNED_CLASS_ID}) is reserved and cannot be deleted."
+            )
+
+        exists = self._session.execute(
+            text(
+                "SELECT 1 FROM label_class WHERE label_class_id = :lcid "
+                "AND project_id = :pid AND NOT is_deleted"
+            ),
+            {"lcid": label_class_id, "pid": project_id},
+        ).first()
+        if exists is None:
+            raise RuntimeError(
+                f"Label class {label_class_id} not found in project {project_id}"
             )
 
         n = project_id
@@ -201,8 +220,11 @@ class LabelClassStore:
                 {"lcid": label_class_id},
             )
 
-        # Step 5: delete the label class row.
+        # Step 5: soft-delete the label class row.
         self._session.execute(
-            text("DELETE FROM label_class WHERE label_class_id = :lcid"),
-            {"lcid": label_class_id},
+            text(
+                "UPDATE label_class SET is_deleted = TRUE "
+                "WHERE label_class_id = :lcid AND project_id = :pid"
+            ),
+            {"lcid": label_class_id, "pid": project_id},
         )

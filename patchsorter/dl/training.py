@@ -114,79 +114,6 @@ REPULSION_MARGIN: float = _IDEAL_SPACING * 10.5
 
 
 # ---------------------------------------------------------------------------
-# LabelMap — bidirectional DB ID <-> model class index mapping
-# ---------------------------------------------------------------------------
-
-class LabelMap:
-    """Bidirectional mapping between DB ``label_class_id`` and model class indices.
-
-    Excludes the unassigned class (``label_class_id == UNASSIGNED_CLASS_ID``) from the model's
-    output space entirely.  This guarantees that argmax predictions can never
-    produce the "Unlabeled" ID.
-
-    The mapping is built from the ordered list of valid (non-unassigned)
-    :class:`~patchsorter.api.v1.label_class.models.LabelClassResponse` rows for a project.
-    Valid classes are sorted by ``label_class_id`` so the mapping is
-    deterministic.
-
-    Attributes:
-        id_to_idx: ``{db_label_class_id: model_class_index}``
-        idx_to_id: ``{model_class_index: db_label_class_id}``
-    """
-
-    def __init__(self, label_classes: List[LabelClassResponse]) -> None:
-        valid = sorted(
-            [lc for lc in label_classes if lc.label_class_id != UNASSIGNED_CLASS_ID],
-            key=lambda lc: lc.label_class_id,
-        )
-        self._id_to_idx: Dict[int, int] = {lc.label_class_id: i for i, lc in enumerate(valid)}
-        self._idx_to_id: Dict[int, int] = {i: lc.label_class_id for i, lc in enumerate(valid)}
-
-    @property
-    def id_to_idx(self) -> Dict[int, int]:
-        return self._id_to_idx
-
-    @property
-    def idx_to_id(self) -> Dict[int, int]:
-        return self._idx_to_id
-
-    def get_n_classes(self) -> int:
-        """Return the number of valid (non-unassigned) classes.
-
-        This is the value that should be passed as ``num_classes`` to the
-        model and as ``nclasses`` to :class:`~patchsorter.dl.losses.LabeledRateTracker`.
-        """
-        return len(self._id_to_idx)
-
-    def to_model_index(self, label_class_id: int | None) -> int:
-        """Convert a DB ``label_class_id`` to a model class index.
-
-        Args:
-            label_class_id: The database class ID, or ``None`` / ``UNASSIGNED_CLASS_ID``
-                for the unassigned class.
-
-        Returns:
-            A zero-based model class index (``0 .. n_classes-1``) for valid
-            classes, or ``-1`` for the unassigned / ``None`` case.
-        """
-        if label_class_id is None or label_class_id == UNASSIGNED_CLASS_ID:
-            return -1
-        return self._id_to_idx.get(label_class_id, -1)
-
-    def from_model_index(self, model_idx: int) -> int:
-        """Convert a model class index back to a DB ``label_class_id``.
-
-        Args:
-            model_idx: A zero-based model class index.
-
-        Returns:
-            The corresponding ``label_class_id`` from the database.
-            Returns ``UNASSIGNED_CLASS_ID`` as a safe fallback for out-of-range
-            indices.
-        """
-        return self._idx_to_id.get(model_idx, UNASSIGNED_CLASS_ID)
-
-# ---------------------------------------------------------------------------
 # Ray Train worker function
 # ---------------------------------------------------------------------------
 
@@ -287,10 +214,10 @@ def train_worker(config: Dict[str, Any]) -> None:
         local_node_group_id = WorkerPatchStore(project_id, session).get_local_group_id()
 
     # -------------------------------------------------------------------
-    # Build label map from label_classes
+    # Model output dimension: label_class_id is the model output index; UNASSIGNED has no slot.
     # -------------------------------------------------------------------
-    label_map = LabelMap(label_classes)
-    n_classes = label_map.get_n_classes()
+    assigned_ids = [lc.label_class_id for lc in label_classes if lc.label_class_id != UNASSIGNED_CLASS_ID]
+    n_classes = max(assigned_ids) + 1 if assigned_ids else 0
 
     context = get_context()
     world_rank = context.get_world_rank()
@@ -367,7 +294,7 @@ def train_worker(config: Dict[str, Any]) -> None:
             joint_head.train()
 
             sequential_loader = DataLoader(
-                IterableShardDataset(project_id, local_worker_shard_map, patches_per_batch, patch_size, NVIEWS, label_map),
+                IterableShardDataset(project_id, local_worker_shard_map, patches_per_batch, patch_size, NVIEWS),
                 batch_size=None,
                 num_workers=dataloader_workers_sequential,
                 multiprocessing_context="spawn" if dataloader_workers_sequential > 0 else None,
@@ -381,7 +308,7 @@ def train_worker(config: Dict[str, Any]) -> None:
 
             enriched_loader = DataLoader(
                 EnrichedInfiniteIterableDataset(
-                    project_id, local_node_shard_map, enriched_batch_size, patch_size, NVIEWS, label_map,
+                    project_id, local_node_shard_map, enriched_batch_size, patch_size, NVIEWS,
                     pool_size=GT_POOL_SIZE, refresh_every_batches=GT_POOL_UPDATE_INTERVAL,
                 ),
                 batch_size=None,
@@ -531,7 +458,7 @@ def train_worker(config: Dict[str, Any]) -> None:
                             grid_cell_i,
                             grid_cell_j,
                             now,
-                            label_map.from_model_index(int(pred_classes[j].item())),
+                            int(pred_classes[j].item()),
                         ))
 
                     pred_shard_id = local_worker_shard_map.get_b_shard_for_a_shard(shard_id)
@@ -716,9 +643,9 @@ def startup_dl_actor(project_id: int) -> "DLActor":
             for k, v in raw.items()
         }
 
-        # Fetch label classes for the worker to build the LabelMap
+        # Fetch label classes for the worker to determine the number of model output classes
         label_class_store = LabelClassStore(session)
-        label_classes = label_class_store.list_by_project(project_id)
+        label_classes = label_class_store.list_by_project(project_id, include_deleted=True)
 
     num_workers: int = app_config.get("dl_num_workers", 8)
 

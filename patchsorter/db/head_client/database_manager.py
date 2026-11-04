@@ -2,7 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from patchsorter.db.utils import SessionManager
-from patchsorter.db.head_client.models import Base, Project, all_project_models, build_table_name, build_pred_table_name
+from patchsorter.db.head_client.models import LABEL_CLASS_ID_FUNCTION_SQL, LABEL_CLASS_ID_TRIGGER_STATEMENTS, Base, Project, all_project_models, build_table_name, build_pred_table_name
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 from patchsorter.config.constants import PredPatchSuffix
@@ -75,28 +75,9 @@ class DatabaseManager:
 
         Base.metadata.create_all(self.sm.engine)
 
-        # Seed the reserved "unassigned" label class (label_class_id = -1).
-        # label_class_id must be set explicitly here — otherwise the insert
-        # falls through to the sequence default, which never produces -1.
-        seed_statement = """
-            INSERT INTO label_class (label_class_id, project_id, name, color_code)
-            SELECT -1, NULL, 'unassigned', NULL
-            WHERE NOT EXISTS (SELECT 1 FROM label_class WHERE label_class_id = -1);
-        """
-        # User-created classes must autoincrement starting at 0, since -1 is
-        # reserved for the unassigned class above. The sequence's default
-        # MINVALUE is 1, so it must be lowered to -1 (the unassigned class's
-        # id) before setval(..., 0, ...) — otherwise Postgres rejects 0 as
-        # out of range.
-        sequence_init_statement = """
-            DO $$
-            DECLARE
-                seq_name text := pg_get_serial_sequence('label_class', 'label_class_id');
-            BEGIN
-                EXECUTE format('ALTER SEQUENCE %s MINVALUE 0', seq_name);
-                PERFORM setval(seq_name, 0, false);
-            END $$;
-        """
+        # label_class ids are assigned by the label_class_assign_id trigger, installed on the
+        # shards after distribution (see install_label_class_trigger). The per-project
+        # UNASSIGNED row is inserted by ProjectStore.create.
         distribution_statements = [
             "SELECT create_reference_table('project');",
             "SELECT create_reference_table('image');",
@@ -117,16 +98,54 @@ class DatabaseManager:
                 except Exception as e:
                     print(f"Citus extension creation failed: {e}")
 
-                cur.execute(seed_statement)
-                cur.execute(sequence_init_statement)
                 for stmt in distribution_statements:
                     try:
                         cur.execute(stmt)
                     except Exception as e:
                         print(f"Distribution command failed (may already be distributed): {e}")
-                
+
+                conn.commit()
+                self.install_label_class_trigger(cur)
 
             conn.commit()
+
+    @staticmethod
+    def install_label_class_trigger(cur) -> None:
+        """Install the ``label_class`` ID-assignment trigger.
+
+        Citus refuses to distribute a table that already has triggers, so for a
+        distributed (reference) table the trigger is created on the shards with
+        ``run_command_on_shards`` after distribution. The trigger function is
+        created on the coordinator and on all workers first. For a plain table
+        the trigger is created directly. Safe to call repeatedly.
+
+        Args:
+            cur: An open psycopg cursor; the caller commits.
+        """
+        cur.execute("SELECT 1 FROM pg_dist_partition WHERE logicalrelid = 'label_class'::regclass")
+        distributed = cur.fetchone() is not None
+
+        cur.execute(LABEL_CLASS_ID_FUNCTION_SQL)
+        if not distributed:
+            for stmt in LABEL_CLASS_ID_TRIGGER_STATEMENTS:
+                cur.execute(stmt.replace("%1$s", "label_class"))
+            return
+
+        # https://learn.microsoft.com/en-us/postgresql/citus/triggers?view=citus-14
+        cur.execute("SELECT run_command_on_workers(%s)", (LABEL_CLASS_ID_FUNCTION_SQL,))
+        for stmt in LABEL_CLASS_ID_TRIGGER_STATEMENTS:
+            cur.execute("SELECT shardid, result FROM run_command_on_shards('label_class', %s) WHERE NOT success", (stmt,))
+            failures = cur.fetchall()
+            if failures:
+                raise RuntimeError(f"Failed to install label_class trigger on shards: {failures}")
+
+        cur.execute(
+            "SELECT shardid FROM run_command_on_shards('label_class', %s) WHERE NOT success OR result <> '1'",
+            ("SELECT count(*) FROM pg_trigger WHERE tgrelid = '%1$s'::regclass AND tgname = 'label_class_assign_id_trg'",),
+        )
+        missing = cur.fetchall()
+        if missing:
+            raise RuntimeError(f"label_class trigger missing on shards: {missing}")
 
     def rotate_pred_patch_tables(self, project_id: int) -> None:
         """Rotate ``pred_patch_latest`` → ``pred_patch_last`` via a 3-way rename.

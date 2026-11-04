@@ -251,7 +251,7 @@ export type LabelClassResponse = {
     /**
      * Project Id
      */
-    project_id: number | null;
+    project_id: number;
     /**
      * Name
      */
