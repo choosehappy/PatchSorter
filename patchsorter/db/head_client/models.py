@@ -122,26 +122,29 @@ class LabelClass(Base):
     ``UNASSIGNED_CLASS_ID`` (-1) is created for every project by
     ``ProjectStore.create`` and has no model output slot.
 
-    Deletion is soft: ``is_deleted`` is set and the row (and its ID / model
-    output slot) is kept so IDs are never reused.
+    Deletion is soft: ``is_deleted`` is set to TRUE and ``name`` is set to
+    NULL so the row (and its ID / model output slot) is kept — IDs are never
+    reused.  A complete unique index on ``(project_id, name)`` allows multiple
+    rows with ``name IS NULL`` (PostgreSQL treats NULL as not-equal to NULL
+    in unique constraints), so a deleted class's name can be reused by a new
+    class.
     """
 
     __tablename__ = "label_class"
     __table_args__ = (
-        # Only active classes must have unique names, so a name can be reused
-        # after the class that held it is soft-deleted.
+        # Complete unique index — PostgreSQL allows multiple rows with name IS NULL,
+        # so a deleted class (name = NULL) can have its name reused by a new class.
         Index(
-            "uq_label_class_active_name",
+            "uq_label_class_name",
             "project_id",
             "name",
             unique=True,
-            postgresql_where=text("NOT is_deleted"),
         ),
     )
 
     label_class_id = Column(Integer, primary_key=True, autoincrement=False)
     project_id     = Column(Integer, ForeignKey("project.project_id"), primary_key=True)
-    name           = Column(Text, nullable=False)
+    name           = Column(Text, nullable=True)
     color_code     = Column(Text)
     event_ts       = Column(TIMESTAMP, nullable=False, server_default=func.now())
     is_deleted     = Column(Boolean, nullable=False, server_default=false())

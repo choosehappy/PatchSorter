@@ -59,7 +59,8 @@ class LabelClassStore:
         Args:
             project_id: Foreign key to the owning project.
             name: Display name for the class.  Must be unique among the
-                project's active (non-deleted) classes.
+                project's non-deleted classes.  Names of deleted classes are
+                NULL and thus free to be reused.
             color_code: Optional CSS colour string (e.g. ``"#FF5733"``).
 
         Returns:
@@ -151,9 +152,11 @@ class LabelClassStore:
         3. Perform the same reset on ``project{N}_pred_patch_last``.
         4. Reset ``pred_label`` and ``gt_label`` in all five confusion-matrix
            tables that reference the deleted class back to ``UNASSIGNED_CLASS_ID``.
-        5. Set ``is_deleted = TRUE`` on the ``label_class`` row.
+        5. Set ``name = NULL`` and ``is_deleted = TRUE`` on the ``label_class`` row.
 
-        Steps 1–4 must complete before step 5.
+        Steps 1–4 must complete before step 5.  Setting ``name = NULL`` allows
+        the name to be reused by a new class (PostgreSQL allows multiple rows
+        with ``name IS NULL`` under the unique index).
 
         The row is kept, so the ID is never reused and the model output slot
         stays stable.
@@ -220,10 +223,10 @@ class LabelClassStore:
                 {"lcid": label_class_id},
             )
 
-        # Step 5: soft-delete the label class row.
+        # Step 5: set name to NULL and mark as deleted.
         self._session.execute(
             text(
-                "UPDATE label_class SET is_deleted = TRUE "
+                "UPDATE label_class SET name = NULL, is_deleted = TRUE "
                 "WHERE label_class_id = :lcid AND project_id = :pid"
             ),
             {"lcid": label_class_id, "pid": project_id},

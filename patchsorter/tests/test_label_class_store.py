@@ -99,7 +99,7 @@ def test_active_names_unique_but_reusable_after_soft_delete(db_session):
             store.create(p["project_id"], "Tumor")
 
     db_session.execute(
-        text("UPDATE label_class SET is_deleted = TRUE WHERE project_id = :pid AND label_class_id = :id"),
+        text("UPDATE label_class SET name = NULL, is_deleted = TRUE WHERE project_id = :pid AND label_class_id = :id"),
         {"pid": p["project_id"], "id": first["label_class_id"]},
     )
     second = store.create(p["project_id"], "Tumor")
