@@ -205,6 +205,7 @@ class IterableShardDataset(IterableDataset):
 
             while True:
                 with worker_sm.get_session() as session:
+                    # NOTE: may want to get a multiple of the batch size and perform a shuffle to increase randomness.
                     rows = WorkerPatchStore(
                         self.project_id, session
                     ).fetch_patch_batch(patch_shard_id, cursor_id, self.batch_size)
