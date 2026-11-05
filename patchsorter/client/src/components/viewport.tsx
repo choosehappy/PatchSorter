@@ -167,8 +167,11 @@ export default function Viewport({
         // Add the polygon as a feature in the feature layer
         createLassoFeature(featureLayerRef.current, coordinates)
 
-        // Keep annotation visible; restore drawing mode for next lasso
-        annotationLayerRef.current.mode('polygon')
+        // The feature layer now owns the visible lasso; drop the annotation copy
+        annotationLayerRef.current.removeAnnotation(annotation)
+
+        // Restore drawing mode for next lasso
+        if (!isCtrlHeldRef.current) annotationLayerRef.current.mode('polygon')
         annotationLayerRef.current.draw()
     }
 
