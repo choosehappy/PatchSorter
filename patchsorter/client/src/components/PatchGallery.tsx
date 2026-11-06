@@ -61,6 +61,9 @@ export default function PatchGallery({
         startY: number
     }>({ active: false, startX: 0, startY: 0 })
 
+    // Set when a box-select finishes, so the click that follows it is ignored
+    const justDraggedRef = useRef(false)
+
     const selectedIds = useMemo(
         () => new Set(selectedPatches.map(p => p.patch_id)),
         [selectedPatches]
@@ -102,6 +105,7 @@ export default function PatchGallery({
 
             // Only act if the drag covered a meaningful area
             if (Math.abs(endX - startX) <= 4 && Math.abs(endY - startY) <= 4) return
+            justDraggedRef.current = true
 
             const selLeft = Math.min(startX, endX) + gridRect.left
             const selTop = Math.min(startY, endY) + gridRect.top
@@ -137,8 +141,14 @@ export default function PatchGallery({
     }, [patches, selectedPatches, selectedIds, onSelectionChange])
 
     function handleScrollMouseDown(e: React.MouseEvent<HTMLDivElement>) {
-        if (!(e.ctrlKey || e.metaKey) || !gridRef.current) return
+        if (e.button !== 0 || !gridRef.current) return
+        // Ignore presses on the scroll container's own scrollbars
+        const el = e.currentTarget
+        const r = el.getBoundingClientRect()
+        if (e.clientX - r.left >= el.clientWidth || e.clientY - r.top >= el.clientHeight) return
+
         e.preventDefault()
+        justDraggedRef.current = false
         const gridRect = gridRef.current.getBoundingClientRect()
         dragState.current = {
             active: true,
@@ -148,18 +158,17 @@ export default function PatchGallery({
     }
 
     function handleScrollClick(e: React.MouseEvent<HTMLDivElement>) {
-        if (e.ctrlKey || e.metaKey) return
+        if (justDraggedRef.current) {
+            justDraggedRef.current = false
+            return
+        }
         if (!(e.target as HTMLElement).closest('[data-patch-id]')) {
             onSelectionChange([])
         }
     }
 
-    function handleContextMenu(e: React.MouseEvent) {
-        if (e.ctrlKey || e.metaKey) e.preventDefault()
-    }
-
     return (
-        <div className="patch-gallery" onContextMenu={handleContextMenu}>
+        <div className="patch-gallery">
             <div className="gallery-toolbar">
 
                 <label className="toolbar-group checkbox-group">
@@ -231,9 +240,9 @@ export default function PatchGallery({
                                     className="patch-grid-cell"
                                     onMouseEnter={() => onHoverChange(patch)}
                                     onMouseLeave={() => onHoverChange(null)}
-                                    onMouseDown={e => {
-                                        if (e.button !== 0 || !(e.ctrlKey || e.metaKey)) return
-                                        e.preventDefault()
+                                    onClick={() => {
+                                        // The scroll container's click handler resets this flag
+                                        if (justDraggedRef.current) return
                                         if (selectedIds.has(patch.patch_id)) {
                                             onSelectionChange(selectedPatches.filter(p => p.patch_id !== patch.patch_id))
                                         } else {
