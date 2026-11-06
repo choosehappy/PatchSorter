@@ -153,23 +153,32 @@ export default function Viewport({
         isDrawingRef.current = false
         justCompletedRef.current = true
 
-        // Get coordinates from the newly created annotation
         const annotation = e.annotation
         const geometry = annotation?.geojson()?.geometry
         const coordinates: number[][][] | null = geometry?.type === 'Polygon' ? geometry.coordinates : null
-        if (!coordinates || coordinates.length === 0) return
 
-        const bbox = computeBboxFromPolygon(coordinates)
-        if (bbox) {
-            onLassoComplete(coordinates[0], pageSize)
+        if (coordinates && coordinates.length > 0) {
+            const bbox = computeBboxFromPolygon(coordinates)
+            if (bbox) {
+                onLassoComplete(coordinates[0], pageSize)
+            }
+
+            // Clear the previous lasso before showing the new one
+            featureLayerRef.current.clear()
+            createLassoFeature(featureLayerRef.current, coordinates)
+            featureLayerRef.current.draw()
         }
-
-        // Add the polygon as a feature in the feature layer
-        createLassoFeature(featureLayerRef.current, coordinates)
-
-        // Keep annotation visible; restore drawing mode for next lasso
-        annotationLayerRef.current.mode('polygon')
-        annotationLayerRef.current.draw()
+        
+        // NOTE: A timeout here works but the intermediate polygon is drawn briefly before being replaced by the feature layer polygon.
+        const layer = annotationLayerRef.current
+        if (!layer) return
+        // The feature layer now owns the visible lasso; drop the annotation copy
+        layer.removeAnnotation(annotation)
+        if (!isCtrlHeldRef.current) {
+            toggleLassoMode(true)   // stay in lasso mode for the next draw
+        } else {
+            layer.draw()
+        }
     }
 
     function toggleLassoMode(isOn: boolean) {
@@ -431,6 +440,17 @@ export default function Viewport({
         interactor.removeAction(geo.geo_action.rotate, 'button rotate')
         interactor.removeAction(geo.geo_action.rotate, 'wheel rotate')
 
+
+        // GeoJS's default 'button pan' requires ctrl: false. Add a Ctrl+left-drag
+        // pan so holding Ctrl (pan mode) can actually pan.
+        interactor.addAction({
+            action: geo.geo_action.pan,
+            input: 'left',
+            modifiers: { shift: false, ctrl: true },
+            owner: 'geo.mapInteractor',
+            name: 'button pan ctrl',
+        })
+
         // Disable keyboard zoom hotkeys to prevent conflicts with annotation tools
         const keyboardOptions = interactor.keyboard()
         keyboardOptions.actions['zoom.0'] = []
@@ -530,6 +550,19 @@ export default function Viewport({
         // Register annotation completion event listener
         annotationLayerRef.current.geoOn(geo.event.annotation.state, handleNewAnnotation)
 
+        // Whenever the annotation layer drops out of lasso mode (completed polygon,
+        // discarded polygon, Escape, etc.), put it back unless Ctrl-pan is active.
+        // Deferred so it runs after GeoJS has finished its own mode transition.
+        function handleAnnotationModeChange(e: any) {
+            if (e.mode !== null || isCtrlHeldRef.current) return
+            setTimeout(() => {
+                if (!isCtrlHeldRef.current && annotationLayerRef.current?.mode() === null) {
+                    toggleLassoMode(true)
+                }
+            }, 0)
+        }
+        annotationLayerRef.current.geoOn(geo.event.annotation.mode, handleAnnotationModeChange)
+
         // Remove lasso features on mousedown
         function handleMousedown() {
             featureLayerRef.current.clear()
@@ -539,6 +572,8 @@ export default function Viewport({
         featureLayerRef.current.geoOn(geo.event.mousedown, handleMousedown)
 
         function handleClick(evt: any) {
+            setTimeout(() => annotationLayerRef.current?.mode(null), 0)
+
             const lp = buildLpQuery()
             const queryRangeVal = Math.max(2, Math.round(queryRangeRef.current))
             const halfRange = Math.floor(queryRangeVal / 2)
@@ -611,8 +646,16 @@ export default function Viewport({
             }
         }
 
+        const handleBlur = () => {
+            if (isCtrlHeldRef.current) {
+                isCtrlHeldRef.current = false
+                setIsCtrlHeld(false)
+            }
+        }
+
         document.addEventListener('keydown', handleKeyDown)
         document.addEventListener('keyup', handleKeyUp)
+        window.addEventListener('blur', handleBlur)
 
         return () => {
             resizeObserver.disconnect()
@@ -620,12 +663,14 @@ export default function Viewport({
             queryBboxFeatureRef.current?.data([]).modified()
             clickQueryBboxFeatureRef.current?.data([]).modified()
             annotationLayerRef.current?.geoOff(geo.event.annotation.state, handleNewAnnotation)
+            annotationLayerRef.current?.geoOff(geo.event.annotation.mode, handleAnnotationModeChange)
             featureLayerRef.current?.geoOff(geo.event.mousedown, handleMousedown)
             map.geoOff(geo.event.mouseclick, handleClick)
             map.geoOff(geo.event.zoom)
             map.geoOff(geo.event.pan, onMapIdle)
             document.removeEventListener('keydown', handleKeyDown)
             document.removeEventListener('keyup', handleKeyUp)
+            window.removeEventListener('blur', handleBlur)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
@@ -644,13 +689,9 @@ export default function Viewport({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [colorBy, filterBy, selectedCells])
 
-    // Change annotation mode based on Ctrl state
+    // Lasso by default; holding Ctrl switches to pan
     useEffect(() => {
-        if (isCtrlHeld) {
-            toggleLassoMode(true)
-        } else {
-            toggleLassoMode(false)
-        }
+        toggleLassoMode(!isCtrlHeld)
     }, [isCtrlHeld])
 
     // Update point layer whenever selected patches or hovered patch changes

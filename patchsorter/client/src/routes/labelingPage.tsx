@@ -7,7 +7,7 @@ import Viewport, { type MapBounds } from '../components/viewport'
 import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatrix'
 import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
-import LabelPicker from '../components/LabelPicker'
+
 import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, assignLabelsByIdsProjectsProjectIdPatchesPost, assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
 import { DEFAULT_REFRESH_INTERVAL_MS, DEFAULT_QUERY_RANGE, PERFECT_SQUARE_LIMITS } from '../constants'
 
@@ -41,8 +41,7 @@ export default function LabelingPage() {
     const [activePage, setActivePage] = useState(0)
     const [selectedPatches, setSelectedPatches] = useState<PatchResponse[]>([])
     const [hoveredPatch, setHoveredPatch] = useState<PatchResponse | null>(null)
-    const [showPicker, setShowPicker] = useState(false)
-    const [pickedLabelClassId, setPickedLabelClassId] = useState<number | null>(null)
+    const [lastAssignedClassId, setLastAssignedClassId] = useState<number | null>(null)
     const [gallerySelectAll, setGallerySelectAll] = useState(false)
     const [showPatches, setShowPatches] = useState(true)
     const [queryLimitIndex, setQueryLimitIndex] = useState(2)
@@ -57,47 +56,6 @@ export default function LabelingPage() {
             })
             .catch(err => console.error('Error fetching world info:', err))
     }, [])
-
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Enter') {
-                setShowPicker(true)
-            }
-        }
-        document.addEventListener('keydown', handleKeyDown)
-        return () => document.removeEventListener('keydown', handleKeyDown)
-    }, [])
-
-    const handleLabelSelect = useCallback((labelClassId: number) => {
-        setPickedLabelClassId(labelClassId)
-    }, [])
-
-    const handlePickerClose = useCallback(async (labelClassId: number | null) => {
-        setShowPicker(false)
-        const pickedId = labelClassId ?? pickedLabelClassId
-        if (pickedId === null) return
-
-        if (selectedPatches.length > 0) {
-            await assignLabelsByIdsProjectsProjectIdPatchesPost({
-                path: { project_id: projectId },
-                query: { patch_ids: selectedPatches.map(p => p.patch_id), label_class_id: pickedId },
-            })
-            setSelectedPatches([])
-            queryClient.invalidateQueries({ queryKey: ['patches'] })
-            queryClient.invalidateQueries({ queryKey: ['galleryTotal'] })
-            setRefreshTick(t => t + 1)
-        } else if (gallerySelectAll && lassoPolygon) {
-            await assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost({
-                path: { project_id: projectId },
-                query: { label_class_id: pickedId, lp },
-                body: { polygon: { type: 'Polygon', coordinates: [lassoPolygon] } },
-            })
-            queryClient.invalidateQueries({ queryKey: ['patches'] })
-            queryClient.invalidateQueries({ queryKey: ['galleryTotal'] })
-            setRefreshTick(t => t + 1)
-        }
-        setPickedLabelClassId(null)
-    }, [selectedPatches, gallerySelectAll, lassoPolygon, projectId, queryClient, pickedLabelClassId])
 
     const { data: labelClassesData = [] } = useQuery<LabelClassResponse[]>({
         queryKey: ['labelClasses', projectId],
@@ -117,6 +75,42 @@ export default function LabelingPage() {
     const classColors = useMemo(() => sortedLabelClasses.map(lc => lc.color_code ?? '#222222'), [sortedLabelClasses])
     const classIds = useMemo(() => sortedLabelClasses.map(lc => lc.label_class_id), [sortedLabelClasses])
     const numClasses = classLabels.length
+
+    const handleLabelAssign = useCallback(async (labelClassId: number) => {
+        setLastAssignedClassId(labelClassId)
+
+        if (selectedPatches.length > 0) {
+            await assignLabelsByIdsProjectsProjectIdPatchesPost({
+                path: { project_id: projectId },
+                query: { patch_ids: selectedPatches.map(p => p.patch_id), label_class_id: labelClassId },
+            })
+            setSelectedPatches([])
+            queryClient.invalidateQueries({ queryKey: ['patches'] })
+            queryClient.invalidateQueries({ queryKey: ['galleryTotal'] })
+            setRefreshTick(t => t + 1)
+        } else if (gallerySelectAll && lassoPolygon) {
+            let lp: string[] | undefined
+            if (classIds.length > 0) {
+                const pairs = Array.from(selectedCells).sort()
+                if ((filterBy !== 'all' || selectedCells.size < numClasses * numClasses)
+                    && pairs.length > 0 && pairs.length < numClasses * numClasses) {
+                    lp = pairs.map(p => {
+                        const [gtIdx, predIdx] = p.split(',').map(Number)
+                        return `${classIds[gtIdx]},${classIds[predIdx]}`
+                    })
+                }
+            }
+
+            await assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost({
+                path: { project_id: projectId },
+                query: { label_class_id: labelClassId, lp },
+                body: { polygon: { type: 'Polygon', coordinates: [lassoPolygon] } },
+            })
+            queryClient.invalidateQueries({ queryKey: ['patches'] })
+            queryClient.invalidateQueries({ queryKey: ['galleryTotal'] })
+            setRefreshTick(t => t + 1)
+        }
+    }, [selectedPatches, gallerySelectAll, lassoPolygon, projectId, queryClient, selectedCells, filterBy, classIds, numClasses])
 
     useEffect(() => {
         if (numClasses > 0) setSelectedCells(makeAllCells(numClasses))
@@ -153,7 +147,10 @@ export default function LabelingPage() {
         staleTime: Infinity,
     })
 
-    const { data: galleryTotal = null } = useQuery<number | null>({
+    const {
+        data: galleryTotal,
+        isLoading: isGalleryTotalLoading,
+    } = useQuery<number | null>({
         queryKey: ['galleryTotal', projectId, lassoPolygon],
         queryFn: async () => {
             const bbox = computeBboxFromPolygon(lassoPolygon!)
@@ -467,15 +464,13 @@ export default function LabelingPage() {
                     selectedPatches={selectedPatches}
                     onSelectionChange={setSelectedPatches}
                     onHoverChange={setHoveredPatch}
-                    onSelectAllChange={setGallerySelectAll}
-                />
-            </div>
-            <LabelPicker
-                isOpen={showPicker}
-                labelClasses={sortedLabelClasses}
-                onSelect={handleLabelSelect}
-                onClose={handlePickerClose}
+                onSelectAllChange={setGallerySelectAll}
+                onLabelAssign={handleLabelAssign}
+                lastAssignedClassId={lastAssignedClassId}
+                selectedCount={gallerySelectAll ? galleryTotal : (selectedPatches.length > 0 ? selectedPatches.length : null)}
+                isSelectingAllLoading={gallerySelectAll && isGalleryTotalLoading}
             />
+            </div>
         </Split>
     )
 }
