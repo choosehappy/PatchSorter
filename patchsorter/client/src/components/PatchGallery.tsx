@@ -32,6 +32,8 @@ export default function PatchGallery({
     onSelectAllChange,
     onLabelAssign,
     lastAssignedClassId,
+    selectedCount,
+    isSelectingAllLoading,
 }: {
     projectId: number
     patches: PatchResponse[]
@@ -53,6 +55,8 @@ export default function PatchGallery({
     onSelectAllChange?: (selectAll: boolean) => void
     onLabelAssign?: (labelClassId: number) => void
     lastAssignedClassId: number | null
+    selectedCount: number | null
+    isSelectingAllLoading: boolean
 }) {
     const [selectAll, setSelectAll] = useState(false)
     const [patchSize, setPatchSize] = useState(DEFAULT_PATCH_SIZE)
@@ -220,19 +224,6 @@ export default function PatchGallery({
     return (
         <div className="patch-gallery">
             <div className="gallery-toolbar">
-
-                <label className="toolbar-group checkbox-group">
-                    <input
-                        type="checkbox"
-                        checked={selectAll}
-                        onChange={e => {
-                            setSelectAll(e.target.checked)
-                            onSelectAllChange?.(e.target.checked)
-                        }}
-                    />
-                    Select All
-                </label>
-
                 <div className="toolbar-group">
                     <label>
                         Size: {patchSize}px
@@ -268,6 +259,25 @@ export default function PatchGallery({
                     <button onClick={onNext} disabled={!canGoNext || loading}>
                         Next
                     </button>
+                </div>
+
+                <div className="toolbar-group select-all-group">
+                    <label className="checkbox-group">
+                        <input
+                            type="checkbox"
+                            checked={selectAll}
+                            onChange={e => {
+                                setSelectAll(e.target.checked)
+                                onSelectAllChange?.(e.target.checked)
+                            }}
+                        />
+                        Select All Patches
+                    </label>
+                    {isSelectingAllLoading ? (
+                        <span className="select-all-spinner" />
+                    ) : selectedCount !== null && selectedCount > 0 ? (
+                        <span className="select-all-count">{`Selected patches: ${selectedCount}`}</span>
+                    ) : null}
                 </div>
             </div>
 

@@ -284,3 +284,34 @@
     color: #888;
     font-style: italic;
 }
+
+/* ---- Select All count + spinner ---- */
+
+.select-all-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.select-all-count {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1a56a8;
+    white-space: nowrap;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.select-all-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid #d0d0d0;
+    border-top-color: #4a90d9;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    flex-shrink: 0;
+}

@@ -147,7 +147,10 @@ export default function LabelingPage() {
         staleTime: Infinity,
     })
 
-    const { data: galleryTotal = null } = useQuery<number | null>({
+    const {
+        data: galleryTotal,
+        isLoading: isGalleryTotalLoading,
+    } = useQuery<number | null>({
         queryKey: ['galleryTotal', projectId, lassoPolygon],
         queryFn: async () => {
             const bbox = computeBboxFromPolygon(lassoPolygon!)
@@ -464,6 +467,8 @@ export default function LabelingPage() {
                 onSelectAllChange={setGallerySelectAll}
                 onLabelAssign={handleLabelAssign}
                 lastAssignedClassId={lastAssignedClassId}
+                selectedCount={gallerySelectAll ? galleryTotal : (selectedPatches.length > 0 ? selectedPatches.length : null)}
+                isSelectingAllLoading={gallerySelectAll && isGalleryTotalLoading}
             />
             </div>
         </Split>
