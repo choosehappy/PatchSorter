@@ -168,21 +168,17 @@ export default function Viewport({
             createLassoFeature(featureLayerRef.current, coordinates)
             featureLayerRef.current.draw()
         }
-
-        // GeoJS switches the annotation layer to mode(null) as part of finishing
-        // an annotation, and this event fires mid-transition. Defer so our mode
-        // change happens after GeoJS is done and isn't overwritten.
-        setTimeout(() => {
-            const layer = annotationLayerRef.current
-            if (!layer) return
-            // The feature layer now owns the visible lasso; drop the annotation copy
-            layer.removeAnnotation(annotation)
-            if (!isCtrlHeldRef.current) {
-                toggleLassoMode(true)   // stay in lasso mode for the next draw
-            } else {
-                layer.draw()
-            }
-        }, 0)
+        
+        // NOTE: A timeout here works but the intermediate polygon is drawn briefly before being replaced by the feature layer polygon.
+        const layer = annotationLayerRef.current
+        if (!layer) return
+        // The feature layer now owns the visible lasso; drop the annotation copy
+        layer.removeAnnotation(annotation)
+        if (!isCtrlHeldRef.current) {
+            toggleLassoMode(true)   // stay in lasso mode for the next draw
+        } else {
+            layer.draw()
+        }
     }
 
     function toggleLassoMode(isOn: boolean) {
@@ -554,6 +550,19 @@ export default function Viewport({
         // Register annotation completion event listener
         annotationLayerRef.current.geoOn(geo.event.annotation.state, handleNewAnnotation)
 
+        // Whenever the annotation layer drops out of lasso mode (completed polygon,
+        // discarded polygon, Escape, etc.), put it back unless Ctrl-pan is active.
+        // Deferred so it runs after GeoJS has finished its own mode transition.
+        function handleAnnotationModeChange(e: any) {
+            if (e.mode !== null || isCtrlHeldRef.current) return
+            setTimeout(() => {
+                if (!isCtrlHeldRef.current && annotationLayerRef.current?.mode() === null) {
+                    toggleLassoMode(true)
+                }
+            }, 0)
+        }
+        annotationLayerRef.current.geoOn(geo.event.annotation.mode, handleAnnotationModeChange)
+
         // Remove lasso features on mousedown
         function handleMousedown() {
             featureLayerRef.current.clear()
@@ -563,6 +572,8 @@ export default function Viewport({
         featureLayerRef.current.geoOn(geo.event.mousedown, handleMousedown)
 
         function handleClick(evt: any) {
+            setTimeout(() => annotationLayerRef.current?.mode(null), 0)
+
             const lp = buildLpQuery()
             const queryRangeVal = Math.max(2, Math.round(queryRangeRef.current))
             const halfRange = Math.floor(queryRangeVal / 2)
@@ -652,6 +663,7 @@ export default function Viewport({
             queryBboxFeatureRef.current?.data([]).modified()
             clickQueryBboxFeatureRef.current?.data([]).modified()
             annotationLayerRef.current?.geoOff(geo.event.annotation.state, handleNewAnnotation)
+            annotationLayerRef.current?.geoOff(geo.event.annotation.mode, handleAnnotationModeChange)
             featureLayerRef.current?.geoOff(geo.event.mousedown, handleMousedown)
             map.geoOff(geo.event.mouseclick, handleClick)
             map.geoOff(geo.event.zoom)
