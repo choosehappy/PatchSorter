@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import PatchImage from './PatchImage'
 import './patchGallery.css'
 import type { PatchResponse, LabelClassResponse } from '../api_client'
@@ -30,6 +30,8 @@ export default function PatchGallery({
     onSelectionChange,
     onHoverChange,
     onSelectAllChange,
+    onLabelAssign,
+    lastAssignedClassId,
 }: {
     projectId: number
     patches: PatchResponse[]
@@ -49,6 +51,8 @@ export default function PatchGallery({
     onSelectionChange: (patches: PatchResponse[]) => void
     onHoverChange: (patch: PatchResponse | null) => void
     onSelectAllChange?: (selectAll: boolean) => void
+    onLabelAssign?: (labelClassId: number) => void
+    lastAssignedClassId: number | null
 }) {
     const [selectAll, setSelectAll] = useState(false)
     const [patchSize, setPatchSize] = useState(DEFAULT_PATCH_SIZE)
@@ -76,6 +80,52 @@ export default function PatchGallery({
         gridTemplateColumns: `repeat(auto-fill, minmax(${patchSize}px, 1fr))`,
         gap: '8px',
     }
+
+    const sortedClasses = useMemo(
+        () => [...labelClasses].sort((a, b) => a.label_class_id - b.label_class_id),
+        [labelClasses]
+    )
+
+    const lastClass = useMemo(
+        () => sortedClasses.find(c => c.label_class_id === lastAssignedClassId),
+        [sortedClasses, lastAssignedClassId]
+    )
+
+    function handleClassClick(classId: number) {
+        if (onLabelAssign) {
+            onLabelAssign(classId)
+        }
+    }
+
+    // Keyboard shortcuts for number keys 1-9 and Enter
+    useEffect(() => {
+        function handleKeyDown(e: KeyboardEvent) {
+            // Only handle if we have label classes and a callback
+            if (!onLabelAssign || sortedClasses.length === 0) return
+
+            // Check if we're in a text-focused input where typing matters
+            const target = e.target as HTMLElement
+            if (target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
+            if (target.tagName === 'INPUT' && ['text', 'number', 'search', 'email', 'password', 'url'].includes((target as HTMLInputElement).type)) return
+
+            if (e.key >= '1' && e.key <= '9') {
+                const idx = parseInt(e.key, 10) - 1
+                if (idx < sortedClasses.length) {
+                    e.preventDefault()
+                    onLabelAssign(sortedClasses[idx].label_class_id)
+                    return
+                }
+            }
+
+            if (e.key === 'Enter' && lastAssignedClassId !== null) {
+                e.preventDefault()
+                onLabelAssign(lastAssignedClassId)
+            }
+        }
+
+        document.addEventListener('keydown', handleKeyDown)
+        return () => document.removeEventListener('keydown', handleKeyDown)
+    }, [onLabelAssign, sortedClasses, lastAssignedClassId])
 
     // Attach window-level drag listeners
     useEffect(() => {
@@ -271,6 +321,45 @@ export default function PatchGallery({
                             />
                         )}
                     </div>
+                )}
+            </div>
+
+            {/* Label footer */}
+            <div className="gallery-label-footer">
+                <div className="gallery-label-classes">
+                    {sortedClasses.map((lc, idx) => {
+                        const isLastAssigned = lc.label_class_id === lastAssignedClassId
+                        const showNumber = idx < 9
+                        return (
+                            <button
+                                key={lc.label_class_id}
+                                className={`gallery-label-item${isLastAssigned ? ' active' : ''}`}
+                                onClick={() => handleClassClick(lc.label_class_id)}
+                            >
+                                {showNumber && (
+                                    <span className="gallery-label-number">[{idx + 1}]</span>
+                                )}
+                                <span
+                                    className="gallery-label-swatch"
+                                    style={{ backgroundColor: lc.color_code ?? '#cccccc' }}
+                                />
+                                <span className="gallery-label-name">{lc.name}</span>
+                            </button>
+                        )
+                    })}
+                </div>
+                {lastClass && onLabelAssign && (
+                    <button
+                        className="gallery-last-assigned"
+                        onClick={() => handleClassClick(lastClass.label_class_id)}
+                    >
+                        <span
+                            className="gallery-label-swatch"
+                            style={{ backgroundColor: lastClass.color_code ?? '#cccccc' }}
+                        />
+                        <span className="gallery-label-name">{lastClass.name}</span>
+                        <span className="gallery-last-assigned-text">(press Enter to assign)</span>
+                    </button>
                 )}
             </div>
         </div>
