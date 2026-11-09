@@ -4,11 +4,9 @@ import time
 import ray
 from ray.exceptions import ActorDiedError
 
-from patchsorter.config.constants import SettingScope
 from patchsorter.db import head_client
 from patchsorter.db.head_client.label_class import LabelClassStore
 from patchsorter.db.head_client.settings import SettingsStore
-from patchsorter.db.head_client.settings import _parse_setting_value
 from patchsorter.dl.training import DLActor, dl_actor_name
 
 from .models import DLActorState
@@ -65,7 +63,10 @@ def start_processing(project_id: int) -> None:
             time.sleep(START_RETRY_DELAY_S)
         attempt += 1
 
-    app_config, label_classes = _get_project_config(project_id)
+    with head_client.get_client().get_session() as session:
+        app_config = SettingsStore(session).get_all_parsed(project_id)
+        label_classes = LabelClassStore(session).list_by_project(project_id)
+
     actor = DLActor.options(  # type: ignore[attr-defined]
         name=dl_actor_name(project_id),
         get_if_exists=False,
@@ -105,11 +106,3 @@ def set_freeze(project_id: int, frozen: bool) -> DLActorState:
     ray.get(actor.set_training_enabled.remote(new_enabled))
     return DLActorState(termination_signal=False, training_enabled=new_enabled)
 
-
-def _get_project_config(project_id: int):
-    head_sm = head_client.get_client()
-    with head_sm.get_session() as session:
-        raw = SettingsStore(session).get_all_raw(project_id, scope=SettingScope.PROJECT)
-        app_config = {k: _parse_setting_value(v.value, v.type) for k, v in raw.items()}
-        label_classes = LabelClassStore(session).list_by_project(project_id)
-    return app_config, label_classes

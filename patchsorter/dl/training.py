@@ -11,8 +11,11 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-from patchsorter.config.constants import UNASSIGNED_CLASS_ID, SettingType, SettingScope
+from pathlib import Path
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID
 from torch.utils.data import DataLoader
+from safetensors.torch import load_file as _safetensors_load_file
+from safetensors.torch import save_file as _safetensors_save_file
 import ray.train
 import ray.train.torch
 from ray.train import get_context
@@ -22,9 +25,7 @@ from ray.train import ScalingConfig
 
 from patchsorter.db import head_client, worker_client
 from patchsorter.db.head_client.database_manager import DatabaseManager
-from patchsorter.db.head_client.label_class import LabelClassStore
 from patchsorter.api.v1.label_class.models import LabelClassResponse
-from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.db.worker_client.patch import WorkerPatchStore
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.dl.model import JointHead, backbone_init
@@ -49,6 +50,8 @@ from patchsorter.dl.losses import (
     semantic_head_loss,
     swav_loss,
 )
+from patchsorter.config.constants import CheckpointModuleType
+from patchsorter.utils.fsmanager import NASWriteStore
 
 logger = logging.getLogger(__name__)
 
@@ -79,13 +82,6 @@ GT_POOL_UPDATE_INTERVAL: int = 5
 K_NEIGHBORS: int = 50
 GT_SPATIAL_RARITY_ALPHA: float = 0.3
 GT_CLASS_RARITY_ALPHA: float = 0.7
-
-# DataLoader worker counts (sized from per-worker CPU allocation via app_config)
-DATALOADER_NUM_WORKERS_SEQUENTIAL: int = 4
-# 0 by default: CandidatePool isn't shared across worker processes, so each
-# extra worker duplicates the DB refresh query instead of adding useful
-# parallelism (enrichment batches are small/infrequent, unlike the sequential path).
-DATALOADER_NUM_WORKERS_ENRICHED: int = 0
 
 # SwAV hyperparameters
 SWAV_PROTOTYPES: int = 300
@@ -170,6 +166,83 @@ def _warm_start_projection_head(
     dist.broadcast(raw_head.proj_fc[0].bias.data, src=0)
 
 
+def load_checkpoint(
+    project_id: int,
+    model: torch.nn.Module,
+    ckpt_type: CheckpointModuleType,
+    checkpoint_dir: Path | None = None,
+) -> bool:
+    """Load weights from a single checkpoint file into a model.
+
+    Args:
+        project_id: Project integer ID.
+        model: PyTorch model to load weights into (may be DDP-wrapped).
+        ckpt_type: One of ``CheckpointModuleType.BACKBONE`` or ``CheckpointModuleType.HEAD``.
+        checkpoint_dir: Optional specific checkpoint directory.
+            If ``None``, loads from the latest checkpoint.
+
+    Raises:
+        FileNotFoundError: If no matching checkpoint file exists.
+        RuntimeError: If the checkpoint keys do not match the model.
+    """
+    nas_write = NASWriteStore()
+    raw_model = getattr(model, "module", model)
+
+    if checkpoint_dir is not None:
+        ckpt_path = nas_write.get_checkpoint_path(project_id, ckpt_type, checkpoint_dir)
+    else:
+        ckpt_path = nas_write.get_latest_checkpoint_path(project_id, ckpt_type)
+
+    if ckpt_path is None or not ckpt_path.exists():
+        raise FileNotFoundError(f"No {ckpt_type} checkpoint found for project {project_id}.")
+
+    _load_safetensors_and_apply(raw_model, ckpt_path)
+
+
+def _load_safetensors_and_apply(model: torch.nn.Module, path: Path) -> None:
+    """Load a safetensors file and strictly apply its state_dict to *model*."""
+    model.load_state_dict(_safetensors_load_file(str(path)), strict=True)
+
+
+def save_checkpoint(
+    project_id: int,
+    model: torch.nn.Module,
+    ckpt_type: CheckpointModuleType,
+    checkpoint_dir: Path | None = None,
+) -> Path:
+    """Save a single model's state_dict as a safetensors file.
+
+    If *checkpoint_dir* is ``None``, a new timestamped checkpoint directory
+    is created under the project's checkpoints folder.
+
+    Args:
+        project_id: Project integer ID.
+        model: PyTorch model to save (may be DDP-wrapped).
+        ckpt_type: One of ``CheckpointModuleType.BACKBONE`` or ``CheckpointModuleType.HEAD``.
+        checkpoint_dir: Optional existing checkpoint directory.
+            A new one is created if not provided.
+
+    Returns:
+        The **full path** to the saved checkpoint file.
+    """
+    nas_write = NASWriteStore()
+    raw_model = getattr(model, "module", model)
+
+    if checkpoint_dir is None:
+        checkpoint_dir = nas_write.get_new_checkpoint_dir_path(project_id)
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    ckpt_path = nas_write.get_checkpoint_path(project_id, ckpt_type, checkpoint_dir)
+
+    state_dict = {
+        k: v.detach().cpu()
+        for k, v in raw_model.state_dict().items()
+        if isinstance(v, torch.Tensor)
+    }
+    _safetensors_save_file(state_dict, str(ckpt_path))
+    return ckpt_path
+
+
 def train_worker(config: Dict[str, Any]) -> None:
     """Per-worker training + prediction loop executed by Ray Train.
 
@@ -196,15 +269,17 @@ def train_worker(config: Dict[str, Any]) -> None:
             - ``app_config`` (Dict[str, Any])
     """
     project_id: int = config["project_id"]
-    app_config = config["app_config"]
+    app_config: Dict[str, Any] = config["app_config"]
     label_classes: List[LabelClassResponse] = config["label_classes"]
-    patches_per_batch: int = app_config.get("dl_patches_per_batch", 1000)
-    patch_size: int = app_config.get("patch_size", 64)
-    projection_space_size: int = app_config.get("world_size", 4096)
+    patches_per_batch: int = app_config["dl_patches_per_batch"]
+    patch_size: int = app_config["patch_size"]
+    projection_space_size: int = app_config["world_size"]
     GRID_SIZE_SCALE: float = projection_space_size / GRID_SIZE
     enriched_batch_size: int = max(1, int(patches_per_batch * GT_ENRICHMENT))
-    dataloader_workers_sequential: int = app_config.get("dl_num_workers_sequential", DATALOADER_NUM_WORKERS_SEQUENTIAL)
-    dataloader_workers_enriched: int = app_config.get("dl_num_workers_enriched", DATALOADER_NUM_WORKERS_ENRICHED)
+    dataloader_workers_sequential: int = app_config["dl_num_workers_sequential"]
+    dataloader_workers_enriched: int = app_config["dl_num_workers_enriched"]
+    checkpoint_interval_batches: int = app_config["checkpoint_interval_batches"]
+    max_checkpoints: int = app_config["max_checkpoints"]
     head_sm = head_client.get_client(is_local=False)
     worker_sm = worker_client.get_client()
 
@@ -245,6 +320,13 @@ def train_worker(config: Dict[str, Any]) -> None:
     joint_head = ray.train.torch.prepare_model(joint_head, device, parallel_strategy="ddp")
     backbone.train()
     joint_head.train()
+
+    try:
+        load_checkpoint(project_id, backbone, CheckpointModuleType.BACKBONE)
+        load_checkpoint(project_id, joint_head, CheckpointModuleType.HEAD)
+        logger.info("[Worker %d (local %d)] Loaded checkpoint.", world_rank, local_rank)
+    except FileNotFoundError:
+        logger.info("[Worker %d (local %d)] No checkpoint found; starting fresh.", world_rank, local_rank)
 
     optimizer = torch.optim.AdamW(
         [
@@ -497,6 +579,15 @@ def train_worker(config: Dict[str, Any]) -> None:
 
                 niter_total += 1
 
+                if world_rank == 0 and niter_total % checkpoint_interval_batches == 0 and niter_total > 0:
+                    nas_write = NASWriteStore()
+                    checkpoint_dir = nas_write.get_new_checkpoint_dir_path(project_id)
+                    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+                    save_checkpoint(project_id, backbone, CheckpointModuleType.BACKBONE, checkpoint_dir)
+                    save_checkpoint(project_id, joint_head, CheckpointModuleType.HEAD, checkpoint_dir)
+                    nas_write.truncate_checkpoints(project_id, max_checkpoints)
+                    logger.info("[Worker %d (local %d)] Saved checkpoint batch %d to %s.", world_rank, local_rank, niter_total, checkpoint_dir)
+
             logger.info("[Worker %d (local %d)] Cycle %d done. Waiting at barrier.", world_rank, local_rank, cycle)
 
             # Barrier 1: all workers finished inserting for this cycle
@@ -597,62 +688,6 @@ def _launch_training(
         ),
     )
     return trainer.fit()
-
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
-
-
-def _parse_setting_value(value: str, setting_type: SettingType) -> object:
-    """Convert a raw string setting value to its Python type."""
-    match setting_type:
-        case SettingType.INTEGER:
-            return int(value)
-        case SettingType.BOOLEAN:
-            return value.lower() in ("true", "1")
-        case SettingType.ENUM | SettingType.STRING:
-            return value
-
-
-def startup_dl_actor(project_id: int) -> "DLActor":
-    """Create the named ``dl_actor`` if it does not exist, then start training.
-
-    Reads ``dl_num_workers`` and ``dl_patches_per_batch`` from the project's
-    settings table.  If an actor named ``"dl_actor"`` already exists it is
-    reused — a second training process is *not* launched.  To restart
-    training, call ``set_training_enabled(False)`` on the existing actor
-    first, wait for the current run to complete, then call this function again.
-
-    Args:
-        project_id: Project to run training for.
-
-    Returns:
-        The (possibly pre-existing) :class:`DLActor` handle.
-    """
-    head_sm = head_client.get_client()
-    with head_sm.get_session() as session:
-        settings_store = SettingsStore(session)
-        # TODO: This is unnecessary
-        raw = settings_store.get_all_raw(project_id, scope=SettingScope.PROJECT)
-        app_config = {
-            k: _parse_setting_value(v.value, v.type)
-            for k, v in raw.items()
-        }
-
-        # Fetch label classes for the worker to determine the number of model output classes
-        label_class_store = LabelClassStore(session)
-        label_classes = label_class_store.list_by_project(project_id, include_deleted=True)
-
-    num_workers: int = app_config.get("dl_num_workers", 8)
-
-    actor = DLActor.options(  # type: ignore[attr-defined]
-        name=dl_actor_name(project_id),
-        get_if_exists=True,
-    ).remote(project_id, app_config, label_classes)
-
-    actor.start_dl_proc.remote(num_workers)
-    return actor
 
 
 def compute_shard_assignments(

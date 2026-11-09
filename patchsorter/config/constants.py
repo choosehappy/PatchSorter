@@ -69,6 +69,14 @@ class LargeImageMetadataKeys(StrEnum):
     TILE_WIDTH = "tileWidth"
     BASE_MAGNIFICATION = "magnification"
 
+
+class CheckpointModuleType(StrEnum):
+    BACKBONE = "backbone"
+    HEAD = "head"
+
+
+CHECKPOINT_EXT = ".safetensors"
+
 GC_TTL_SECONDS = 3600
 GC_INTERVAL_SECONDS = 300
 

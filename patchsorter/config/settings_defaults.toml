@@ -101,3 +101,15 @@ default        = "INFO"
 type           = "enum"
 allowed_values = ["DEBUG", "INFO", "WARNING", "ERROR"]
 description = "Application logging level"
+
+[settings.checkpoint_interval_batches]
+scope   = "application"
+default = "500"
+type    = "integer"
+description = "(Advanced) Number of training batches between model checkpoint saves"
+
+[settings.max_checkpoints]
+scope   = "application"
+default = "5"
+type    = "integer"
+description = "(Advanced) Maximum number of checkpoints kept per project; older ones are deleted"
