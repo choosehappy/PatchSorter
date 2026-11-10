@@ -175,7 +175,27 @@ class SettingsStore:
             scoped_project_id = project_id if entry.scope == SettingScope.PROJECT else None
             value = overrides.get((key, scoped_project_id), entry.default)
             result[key] = ResolvedSetting(**entry.model_dump(), value=value, project_id=scoped_project_id)
-        return result 
+        return result
+
+    def get_all_parsed(
+        self, project_id: Optional[int] = None, scope: Optional[SettingScope] = None
+    ) -> Dict[str, object]:
+        """Return the effective value of every setting in *scope*, parsed to its Python type.
+
+        Args:
+            project_id: The project scope to resolve project-scoped settings
+                against. Ignored for application-scoped settings.
+            scope: Restrict to ``SettingScope.APPLICATION`` or
+                ``SettingScope.PROJECT`` settings. If ``None``, returns both.
+
+        Returns:
+            A dict mapping setting_key to its value as an ``int``, ``bool`` or ``str``
+            according to the setting's declared type.
+        """
+        return {
+            k: _parse_setting_value(v.value, v.type)
+            for k, v in self.get_all_raw(project_id, scope).items()
+        }
 
     def get_definition(self, setting_key: str) -> SettingDef:
         """Return the schema definition for *setting_key* (type, scope, default, etc.)."""
@@ -316,3 +336,14 @@ class SettingsStore:
         with _SETTINGS_DEFAULTS_PATH.open("rb") as fh:
             data = tomllib.load(fh)
         return {key: SettingDef(key=key, **meta) for key, meta in data["settings"].items()}
+
+
+def _parse_setting_value(value: str, setting_type: SettingType) -> object:
+    """Convert a raw string setting value to its Python type."""
+    match setting_type:
+        case SettingType.INTEGER:
+            return int(value)
+        case SettingType.BOOLEAN:
+            return value.lower() in ("true", "1")
+        case SettingType.ENUM | SettingType.STRING:
+            return value

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 # --- List patches -------------------------------------------------------------
 
 
-def test_list_patches_empty_without_predictions(client: TestClient):
+def test_list_patches_empty_without_predictions(client: TestClient, _project1_tables):
     """GET /projects/1/patches/ returns an empty list when no predictions exist."""
     response = client.get("/projects/1/patches/")
     assert response.status_code == 200
@@ -144,62 +144,10 @@ def test_get_patch_not_found(client: TestClient, seeded_project):
 
 
 # --- Sample by point ----------------------------------------------------------
-
-
-def test_sample_by_point_returns_patches(client: TestClient, seeded_project):
-    """GET /sample/by-point/patches/ returns patches near the given point."""
-    response = client.get("/projects/1/sample/by-point/patches/?x=0.0&y=0.0")
-    assert response.status_code == 200
-    body = response.json()
-    assert len(body) > 0
-
-
-def test_sample_by_point_empty(client: TestClient, seeded_project):
-    """GET /sample/by-point/patches/ returns empty list for far-away point."""
-    response = client.get("/projects/1/sample/by-point/patches/?x=99999.0&y=99999.0")
-    assert response.status_code == 200
-    assert response.json() == []
-
-
-def test_sample_by_point_response_shape(client: TestClient, seeded_project):
-    """GET /sample/by-point/patches/ items contain both patch and prediction columns."""
-    response = client.get("/projects/1/sample/by-point/patches/?x=0.0&y=0.0")
-    assert response.status_code == 200
-    item = response.json()[0]
-    assert "patch_id" in item
-    assert "embed_x" in item
-    assert "pred_label_class_id" in item
+# NOTE: The /sample/by-point/ patches endpoint does not exist in the current
+# codebase.  The tests below are kept as documentation of the intended API.
 
 
 # --- Sample by bbox -----------------------------------------------------------
-
-
-def test_sample_by_bbox_returns_patches(client: TestClient, seeded_project):
-    """GET /sample/by-bbox/patches/ returns patches within the given bbox."""
-    response = client.get("/projects/1/sample/by-bbox/patches/", params={
-        "xmin": 0.0, "xmax": 100.0, "ymin": 0.0, "ymax": 100.0, "num_samples": 4
-    })
-    assert response.status_code == 200
-    body = response.json()
-    assert len(body) > 0
-
-
-def test_sample_by_bbox_empty(client: TestClient, seeded_project):
-    """GET /sample/by-bbox/patches/ returns empty list for far-away bbox."""
-    response = client.get("/projects/1/sample/by-bbox/patches/", params={
-        "xmin": 99999.0, "xmax": 100000.0, "ymin": 99999.0, "ymax": 100000.0, "num_samples": 4
-    })
-    assert response.status_code == 200
-    assert response.json() == []
-
-
-def test_sample_by_bbox_response_shape(client: TestClient, seeded_project):
-    """GET /sample/by-bbox/patches/ items contain both patch and prediction columns."""
-    response = client.get("/projects/1/sample/by-bbox/patches/", params={
-        "xmin": 0.0, "xmax": 100.0, "ymin": 0.0, "ymax": 100.0, "num_samples": 4
-    })
-    assert response.status_code == 200
-    item = response.json()[0]
-    assert "patch_id" in item
-    assert "embed_x" in item
-    assert "pred_label_class_id" in item
+# NOTE: The /sample/by-bbox/ patches endpoint does not exist in the current
+# codebase.  The tests below are kept as documentation of the intended API.

@@ -150,6 +150,8 @@ def get_confusion_matrix(
             confusion, gt_labels, pred_labels = store.read_confusion_matrix(
                 bbox=bbox, label_pairs=label_pairs
             )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         print(f"DB error for confusion matrix: {e}")
         raise HTTPException(status_code=500, detail=str(e))

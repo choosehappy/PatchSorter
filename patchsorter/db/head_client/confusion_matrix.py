@@ -7,6 +7,8 @@ import numpy as np
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID
+
 
 class ConfusionMatrixStore:
     """Read aggregated patch-label counts from a project's confusion-matrix table.
@@ -78,6 +80,32 @@ class ConfusionMatrixStore:
             params[f"gt{i}"] = int(gt)
             params[f"pred{i}"] = int(pred)
         return placeholders, params
+
+    @staticmethod
+    def _label_lookup(labels: np.ndarray) -> Tuple[np.ndarray, int]:
+        """Build a dense 0-based index lookup table for a sorted array of label IDs.
+
+        ``label_class_id`` values are not guaranteed to start at 0 or be
+        non-negative — the reserved "unassigned" class uses ``-1``. Using a
+        raw label ID directly as an array index is therefore unsafe: it can
+        be out of bounds (or silently wrap via NumPy's negative-index
+        semantics) when the dense ``0..n`` assumption doesn't hold. This
+        builds a lookup table offset by ``labels.min()`` so arbitrary
+        (including negative) label IDs can still be mapped to a dense index
+        in ``O(1)`` without that risk.
+
+        Args:
+            labels: 1-D array of unique label IDs, e.g. from ``np.unique``.
+
+        Returns:
+            A 2-tuple ``(lookup, offset)``. For a label ID ``v`` present in
+            *labels*, ``lookup[v - offset]`` gives ``v``'s position within
+            *labels*.
+        """
+        offset = int(labels.min())
+        lookup = np.full(int(labels.max()) - offset + 1, UNASSIGNED_CLASS_ID, dtype=np.int32)
+        lookup[labels - offset] = np.arange(len(labels))
+        return lookup, offset
 
     # ------------------------------------------------------------------ #
     # Public query methods                                                 #
@@ -183,18 +211,16 @@ class ConfusionMatrixStore:
         gt_labels = np.unique(lp[:, 0])
         pred_labels = np.unique(lp[:, 1])
 
-        gt_lookup = np.full(gt_labels.max() + 1, -1, dtype=np.int32)
-        pred_lookup = np.full(pred_labels.max() + 1, -1, dtype=np.int32)
-        gt_lookup[gt_labels] = np.arange(len(gt_labels))
-        pred_lookup[pred_labels] = np.arange(len(pred_labels))
+        gt_lookup, gt_offset = self._label_lookup(gt_labels)
+        pred_lookup, pred_offset = self._label_lookup(pred_labels)
 
         mat = np.zeros(
             (len(gt_labels), len(pred_labels), n_i, n_j), dtype=np.int32
         )
         if len(raw) > 0:
             mat[
-                gt_lookup[raw[:, 0]],
-                pred_lookup[raw[:, 1]],
+                gt_lookup[raw[:, 0] - gt_offset],
+                pred_lookup[raw[:, 1] - pred_offset],
                 raw[:, 2] - i_min,
                 raw[:, 3] - j_min,
             ] = raw[:, 4]
@@ -235,18 +261,16 @@ class ConfusionMatrixStore:
         gt_labels = np.unique(lp[:, 0])
         pred_labels = np.unique(lp[:, 1])
 
-        gt_lookup = np.full(gt_labels.max() + 1, -1, dtype=np.int32)
-        pred_lookup = np.full(pred_labels.max() + 1, -1, dtype=np.int32)
-        gt_lookup[gt_labels] = np.arange(len(gt_labels))
-        pred_lookup[pred_labels] = np.arange(len(pred_labels))
+        gt_lookup, gt_offset = self._label_lookup(gt_labels)
+        pred_lookup, pred_offset = self._label_lookup(pred_labels)
 
         mat = np.zeros(
             (len(gt_labels), len(pred_labels), n_i, n_j), dtype=np.int64
         )
         if len(raw) > 0:
             mat[
-                gt_lookup[raw[:, 0]],
-                pred_lookup[raw[:, 1]],
+                gt_lookup[raw[:, 0] - gt_offset],
+                pred_lookup[raw[:, 1] - pred_offset],
                 raw[:, 2] - i_min,
                 raw[:, 3] - j_min,
             ] = raw[:, 4]
@@ -254,66 +278,6 @@ class ConfusionMatrixStore:
         confusion = mat.sum(axis=(2, 3))
         return confusion, gt_labels, pred_labels
 
-    @deprecated()
-    def get_max_counts(
-        self,
-        bbox: Tuple[int, int, int, int],
-        label_pairs: List[Tuple[int, int]],
-        num_classes: int,
-    ) -> np.ndarray:
-        """Return per-cell maximum counts for each ``(gt, pred)`` label pair.
-
-        For each ``(gt_label, pred_label)`` pair in *label_pairs*, queries the
-        maximum ``SUM(count)`` across all grid cells in *bbox* and returns the
-        result as a dense ``(num_classes, num_classes)`` float32 array.
-
-        Args:
-            bbox: ``(i_min, j_min, i_max, j_max)`` grid-cell bounds.
-            label_pairs: List of ``(gt_label, pred_label)`` pairs to query.
-            num_classes: Size of the output array's axes.  Should be at least
-                ``max(label_id) + 1`` for all labels in *label_pairs*.
-
-        Returns:
-            A ``float32`` array of shape ``(num_classes, num_classes)``
-            containing the maximum per-cell count for each pair, or ``0.0``
-            for pairs not present in *label_pairs*.
-        """
-        if not label_pairs:
-            return np.zeros((num_classes, num_classes), dtype=np.float32)
-
-        i_min, j_min, i_max, j_max = bbox
-        pair_placeholders, pair_params = self._build_pair_params(label_pairs)
-        params = {
-            "i_min": i_min,
-            "i_max": i_max,
-            "j_min": j_min,
-            "j_max": j_max,
-            **pair_params,
-        }
-        rows = self._session.execute(
-            text(
-                f"""
-                SELECT gt_label, pred_label, MAX(cell_sum) AS max_count
-                FROM (
-                    SELECT gt_label, pred_label, grid_cell_i, grid_cell_j,
-                           SUM(count) AS cell_sum
-                    FROM {self.table_name}
-                    WHERE gt_label IS NOT NULL
-                      AND grid_cell_i BETWEEN :i_min AND :i_max
-                      AND grid_cell_j BETWEEN :j_min AND :j_max
-                      AND (gt_label, pred_label) IN ({pair_placeholders})
-                    GROUP BY gt_label, pred_label, grid_cell_i, grid_cell_j
-                ) sub
-                GROUP BY gt_label, pred_label
-                """
-            ),
-            params,
-        ).mappings().all()
-
-        out = np.zeros((num_classes, num_classes), dtype=np.float32)
-        for r in rows:
-            out[r["gt_label"], r["pred_label"]] = r["max_count"]
-        return out
     
     def clear_confusion_matrix(self):
         """Delete all rows from this confusion matrix's table.

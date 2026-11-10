@@ -34,6 +34,16 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log.warning("Ray initialization skipped — upload sessions will not be available: %s", exc)
 
+    # Initialize the database schema on startup.
+    try:
+        from patchsorter.db.head_client.database_manager import DatabaseManager
+        from patchsorter.db.head_client import get_client
+
+        DatabaseManager(get_client()).setup_schema()
+        log.info("Database schema initialized.")
+    except Exception as exc:
+        log.warning("Database schema setup failed (database may be unavailable): %s", exc)
+
     yield
     # Shutdown: GC thread is daemon=True and dies with the process; nothing to clean up.
 
