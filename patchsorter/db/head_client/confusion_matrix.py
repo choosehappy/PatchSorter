@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-from deprecated import deprecated
 import numpy as np
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -254,66 +253,6 @@ class ConfusionMatrixStore:
         confusion = mat.sum(axis=(2, 3))
         return confusion, gt_labels, pred_labels
 
-    @deprecated()
-    def get_max_counts(
-        self,
-        bbox: Tuple[int, int, int, int],
-        label_pairs: List[Tuple[int, int]],
-        num_classes: int,
-    ) -> np.ndarray:
-        """Return per-cell maximum counts for each ``(gt, pred)`` label pair.
-
-        For each ``(gt_label, pred_label)`` pair in *label_pairs*, queries the
-        maximum ``SUM(count)`` across all grid cells in *bbox* and returns the
-        result as a dense ``(num_classes, num_classes)`` float32 array.
-
-        Args:
-            bbox: ``(i_min, j_min, i_max, j_max)`` grid-cell bounds.
-            label_pairs: List of ``(gt_label, pred_label)`` pairs to query.
-            num_classes: Size of the output array's axes.  Should be at least
-                ``max(label_id) + 1`` for all labels in *label_pairs*.
-
-        Returns:
-            A ``float32`` array of shape ``(num_classes, num_classes)``
-            containing the maximum per-cell count for each pair, or ``0.0``
-            for pairs not present in *label_pairs*.
-        """
-        if not label_pairs:
-            return np.zeros((num_classes, num_classes), dtype=np.float32)
-
-        i_min, j_min, i_max, j_max = bbox
-        pair_placeholders, pair_params = self._build_pair_params(label_pairs)
-        params = {
-            "i_min": i_min,
-            "i_max": i_max,
-            "j_min": j_min,
-            "j_max": j_max,
-            **pair_params,
-        }
-        rows = self._session.execute(
-            text(
-                f"""
-                SELECT gt_label, pred_label, MAX(cell_sum) AS max_count
-                FROM (
-                    SELECT gt_label, pred_label, grid_cell_i, grid_cell_j,
-                           SUM(count) AS cell_sum
-                    FROM {self.table_name}
-                    WHERE gt_label IS NOT NULL
-                      AND grid_cell_i BETWEEN :i_min AND :i_max
-                      AND grid_cell_j BETWEEN :j_min AND :j_max
-                      AND (gt_label, pred_label) IN ({pair_placeholders})
-                    GROUP BY gt_label, pred_label, grid_cell_i, grid_cell_j
-                ) sub
-                GROUP BY gt_label, pred_label
-                """
-            ),
-            params,
-        ).mappings().all()
-
-        out = np.zeros((num_classes, num_classes), dtype=np.float32)
-        for r in rows:
-            out[r["gt_label"], r["pred_label"]] = r["max_count"]
-        return out
     
     def clear_confusion_matrix(self):
         """Delete all rows from this confusion matrix's table.
