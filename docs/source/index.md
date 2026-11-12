@@ -38,4 +38,5 @@ unit_testing
 cli
 design_material_draft1/index.md
 design_material_draft2/index.md
+tensorboard_visualization.md
 api/db

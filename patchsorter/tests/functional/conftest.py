@@ -27,6 +27,7 @@ import patchsorter.api.v1.project.routes as project_routes
 import patchsorter.api.v1.label_class.routes as label_class_routes
 import patchsorter.api.v1.patch.routes as patch_routes
 from patchsorter.api.v1.main import create_app
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID
 from patchsorter.db.head_client import (
     ImageStore,
     LabelClassStore,
@@ -100,8 +101,8 @@ def seeded_project(
         session.execute(
             text(
                 """
-                INSERT INTO settings (project_id, setting_key, setting_value, default_value, setting_type, allowed_values, disabled)
-                VALUES (NULL, 'world_size', '4096', '4096', 'integer', NULL, false)
+                INSERT INTO settings (project_id, setting_key, value)
+                VALUES (NULL, 'world_size', '4096')
                 ON CONFLICT (project_id, setting_key) DO NOTHING
                 """
             )
@@ -110,13 +111,21 @@ def seeded_project(
         session.execute(
             text(
                 """
-                INSERT INTO settings (project_id, setting_key, setting_value, default_value, setting_type, allowed_values, disabled)
-                VALUES (1, 'max_level', '12', '12', 'integer', NULL, false)
+                INSERT INTO settings (project_id, setting_key, value)
+                VALUES (1, 'max_level', '12')
                 ON CONFLICT (project_id, setting_key) DO NOTHING
                 """
             )
         )
         session.flush()
+
+        session.execute(
+            text(
+                "INSERT INTO label_class (label_class_id, project_id, name) "
+                "VALUES (:id, 1, 'unassigned')"
+            ),
+            {"id": UNASSIGNED_CLASS_ID},
+        )
 
         lc_store = LabelClassStore(session)
         lc_tumor = lc_store.create(1, "Tumor", "#FF0000")

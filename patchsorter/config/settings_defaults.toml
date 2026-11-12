@@ -25,40 +25,52 @@ scope    = "project"
 default  = "4096"
 type     = "integer"
 disabled = true
-description = "The size of the world in microns"
+description = "(Advanced) The size of the world in microns"
 
 [settings.agg_hierarchy_depth]
 scope    = "project"
 default  = "4"
 type     = "integer"
 disabled = true
-description = "Number of aggregation hierarchy levels (must be greater than 1)"
+description = "(Advanced) Number of aggregation hierarchy levels (must be greater than 1)"
 
 [settings.osm_zoom_offset]
 scope    = "project"
 default  = "8"
 type     = "integer"
 disabled = true
-description = "Coarsest aggregation level; maps OSM tile zoom z=0 to grid level 8"
+description = "(Advanced) Coarsest aggregation level; maps OSM tile zoom z=0 to grid level 8"
 
 [settings.max_level]
 scope    = "project"
 default  = "12"
 type     = "integer"
 disabled = true
-description = "Finest aggregation level; equals osm_zoom_offset + agg_hierarchy_depth"
+description = "(Advanced) Finest aggregation level; equals osm_zoom_offset + agg_hierarchy_depth"
 
 [settings.dl_num_workers]
 scope   = "project"
 default = "1"
 type    = "integer"
-description = "Number of workers for deep learning inference"
+description = "(Advanced) Number of ray train workers for deep learning inference"
 
 [settings.dl_patches_per_batch]
 scope   = "project"
 default = "1024"
 type    = "integer"
-description = "Number of patches per batch for deep learning inference"
+description = "(Advanced) Number of patches per batch for deep learning inference"
+
+[settings.dl_num_workers_sequential]
+scope   = "project"
+default = "4"
+type    = "integer"
+description = "(Advanced) Number of DataLoader worker processes for the sequential (exhaustible) shard dataset. Each dataloader worker is assigned mutually exclusive shard subsets. Positive integers including 0 are allowed. '0' results in loading only occurring in the main process."
+
+[settings.dl_num_workers_enriched]
+scope   = "project"
+default = "1"
+type    = "integer"
+description = "(Advanced) Number of DataLoader worker processes for the enriched (candidate pool) dataset. Each dataloader worker holds its own CandidatePool copy, so values > 0 trade duplicated DB refresh queries for parallel image decode/augment."
 
 [settings.patch_size]
 scope = "project"

@@ -316,3 +316,14 @@ class SettingsStore:
         with _SETTINGS_DEFAULTS_PATH.open("rb") as fh:
             data = tomllib.load(fh)
         return {key: SettingDef(key=key, **meta) for key, meta in data["settings"].items()}
+
+
+def _parse_setting_value(value: str, setting_type: SettingType) -> object:
+    """Convert a raw string setting value to its Python type."""
+    match setting_type:
+        case SettingType.INTEGER:
+            return int(value)
+        case SettingType.BOOLEAN:
+            return value.lower() in ("true", "1")
+        case SettingType.ENUM | SettingType.STRING:
+            return value

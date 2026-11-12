@@ -72,29 +72,41 @@ Same schema as `project{project_id}_pred_patch_latest`.
 ## Label Class Table
 | Column Name      | Data Type  | Constraints                     | Description                                      |
 |------------------|------------|---------------------------------|--------------------------------------------------|
-| label_class_id   | SERIAL     | PRIMARY KEY, INDEXED            | Internal unique identifier for the label class.  |
-| project_id       | INT        | NOT NULL, FOREIGN KEY          | Identifier for the associated project.          |
+| label_class_id   | INT        | PRIMARY KEY (with project_id)   | Per-project class ID, allocated sequentially from 0. Equals the model output index. |
+| project_id       | INT        | PRIMARY KEY (with label_class_id), NOT NULL, FOREIGN KEY | Identifier for the owning project. |
 | name           | TEXT       | NOT NULL, UNIQUE WITHIN PROJECT| Name of the label class.                        |
 | color_code     | TEXT       |                                 | Color associated with the label class.          |
 | event_ts       | TIMESTAMP  | NOT NULL                       | Timestamp when the label class was created or last updated. |
+| is_deleted     | BOOLEAN    | NOT NULL, DEFAULT FALSE         | Soft-delete flag. Deleting a class sets it to `TRUE`; the row is never removed, so IDs are never reused. |
+
+**Label index semantics**
+
+- The primary key is `(label_class_id, project_id)`, so IDs are scoped to a project and every project starts at 0.
+- `label_class_id` *is* the model output index; there is no ID-to-index map. The model output dimension is `max(label_class_id) + 1` over the non-UNASSIGNED classes.
+- Every project has a reserved `unassigned` class with `label_class_id = -1`, inserted in the same transaction as the project by `ProjectStore.create`. The model has no output slot for it, so it must never index model output (`-1` would silently wrap to the last class in NumPy/PyTorch); mask it out first.
+- IDs are assigned by the `label_class_assign_id` BEFORE INSERT trigger as `max(existing id) + 1` per project, serialized with a per-project advisory lock. Callers cannot supply an ID (the only accepted explicit value is `-1`, used for the UNASSIGNED row), so allocation cannot be bypassed.
+- Names are unique among non-deleted classes of a project (partial unique index), so a name can be reused after its class is deleted.
+- Tables that reference `label_class_id` (`projectN_patch`, `projectN_pred_patch_*`, confusion matrix tables) are scoped to a project by table name and intentionally have no foreign key to `label_class`.
+- **Soft delete:** deleted classes keep their row and output slot, so the model output dimension is computed including deleted classes.
+- Existing databases are migrated with the notebook `patchsorter/helper_scripts/migrate_label_class_project_scope.ipynb` (dry-run by default, with PASS/FAIL verification).
 
 ## Settings Table
+
+The `settings` table stores **only overridden values**. Default values, types, allowed values, and disabled status are defined in `patchsorter/config/settings_defaults.toml` and loaded at runtime. A row exists in the database only when a setting's value differs from its schema default.
+
 | Column Name    | Data Type | Constraints                                           | Description                                      |
 |----------------|-----------|-------------------------------------------------------|--------------------------------------------------|
-| setting_id     | SERIAL    | PRIMARY KEY, INDEXED                                  | Internal unique identifier for the setting.      |
-| project_id     | INT       | FOREIGN KEY, NULLABLE                                 | Identifier for the associated project. Null if the setting applies at the application level. |
+| override_id    | SERIAL    | PRIMARY KEY, AUTOINCREMENT                            | Internal unique identifier for the override row. |
+| project_id     | INT       | FOREIGN KEY, NULLABLE                                 | Identifier for the associated project. `NULL` means the setting applies at the application level. |
 | setting_key    | TEXT      | NOT NULL                                              | Key for the setting.                            |
-| setting_value  | TEXT      | NOT NULL                                              | Current value for the setting.                  |
-| default_value  | TEXT      | NOT NULL                                              | Default value used when the setting is reset.   |
-| setting_type   | TEXT      | NOT NULL, CHECK IN ('enum','string','boolean','integer') | Data type of the setting value. Values are defined by `SettingType` in `patchsorter/config/constants.py`. |
-| allowed_values | TEXT      | NULLABLE, REQUIRED when setting_type = 'enum'        | Allowed values for enum settings.               |
-| disabled       | BOOLEAN   | NOT NULL, DEFAULT FALSE                               | When true, the setting is read-only and cannot be updated after the initial insert. |
+| value          | TEXT      | NOT NULL                                              | The overridden value (stored as raw string).    |
+| updated_at     | TIMESTAMP | NOT NULL, DEFAULT CURRENT_TIMESTAMP                   | Timestamp of the last update.                   |
 
 Constraints:
 - `UNIQUE (project_id, setting_key)` — one row per setting per scope.
-- `CHECK (setting_type != 'enum' OR allowed_values IS NOT NULL)` — enum settings must declare their allowed values.
+- Partial unique index `uq_app_settings` on `setting_key` WHERE `project_id IS NULL` — ensures a single application-level row per key.
 
-Default values for all settings are seeded from `patchsorter/config/settings_defaults.toml`.  Each entry in that file carries a `scope` field (`"application"` or `"project"`) that determines whether the setting is stored with `project_id = NULL` (application-level) or per project.
+Default values for all settings are loaded from `patchsorter/config/settings_defaults.toml` at runtime. Each entry in that file carries a `scope` field (`"application"` or `"project"`) that determines whether the setting is resolved with `project_id = NULL` (application-level) or per project.
 
 
 ## Code Conventions
@@ -133,6 +145,8 @@ All reference tables (`project`, `image`, `label_class`, `settings`, `log`) are 
 
 Factory results are cached per `(project_id[, level])` to prevent duplicate mapper registrations in `Base.metadata`.
 
+The `SettingOverride` model maps to the `settings` table and stores only per-project or application-level value overrides. Default values, types, allowed values, and disabled status are loaded from `patchsorter/config/settings_defaults.toml` at runtime via `SettingsStore._load_settings_schema()`.
+
 
 ## Log Table
 | Column Name | Data Type | Constraints                | Description                                          |
@@ -164,7 +178,7 @@ Factory results are cached per `(project_id[, level])` to prevent duplicate mapp
 ## Relationships
 
 ### Settings Table
-- **configures**: Each `Settings` entry configures a single project unless `project_id` is null, in which case it applies at the application level.
+- **configures**: Each `settings` row configures a single project unless `project_id` is null, in which case it applies at the application level. Only overridden values are stored; defaults are loaded from `patchsorter/config/settings_defaults.toml`.
 
 ### Project Table
 - **includes**: Each `Project` includes one or more `Images`.
@@ -197,18 +211,18 @@ Factory results are cached per `(project_id[, level])` to prevent duplicate mapp
 
 ### Deleting an Annotation (Label) Class
 
-The "Unlabeled" class (`label_class_id = 1`) is a reserved default and **cannot be deleted**.
+The "Unlabeled" class (`label_class_id = -1`, one per project) is a reserved default and **cannot be deleted**.
 
-1. **Reset patch ground truth labels.** `UPDATE projectN_patch SET label_class_id = 1 WHERE label_class_id = $deleted_id` across all shards.
-2. **Reset prediction labels.** `UPDATE projectN_pred_patch_latest SET label_class_id = 1 WHERE label_class_id = $deleted_id` and the same for `projectN_pred_patch_last`.
-3. **Reset confusion matrix references.** `UPDATE projectN_confusion_matrix_ln SET pred_label = 1 WHERE pred_label = $deleted_id` and the same for `gt_label`.
-4. **Delete the label class row.** `DELETE FROM label_class WHERE label_class_id = $deleted_id`.
+1. **Reset patch ground truth labels.** `UPDATE projectN_patch SET label_class_id = -1 WHERE label_class_id = $deleted_id` across all shards.
+2. **Reset prediction labels.** `UPDATE projectN_pred_patch_latest SET label_class_id = -1 WHERE label_class_id = $deleted_id` and the same for `projectN_pred_patch_last`.
+3. **Reset confusion matrix references.** `UPDATE projectN_confusion_matrix_ln SET pred_label = -1 WHERE pred_label = $deleted_id` and the same for `gt_label`.
+4. **Soft-delete the label class row.** `UPDATE label_class SET is_deleted = TRUE WHERE label_class_id = $deleted_id AND project_id = $project_id`.
 
 Steps 1–3 must complete successfully before step 4 is executed. All steps should be wrapped in a single transaction where possible.
 
 ### Deleting an Image
 
-1. **Reset patch ground truth labels to "Unlabeled".** `UPDATE projectN_patch SET label_class_id = 1 WHERE image_id = $deleted_image_id`.
+1. **Reset patch ground truth labels to "Unlabeled".** `UPDATE projectN_patch SET label_class_id = -1 WHERE image_id = $deleted_image_id`.
 2. **Delete predictions for the image's patches.** `DELETE FROM projectN_pred_patch_latest WHERE patch_id IN (SELECT patch_id FROM projectN_patch WHERE image_id = $deleted_image_id)` and the same for `projectN_pred_patch_last`.
 3. **Delete the patches.** `DELETE FROM projectN_patch WHERE image_id = $deleted_image_id`.
 4. **Delete the image row.** `DELETE FROM image WHERE image_id = $deleted_image_id`.
@@ -234,14 +248,11 @@ Steps 1–4 must complete before step 5.
 ```{mermaid}
 erDiagram
     SETTINGS {
-        SERIAL  setting_id PK
+        SERIAL  override_id PK
         INT     project_id FK
         TEXT    setting_key
-        TEXT    setting_value
-        TEXT    default_value
-        TEXT    setting_type
-        TEXT    allowed_values
-        BOOLEAN disabled
+        TEXT    value
+        TIMESTAMP updated_at
     }
     PROJECT {
         SERIAL project_id PK
@@ -264,11 +275,12 @@ erDiagram
         INT train_test_split
     }
     LABEL_CLASS {
-        SERIAL label_class_id PK
-        INT project_id FK
+        INT label_class_id PK
+        INT project_id PK
         TEXT name
         TEXT color_code
         TIMESTAMP event_ts
+        BOOLEAN is_deleted
     }
     projectN_patch {
         SERIAL patch_id PK

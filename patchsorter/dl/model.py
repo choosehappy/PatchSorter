@@ -26,6 +26,7 @@ class JointHead(nn.Module):
         proj_dim: int,
         num_classes: int,
         grid_size: float,
+        num_prototypes: int = 300,
     ) -> None:
         super().__init__()
         self.grid_size = grid_size
@@ -48,11 +49,17 @@ class JointHead(nn.Module):
 
         self.pred_fc = nn.Linear(embed_dim, num_classes)
 
+        # Learnable SwAV prototypes, constrained to the unit sphere.
+        self.prototypes = nn.Parameter(torch.empty(num_prototypes, embed_dim))
+
         self._init_weights()
 
     def _init_weights(self) -> None:
         nn.init.uniform_(self.proj_fc[0].weight, -1.0, 1.0)
         nn.init.uniform_(self.proj_fc[0].bias, 0.0, self.grid_size)
+        nn.init.normal_(self.prototypes, std=0.01)
+        with torch.no_grad():
+            self.prototypes.data.copy_(F.normalize(self.prototypes.data, dim=1))
 
     def forward(self, z: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass.
