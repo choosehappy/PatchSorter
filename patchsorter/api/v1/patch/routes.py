@@ -1,8 +1,13 @@
 from typing import List, Optional
 
+import io
+import logging
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Response
-from shapely.geometry import shape
+from PIL import Image, ImageDraw
+from shapely.geometry import shape, box
+from shapely.ops import transform
+import pyproj
 from sqlalchemy import text
 
 from patchsorter.db.head_client import get_client as get_head_client
@@ -16,6 +21,10 @@ from patchsorter.api.v1.patch.models import (
     SampleByPointRequest,
 )
 from patchsorter.api.v1.confusion_matrix.utils import _parse_label_pairs, _world_to_grid_bbox
+from patchsorter.utils.patch_extraction import extract_region_as_pil
+import large_image
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -137,5 +146,106 @@ def assign_labels_by_polygon(
             label_pairs=label_pairs,
         )
     return LabelAssignResponse(updated=updated)
+
+
+@router.get("/projects/{project_id}/patches/{patch_id}/context")
+def get_patch_context(
+    project_id: int,
+    patch_id: int,
+    scale: Optional[int] = Query(default=None, ge=1, le=20),
+) -> Response:
+    client = get_head_client()
+    with client.get_session() as session:
+        store = PatchStore(project_id, session)
+        patch_row = store.get_patch_by_id(patch_id)
+        if not patch_row:
+            raise HTTPException(status_code=404, detail=f"Patch {patch_id} not found")
+
+        centroid_x = patch_row.get("centroid_x")
+        centroid_y = patch_row.get("centroid_y")
+        polygon_wkt = patch_row.get("polygon")
+        downsample_factor = patch_row.get("downsample_factor", 1.0)
+
+        if not centroid_x or not centroid_y:
+            raise HTTPException(status_code=400, detail="Patch has no centroid coordinates")
+
+        # Get image path
+        image_id = patch_row.get("image_id")
+        image_row = session.execute(
+            text("SELECT image_path FROM image WHERE image_id = :image_id"),
+            {"image_id": image_id},
+        ).mappings().first()
+        if not image_row or not image_row.get("image_path"):
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        # Resolve context region scale
+        settings_store = SettingsStore(session)
+        if scale is None:
+            scale = settings_store.get_int("context_region_scale")
+
+        patch_size_pixels = 64  # default patch size at base magnification
+        context_size = scale * patch_size_pixels
+
+        # Open tile source and get base magnification
+        image_path = image_row["image_path"]
+        ts = large_image.open(str(image_path))
+        base_mag = ts.getMetadata().get("mmPerPixel")
+        if base_mag is not None:
+            # mmPerPixel is stored, convert to magnification (40x base = 0.25 µm/pixel = 0.00025 mm/pixel)
+            base_mag = 0.25 / (base_mag * 1000)
+        else:
+            base_mag = 40.0
+
+        # Build a box geometry centered at centroid with side = context_size (base-pixel units)
+        half = context_size / 2.0
+        box_geom = box(centroid_x - half, centroid_y - half, centroid_x + half, centroid_y + half)
+
+        # Extract region using the shared helper
+        try:
+            region = extract_region_as_pil(ts, box_geom, context_size, downsample_factor, base_mag)
+        except ValueError:
+            logger.exception(
+                "Failed to extract context region for patch_id=%s, project_id=%s",
+                patch_id,
+                project_id,
+            )
+            raise HTTPException(status_code=500, detail="Failed to extract context region")
+
+        # Draw patch square (centered at centroid, size = patch_size * downsample_factor)
+        draw = ImageDraw.Draw(region)
+        patch_side = int(patch_size_pixels * downsample_factor)
+        cx = half  # centroid is at center of region
+        cy = half
+        x0 = cx - patch_side // 2
+        y0 = cy - patch_side // 2
+        draw.rectangle([x0, y0, x0 + patch_side, y0 + patch_side], outline="red", width=2)
+
+        # Draw polygon if available
+        if polygon_wkt:
+            try:
+                poly = shape(polygon_wkt)
+                # Transform from base-pixel to pixel coordinates
+                transform_fn = lambda x, y: (x - centroid_x + half, y - centroid_y + half)
+                transformed = transform(transform_fn, poly)
+                for coord in transformed.exterior.coords:
+                    draw.line([coord, None], outline="blue", width=1)
+                if transformed.interiors:
+                    for interior in transformed.interiors:
+                        coords = list(interior.coords)
+                        draw.line(coords + [coords[0]], outline="blue", width=1)
+            except Exception:
+                pass  # Silently skip polygon drawing on error
+
+        buf = io.BytesIO()
+        region.save(buf, format="JPEG", quality=85)
+        buf.seek(0)
+
+        return Response(
+            content=buf.getvalue(),
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "public, max-age=31536000",
+            },
+        )
 
 

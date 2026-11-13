@@ -3,19 +3,19 @@ from __future__ import annotations
 import io
 
 import large_image
+from PIL import Image
 from shapely.geometry.base import BaseGeometry
 
 # ---------------------------------------------------------------------------
 # Constants for patch extraction
 # ---------------------------------------------------------------------------
 
-BASE_MAG_PPM_MICRONS = 0.25  # microns per pixel at 40x base magnification
-MAG_TO_PPM_FACTOR = 10.0  # derived from BASE_MAG_PPM_MICRONS * BASE_MAG (10.0 = 0.25 * 40)
+MAG_TO_MPP_FACTOR = 10.0  # derived from BASE_MAG_PPM_MICRONS * BASE_MAG (10.0 = 0.25 * 40)
 
 
 def mm_per_pixel_at_base(base_mag: float) -> float:
-    """Returns mm per pixel at the given base magnification."""
-    return (MAG_TO_PPM_FACTOR / base_mag) / 1000
+    """Returns approximate mm per pixel at the given base magnification."""
+    return (MAG_TO_MPP_FACTOR / base_mag) / 1000
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +108,61 @@ def extract_patch_from_geometry(
         region = region.convert("RGB")
     region.save(buf, format="JPEG", quality=85)
     return buf.getvalue()
+
+
+def extract_region_as_pil(
+    ts,
+    geometry: BaseGeometry,
+    patch_size: int,
+    downsample_factor: float,
+    base_mag: float,
+) -> Image.Image:
+    """Extract a region from a tile source and return it as a PIL Image.
+
+    Uses the same ``getRegion`` call pattern as ``extract_patch_from_geometry``
+    but returns the raw PIL Image so callers can draw annotations on top.
+
+    Args:
+        ts: An open ``large_image`` tile source.
+        geometry: Shapely geometry defining the region.
+        patch_size: Side length of the square region in base-pixel units.
+        downsample_factor: Factor by which to downsample from base magnification.
+        base_mag: Base magnification of the tile source.
+
+    Returns:
+        A PIL ``Image.Image`` of the extracted region.
+    """
+    if geometry.geom_type == "Polygon":
+        centroid = geometry.centroid
+    else:
+        centroid = geometry
+
+    scale = 1.0 / downsample_factor
+    magnification = base_mag / downsample_factor
+    half = patch_size / 2.0 / scale
+
+    region, _ = ts.getRegion(
+        region={
+            "left": centroid.x - half,
+            "top": centroid.y - half,
+            "right": centroid.x + half,
+            "bottom": centroid.y + half,
+            "units": "base_pixels",
+        },
+        scale={"magnification": magnification},
+        format=large_image.tilesource.TILE_FORMAT_PIL,
+    )
+
+    if region is None or region.size[0] == 0 or region.size[1] == 0:
+        raise ValueError(
+            f"Empty region extracted for centroid=({centroid.x}, {centroid.y}), "
+            f"magnification={magnification}. "
+            "The requested crop likely falls outside the tile source bounds."
+        )
+
+    if region.mode == "RGBA":
+        region = region.convert("RGB")
+    return region
 
 
 def get_polygon_radius_in_pixels(geometry: BaseGeometry) -> float:

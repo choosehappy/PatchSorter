@@ -34,8 +34,6 @@ from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.image import ImageStore
 from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.utils.patch_extraction import (
-    BASE_MAG_PPM_MICRONS,
-    MAG_TO_PPM_FACTOR,
     compute_downsample_factor,
     estimate_object_radius_from_polygons,
     extract_patch_from_geometry,

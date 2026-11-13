@@ -1345,6 +1345,43 @@ export type AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostRespon
 
 export type AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponse = AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses[keyof AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses];
 
+export type GetPatchContextProjectsProjectIdPatchesPatchIdContextGetData = {
+    body?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+        /**
+         * Patch Id
+         */
+        patch_id: number;
+    };
+    query?: {
+        /**
+         * Scale
+         */
+        scale?: number | null;
+    };
+    url: '/projects/{project_id}/patches/{patch_id}/context';
+};
+
+export type GetPatchContextProjectsProjectIdPatchesPatchIdContextGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetPatchContextProjectsProjectIdPatchesPatchIdContextGetError = GetPatchContextProjectsProjectIdPatchesPatchIdContextGetErrors[keyof GetPatchContextProjectsProjectIdPatchesPatchIdContextGetErrors];
+
+export type GetPatchContextProjectsProjectIdPatchesPatchIdContextGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type ListSettingsSettingsGetData = {
     body?: never;
     path?: never;
