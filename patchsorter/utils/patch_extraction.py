@@ -5,6 +5,7 @@ import io
 import large_image
 from PIL import Image
 from shapely.geometry.base import BaseGeometry
+import numpy as np
 
 # ---------------------------------------------------------------------------
 # Constants for patch extraction
@@ -54,117 +55,87 @@ def compute_downsample_factor(
     downsample = (2 * radius_base_pixels) / patch_size_pixels
     return max(1.0, downsample)
 
-
 def extract_patch_from_geometry(
     ts,
     geometry: BaseGeometry,
     patch_size: int,
     downsample_factor: float,
-    base_mag: float,
-) -> bytes:
-    """Extract a patch from a tile source using a shapely geometry.
+) -> Image.Image:
+    """Extract a square patch from a tile source using a shapely geometry.
 
-    Computes the centroid from the geometry, extracts a square crop via
-    ``large_image``, and returns JPEG bytes.
+    Computes the centroid from the geometry and extracts a square crop via
+    ``large_image``. The crop covers ``round(patch_size * downsample_factor)``
+    base pixels per side (on an integer pixel grid) and is requested at
+    ``patch_size`` x ``patch_size`` pixels via ``output`` max dimensions.
 
     Args:
         ts: An open ``large_image`` tile source.
-        geometry: Shapely geometry (Polygon or Point) defining the patch region.
-        patch_size: Desired output patch size in pixels at extraction magnification.
-        downsample_factor: Factor by which to downsample from base magnification.
-        base_mag: Base magnification of the tile source.
+        geometry: Shapely geometry (Polygon, Point, ...) defining the patch center.
+        patch_size: Desired output patch size in pixels.
+        downsample_factor: Base pixels per output pixel.
 
     Returns:
-        JPEG-encoded bytes of the extracted patch.
-    """
-    if geometry.geom_type == "Polygon":
-        centroid = geometry.centroid
-    else:
-        centroid = geometry
+        An RGB ``PIL.Image.Image`` of exactly (patch_size, patch_size).
 
-    scale = 1.0 / downsample_factor
-    magnification = base_mag / downsample_factor
-    half = patch_size / 2.0 / scale
+    Raises:
+        ValueError: If the extracted region is empty or is not exactly
+            (patch_size, patch_size), e.g. because the window was clipped at the
+            slide boundary.
+    """
+    centroid = geometry.centroid  # for a Point, this is the point itself
+
+    # Integer, exactly-square window in base pixels.
+    footprint = round(patch_size * downsample_factor)
+    left = round(centroid.x - footprint / 2.0)
+    top = round(centroid.y - footprint / 2.0)
 
     region, _ = ts.getRegion(
         region={
-            "left": centroid.x - half,
-            "top": centroid.y - half,
-            "right": centroid.x + half,
-            "bottom": centroid.y + half,
+            "left": left,
+            "top": top,
+            "right": left + footprint,
+            "bottom": top + footprint,
             "units": "base_pixels",
         },
-        scale={"magnification": magnification},
-        format=large_image.tilesource.TILE_FORMAT_PIL,
+        output={"maxWidth": patch_size, "maxHeight": patch_size},
+        format=large_image.constants.TILE_FORMAT_PIL,
     )
 
     if region is None or region.size[0] == 0 or region.size[1] == 0:
         raise ValueError(
-            f"Empty region extracted for centroid=({centroid.x}, {centroid.y}), "
-            f"magnification={magnification}. "
+            f"Empty region extracted for centroid=({centroid.x}, {centroid.y}). "
             "The requested crop likely falls outside the tile source bounds."
         )
-    
-    buf = io.BytesIO()
-    if region.mode == "RGBA":
+
+    if region.size != (patch_size, patch_size):
+        raise ValueError(
+            f"Patch at centroid=({centroid.x:.1f}, {centroid.y:.1f}) has size "
+            f"{region.size}, expected ({patch_size}, {patch_size}). The window "
+            "was likely clipped at the slide boundary."
+        )
+
+    if region.mode != "RGB":
         region = region.convert("RGB")
-    region.save(buf, format="JPEG", quality=85)
+
+    return region
+
+def convert_PIL_to_JPEG_bytes(image: Image.Image, format: str = "JPEG", quality: int = 85) -> bytes:
+    """Convert a PIL.Image.Image to bytes.
+
+    Args:
+        image: PIL image to convert.
+        format: Image format (default "JPEG").
+        quality: Quality for lossy formats like JPEG.
+
+    Returns:
+        Bytes of the encoded image.
+    """
+    buf = io.BytesIO()
+    if image.mode == "RGBA" and format.upper() == "JPEG":
+        image = image.convert("RGB")
+    image.save(buf, format=format, quality=quality)
     return buf.getvalue()
 
-
-def extract_region_as_pil(
-    ts,
-    geometry: BaseGeometry,
-    patch_size: int,
-    downsample_factor: float,
-    base_mag: float,
-) -> Image.Image:
-    """Extract a region from a tile source and return it as a PIL Image.
-
-    Uses the same ``getRegion`` call pattern as ``extract_patch_from_geometry``
-    but returns the raw PIL Image so callers can draw annotations on top.
-
-    Args:
-        ts: An open ``large_image`` tile source.
-        geometry: Shapely geometry defining the region.
-        patch_size: Side length of the square region in base-pixel units.
-        downsample_factor: Factor by which to downsample from base magnification.
-        base_mag: Base magnification of the tile source.
-
-    Returns:
-        A PIL ``Image.Image`` of the extracted region.
-    """
-    if geometry.geom_type == "Polygon":
-        centroid = geometry.centroid
-    else:
-        centroid = geometry
-
-    scale = 1.0 / downsample_factor
-    magnification = base_mag / downsample_factor
-    half = patch_size / 2.0 / scale
-
-    region, _ = ts.getRegion(
-        region={
-            "left": centroid.x - half,
-            "top": centroid.y - half,
-            "right": centroid.x + half,
-            "bottom": centroid.y + half,
-            "units": "base_pixels",
-        },
-        scale={"magnification": magnification},
-        format=large_image.tilesource.TILE_FORMAT_PIL,
-    )
-
-    if region is None or region.size[0] == 0 or region.size[1] == 0:
-        raise ValueError(
-            f"Empty region extracted for centroid=({centroid.x}, {centroid.y}), "
-            f"magnification={magnification}. "
-            "The requested crop likely falls outside the tile source bounds."
-        )
-
-    if region.mode == "RGBA":
-        region = region.convert("RGB")
-    return region
 
 
 def get_polygon_radius_in_pixels(geometry: BaseGeometry) -> float:

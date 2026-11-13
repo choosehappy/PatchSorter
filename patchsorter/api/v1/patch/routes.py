@@ -21,7 +21,7 @@ from patchsorter.api.v1.patch.models import (
     SampleByPointRequest,
 )
 from patchsorter.api.v1.confusion_matrix.utils import _parse_label_pairs, _world_to_grid_bbox
-from patchsorter.utils.patch_extraction import extract_region_as_pil
+from patchsorter.utils.patch_extraction import extract_patch_from_geometry
 import large_image
 
 logger = logging.getLogger(__name__)
@@ -202,7 +202,7 @@ def get_patch_context(
 
         # Extract region using the shared helper
         try:
-            region = extract_region_as_pil(ts, box_geom, context_size, downsample_factor, base_mag)
+            region = extract_patch_from_geometry(ts, box_geom, context_size, downsample_factor)
         except ValueError:
             logger.exception(
                 "Failed to extract context region for patch_id=%s, project_id=%s",

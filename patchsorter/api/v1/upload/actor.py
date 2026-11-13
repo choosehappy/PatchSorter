@@ -1,4 +1,4 @@
-from __future__ import annotations
+from patchsorter.utils.patch_extraction import convert_PIL_to_JPEG_bytes
 
 import csv
 import io
@@ -362,7 +362,9 @@ def process_row(
             else:
                 computed_downsample = downsample
 
-            patch_bytes = extract_patch_from_geometry(ts, geometry, patch_size, computed_downsample, base_mag)
+            patch_bytes = convert_PIL_to_JPEG_bytes(
+                extract_patch_from_geometry(ts, geometry, patch_size, computed_downsample)
+            )
 
             if geometry.geom_type == "Polygon":
                 centroid = geometry.centroid
