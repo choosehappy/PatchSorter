@@ -10,12 +10,14 @@ from shapely.geometry.base import BaseGeometry
 # Constants for patch extraction
 # ---------------------------------------------------------------------------
 
-MAG_TO_MPP_FACTOR = 10.0  # derived from BASE_MAG_PPM_MICRONS * BASE_MAG (10.0 = 0.25 * 40)
+MAG_TO_PIXELS_RATIO = 0.1 # Magnification is assumed to scale linearly with pixels per micron at this approximate ratio.
 
-
-def mm_per_pixel_at_base(base_mag: float) -> float:
-    """Returns approximate mm per pixel at the given base magnification."""
-    return (MAG_TO_MPP_FACTOR / base_mag) / 1000
+# TODO: This should by default be obtained directly from the Image metadata rather than estimating.
+def approx_mpp_from_magnification(magnification: float) -> float:
+    """Returns approximate microns per pixel at the given base magnification."""
+    pixels_per_micron = magnification * MAG_TO_PIXELS_RATIO
+    microns_per_pixel = 1.0 / pixels_per_micron
+    return microns_per_pixel
 
 
 # ---------------------------------------------------------------------------
@@ -27,7 +29,7 @@ def compute_downsample_factor(
     object_radius_microns: float,
     base_mag: float,
     patch_size_pixels: int,
-    mm_per_pixel_at_base_val: float,
+    microns_per_pixel_at_base_mag: float,
 ) -> float:
     """Compute the minimum downsample factor so an object fits in a patch.
 
@@ -37,18 +39,18 @@ def compute_downsample_factor(
 
     Formula::
 
-        downsample = max(1.0, (2 * radius_microns) / (patch_size * mm_per_pixel_at_base * 1000))
+        downsample = max(1.0, (2 * radius_microns) / (patch_size * microns_per_pixel))
 
     Args:
         object_radius_microns: Object radius in microns.
         base_mag: Base magnification of the tile source.
         patch_size_pixels: Desired patch edge length in pixels.
-        mm_per_pixel_at_base_val: mm per pixel at base magnification.
+        microns_per_pixel_at_base_mag: Microns per pixel at base magnification.
 
     Returns:
         The computed downsample factor (>= 1.0).
     """
-    radius_base_pixels = object_radius_microns / (mm_per_pixel_at_base_val * 1000)
+    radius_base_pixels = object_radius_microns / microns_per_pixel_at_base_mag
     downsample = (2 * radius_base_pixels) / patch_size_pixels
     return max(1.0, downsample)
 
