@@ -185,7 +185,13 @@ class SettingsStore:
     # Writes
     # ------------------------------------------------------------------
 
-    def update(self, setting_key: str, setting_value: str, project_id: Optional[int] = None) -> None:
+    def update(
+        self,
+        setting_key: str,
+        setting_value: str,
+        project_id: Optional[int] = None,
+        allow_update_disabled: bool = False,
+    ) -> None:
         """Set an override value for *setting_key*, validated against the schema.
 
         Creates the override row if it doesn't exist yet, or updates it if
@@ -197,14 +203,17 @@ class SettingsStore:
             setting_value: The new raw string value to store.
             project_id: The project scope, ignored for application-scoped
                 settings.
+            allow_update_disabled: If True, skip the read-only check for
+                settings marked ``disabled`` in the schema.
 
         Raises:
             KeyError: If *setting_key* is not present in the schema.
             ValueError: If *setting_value* fails type or enum validation.
-            SettingDisabledError: If the setting is marked ``disabled``.
+            SettingDisabledError: If the setting is marked ``disabled`` and
+                ``allow_update_disabled`` is False.
         """
         entry = self._require_entry(setting_key)
-        if entry.disabled:
+        if entry.disabled and not allow_update_disabled:
             raise SettingDisabledError(f"Setting {setting_key!r} is read-only")
         self._validate_setting(setting_key, setting_value, entry)
 
