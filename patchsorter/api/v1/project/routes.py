@@ -113,10 +113,20 @@ def create_project(body: CreateProjectRequest) -> ProjectResponse:
     with client.get_session() as session:
         store = ProjectStore(session)
         row = store.create(name=body.name, description=body.description)
+        project_id = row.get("project_id")
+
+        settings_store = SettingsStore(session)
+
+        if body.patch_size is not None:
+            settings_store.update("patch_size", str(body.patch_size), project_id, allow_update_disabled=True)
+        if body.patch_extraction_method is not None:
+            settings_store.update("patch_extraction_method", body.patch_extraction_method, project_id)
+        if body.object_radius is not None:
+            settings_store.update("object_radius", str(body.object_radius), project_id)
 
     # Some CITUS operations cannot occur in a transaction.
     db_mgr = DatabaseManager(client)
-    db_mgr.setup_project(row.get("project_id"))
+    db_mgr.setup_project(project_id)
     return ProjectResponse(**row)
 
 
