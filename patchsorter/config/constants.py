@@ -81,3 +81,7 @@ ANNOTATION_CLASS_COLOR_PALETTES: dict[str, list[str]] = {
         "#43002c", "#788231",
     ]
 }
+
+# Patch context overlay settings
+CONTEXT_SQUARE_WIDTH = 2
+CONTEXT_POLYGON_WIDTH = 1

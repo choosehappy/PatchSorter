@@ -286,7 +286,6 @@ export default function PatchGallery({
                     patch={hoveredPatch}
                     mouseX={hoverMouseX}
                     mouseY={hoverMouseY}
-                    patchSize={patchSize}
                 />
             )}
         </div>

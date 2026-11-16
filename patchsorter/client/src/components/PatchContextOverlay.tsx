@@ -8,7 +8,6 @@ interface PatchContextOverlayProps {
     patch: PatchResponse
     mouseX: number
     mouseY: number
-    patchSize: number
 }
 
 export default function PatchContextOverlay({
@@ -16,7 +15,6 @@ export default function PatchContextOverlay({
     patch,
     mouseX,
     mouseY,
-    patchSize,
 }: PatchContextOverlayProps) {
     const [imageSrc, setImageSrc] = useState<string | null>(null)
     const [imageError, setImageError] = useState(false)
@@ -29,7 +27,6 @@ export default function PatchContextOverlay({
             try {
                 const res = await getPatchContextProjectsProjectIdPatchesPatchIdContextGet({
                     path: { project_id: projectId, patch_id: patch.patch_id },
-                    params: { query: { scale: 2 } },
                 })
                 if (!cancelled && res.data) {
                     const blob = res.data as Blob

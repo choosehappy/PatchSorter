@@ -1,15 +1,12 @@
+from shapely import Point
 from typing import List, Optional
 
 import io
 import logging
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Response
-from PIL import Image, ImageDraw
-from shapely.geometry import shape, box
-from shapely.ops import transform
-from shapely import wkt
-from shapely.affinity import translate
-import pyproj
+from PIL import Image
+from shapely.geometry import shape
 from sqlalchemy import text
 
 from patchsorter.db.head_client import get_client as get_head_client
@@ -25,6 +22,8 @@ from patchsorter.api.v1.patch.models import (
 )
 from patchsorter.api.v1.confusion_matrix.utils import _parse_label_pairs, _world_to_grid_bbox
 from patchsorter.utils.patch_extraction import extract_patch_from_geometry
+from patchsorter.api.v1.patch.utils import draw_patch_overlays
+
 import large_image
 
 logger = logging.getLogger(__name__)
@@ -155,7 +154,6 @@ def assign_labels_by_polygon(
 def get_patch_context(
     project_id: int,
     patch_id: int,
-    scale: Optional[int] = Query(default=None, ge=1, le=20),
 ) -> Response:
     client = get_head_client()
     with client.get_session() as session:
@@ -167,43 +165,32 @@ def get_patch_context(
         centroid_x = patch_row.get("centroid_x")
         centroid_y = patch_row.get("centroid_y")
         polygon_wkt = patch_row.get("polygon")
-        downsample_factor = patch_row.get("downsample_factor", 1.0)
-
-        if not centroid_x or not centroid_y:
-            raise HTTPException(status_code=400, detail="Patch has no centroid coordinates")
+        downsample_factor = patch_row.get("downsample_factor")
 
         # Get image path via ImageStore
         image_id = patch_row.get("image_id")
-        image_store = ImageStore(project_id, session)
+        image_store = ImageStore(session)
         image_row = image_store.get(image_id, project_id)
         if not image_row or not image_row.image_path:
             raise HTTPException(status_code=404, detail="Image not found")
 
         # Resolve context region scale
-        settings_store = SettingsStore(session)
-        if scale is None:
-            scale = settings_store.get_int("context_region_scale")
+        scale = SettingsStore(session).get_int("context_region_scale")
 
         # Measure actual patch size from patch_image bytes
-        # NOTE: Patch size should be stored per patch to avoid having to load and decode the image just to measure its size.
+        # NOTE: Patch size should be stored per patch in the db to avoid having to load and decode the image just to measure its size.
         patch_img_bytes = patch_row.get("patch_image")
-        if patch_img_bytes:
-            patch_size_pixels = int(Image.open(io.BytesIO(patch_img_bytes)).width)
-        else:
+        if not patch_img_bytes:
             raise HTTPException(status_code=400, detail="Patch has no image data")
+        patch_size_pixels = int(Image.open(io.BytesIO(patch_img_bytes)).width)
         context_size = scale * patch_size_pixels
 
-        # Open tile source and get base magnification
-        image_path = image_row.image_path
-        ts = large_image.open(str(image_path))
+        ts = large_image.open(str(image_row.image_path))
 
-        # Build a box geometry centered at centroid with side = context_size (base-pixel units)
-        half = context_size / 2.0
-        box_geom = box(centroid_x - half, centroid_y - half, centroid_x + half, centroid_y + half)
-
-        # Extract region using the shared helper
         try:
-            region = extract_patch_from_geometry(ts, box_geom, context_size, downsample_factor)
+            region = extract_patch_from_geometry(
+                ts, Point(centroid_x, centroid_y), context_size, downsample_factor
+            )
         except ValueError:
             logger.exception(
                 "Failed to extract context region for patch_id=%s, project_id=%s",
@@ -212,40 +199,20 @@ def get_patch_context(
             )
             raise HTTPException(status_code=500, detail="Failed to extract context region")
 
-        # Draw patch square (centered at centroid, size = patch_size * downsample_factor)
-        draw = ImageDraw.Draw(region)
-        patch_side = int(patch_size_pixels * downsample_factor)
-        cx = half  # centroid is at center of region
-        cy = half
-        x0 = cx - patch_side // 2
-        y0 = cy - patch_side // 2
-        draw.rectangle([x0, y0, x0 + patch_side, y0 + patch_side], outline="red", width=2)
-
-        # Draw polygon if available
-        if polygon_wkt:
-            try:
-                poly = translate(
-                    wkt.loads(polygon_wkt),
-                    xoff=half - centroid_x,
-                    yoff=half - centroid_y,
-                )
-                # Handle Polygon and MultiPolygon the same way
-                for p in getattr(poly, "geoms", [poly]):
-                    for ring in [p.exterior, *p.interiors]:
-                        draw.line(list(ring.coords), fill="blue", width=1)
-            except Exception as e:
-                print(f"Failed to draw polygon: {e}")
+        # Draw overlays, centered on the region
+        draw_patch_overlays(
+            region,
+            patch_size_pixels=patch_size_pixels,
+            centroid=(centroid_x, centroid_y),
+            downsample_factor=downsample_factor,
+            polygon_wkt=polygon_wkt,
+        )
 
         buf = io.BytesIO()
-        region.save(buf, format="JPEG", quality=85)
-        buf.seek(0)
+        region.save(buf, format="JPEG", quality=90)
 
         return Response(
             content=buf.getvalue(),
             media_type="image/jpeg",
-            headers={
-                "Cache-Control": "public, max-age=31536000",
-            },
+            headers={"Cache-Control": "public, max-age=31536000"},
         )
-
-

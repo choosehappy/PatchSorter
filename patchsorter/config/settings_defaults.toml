@@ -93,6 +93,6 @@ description = "Application logging level"
 
 [settings.context_region_scale]
 scope   = "application"
-default = "2"
+default = "3"
 type    = "integer"
 description = "Multiplier of patch size for context region (e.g., 2 = 2x patch_size)"
