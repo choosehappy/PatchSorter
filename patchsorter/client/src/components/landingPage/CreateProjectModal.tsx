@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { Modal, Button, Form } from 'react-bootstrap'
 import { toast } from 'react-toastify'
 import { useMutation } from '@tanstack/react-query'
@@ -14,6 +14,7 @@ export default function CreateProjectModal({ show, onClose, onSuccess }: CreateP
     const nameRef = useRef<HTMLInputElement>(null)
     const nameInputRef = useRef<HTMLInputElement>(null)
     const descriptionRef = useRef<HTMLTextAreaElement>(null)
+    const [patchExtractionMethod, setPatchExtractionMethod] = useState('use manual object radius')
 
     useEffect(() => {
         if (show) {
@@ -24,7 +25,7 @@ export default function CreateProjectModal({ show, onClose, onSuccess }: CreateP
     }, [show])
 
     const mutation = useMutation({
-        mutationFn: (vars: { name: string; description: string | null }) =>
+        mutationFn: (vars: { name: string; description: string | null; patch_size?: number; patch_extraction_method?: string; object_radius?: number }) =>
             createProjectProjectsPost({ body: vars }),
         onSuccess: () => {
             toast.success('Project created successfully.')
@@ -42,11 +43,15 @@ export default function CreateProjectModal({ show, onClose, onSuccess }: CreateP
         const form = e.currentTarget
         const name = (form.elements.namedItem('projectName') as HTMLInputElement).value.trim()
         const description = (form.elements.namedItem('projectDescription') as HTMLTextAreaElement).value.trim() || null
+        const patchSizeVal = (form.elements.namedItem('patchSize') as HTMLInputElement).value
+        const objectRadiusVal = (form.elements.namedItem('objectRadius') as HTMLInputElement).value
+        const patch_size = patchSizeVal ? parseInt(patchSizeVal, 10) : undefined
+        const object_radius = objectRadiusVal ? parseInt(objectRadiusVal, 10) : undefined
         if (!name) {
             toast.error('Project name is required.')
             return
         }
-        mutation.mutate({ name, description })
+        mutation.mutate({ name, description, patch_size, patch_extraction_method: patchExtractionMethod, object_radius })
     }
 
     return (
@@ -77,6 +82,41 @@ export default function CreateProjectModal({ show, onClose, onSuccess }: CreateP
                             placeholder="Optional description"
                         />
                     </Form.Group>
+                    <hr className="my-4" />
+                    <h6 className="mb-3">Project Configuration</h6>
+                    <Form.Group className="mb-3">
+                        <Form.Label>Patch Size (pixels)</Form.Label>
+                        <Form.Control
+                            name="patchSize"
+                            type="number"
+                            defaultValue="64"
+                            placeholder="64"
+                        />
+                        <Form.Text className="text-muted">Size of each patch in pixels</Form.Text>
+                    </Form.Group>
+                    <Form.Group className="mb-3">
+                        <Form.Label>Patch Extraction Method</Form.Label>
+                        <Form.Control
+                            as="select"
+                            defaultValue="use manual object radius"
+                            onChange={(e) => setPatchExtractionMethod(e.target.value)}
+                        >
+                            <option value="use manual object radius">use manual object radius</option>
+                        </Form.Control>
+                        <Form.Text className="text-muted">Method for extracting patches from tissue objects</Form.Text>
+                    </Form.Group>
+                    {patchExtractionMethod === 'use manual object radius' && (
+                        <Form.Group className="mb-3">
+                            <Form.Label>Object Radius (microns)</Form.Label>
+                            <Form.Control
+                                name="objectRadius"
+                                type="number"
+                                defaultValue="10"
+                                placeholder="10"
+                            />
+                            <Form.Text className="text-muted">Expected radius of an object in microns</Form.Text>
+                        </Form.Group>
+                    )}
                 </Modal.Body>
                 <Modal.Footer>
                     <Button variant="secondary" onClick={onClose} disabled={mutation.isPending}>
