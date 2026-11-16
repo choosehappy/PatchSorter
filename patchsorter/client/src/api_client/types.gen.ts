@@ -84,6 +84,18 @@ export type CreateProjectRequest = {
      * Description
      */
     description?: string | null;
+    /**
+     * Patch Size
+     */
+    patch_size?: number | null;
+    /**
+     * Patch Extraction Method
+     */
+    patch_extraction_method?: string | null;
+    /**
+     * Object Radius
+     */
+    object_radius?: number | null;
 };
 
 /**
