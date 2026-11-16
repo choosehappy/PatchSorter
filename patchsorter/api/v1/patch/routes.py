@@ -7,11 +7,14 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from PIL import Image, ImageDraw
 from shapely.geometry import shape, box
 from shapely.ops import transform
+from shapely import wkt
+from shapely.affinity import translate
 import pyproj
 from sqlalchemy import text
 
 from patchsorter.db.head_client import get_client as get_head_client
 from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.image import ImageStore
 from patchsorter.db.head_client.models import build_table_name
 from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.api.v1.patch.models import (
@@ -169,13 +172,11 @@ def get_patch_context(
         if not centroid_x or not centroid_y:
             raise HTTPException(status_code=400, detail="Patch has no centroid coordinates")
 
-        # Get image path
+        # Get image path via ImageStore
         image_id = patch_row.get("image_id")
-        image_row = session.execute(
-            text("SELECT image_path FROM image WHERE image_id = :image_id"),
-            {"image_id": image_id},
-        ).mappings().first()
-        if not image_row or not image_row.get("image_path"):
+        image_store = ImageStore(project_id, session)
+        image_row = image_store.get(image_id, project_id)
+        if not image_row or not image_row.image_path:
             raise HTTPException(status_code=404, detail="Image not found")
 
         # Resolve context region scale
@@ -183,11 +184,17 @@ def get_patch_context(
         if scale is None:
             scale = settings_store.get_int("context_region_scale")
 
-        patch_size_pixels = 64  # default patch size at base magnification
+        # Measure actual patch size from patch_image bytes
+        # NOTE: Patch size should be stored per patch to avoid having to load and decode the image just to measure its size.
+        patch_img_bytes = patch_row.get("patch_image")
+        if patch_img_bytes:
+            patch_size_pixels = int(Image.open(io.BytesIO(patch_img_bytes)).width)
+        else:
+            raise HTTPException(status_code=400, detail="Patch has no image data")
         context_size = scale * patch_size_pixels
 
         # Open tile source and get base magnification
-        image_path = image_row["image_path"]
+        image_path = image_row.image_path
         ts = large_image.open(str(image_path))
 
         # Build a box geometry centered at centroid with side = context_size (base-pixel units)
@@ -217,18 +224,17 @@ def get_patch_context(
         # Draw polygon if available
         if polygon_wkt:
             try:
-                poly = shape(polygon_wkt)
-                # Transform from base-pixel to pixel coordinates
-                transform_fn = lambda x, y: (x - centroid_x + half, y - centroid_y + half)
-                transformed = transform(transform_fn, poly)
-                for coord in transformed.exterior.coords:
-                    draw.line([coord, None], outline="blue", width=1)
-                if transformed.interiors:
-                    for interior in transformed.interiors:
-                        coords = list(interior.coords)
-                        draw.line(coords + [coords[0]], outline="blue", width=1)
-            except Exception:
-                pass  # Silently skip polygon drawing on error
+                poly = translate(
+                    wkt.loads(polygon_wkt),
+                    xoff=half - centroid_x,
+                    yoff=half - centroid_y,
+                )
+                # Handle Polygon and MultiPolygon the same way
+                for p in getattr(poly, "geoms", [poly]):
+                    for ring in [p.exterior, *p.interiors]:
+                        draw.line(list(ring.coords), fill="blue", width=1)
+            except Exception as e:
+                print(f"Failed to draw polygon: {e}")
 
         buf = io.BytesIO()
         region.save(buf, format="JPEG", quality=85)
