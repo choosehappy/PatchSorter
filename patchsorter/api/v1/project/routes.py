@@ -4,8 +4,10 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Response
 from sqlalchemy import case, func, select, text
 
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID
 from patchsorter.db.head_client import get_client as get_head_client
 from patchsorter.db.head_client.database_manager import DatabaseManager
+from patchsorter.db.head_client.label_class import LabelClassStore
 from patchsorter.db.head_client.project import ProjectStore
 from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.db.head_client.models import build_table_name
@@ -59,16 +61,15 @@ def get_project_stats(project_id: int) -> ProjectStatsResponse:
             patch_size = None
 
         # num_label_classes
-        num_label_classes = session.execute(
-            text("SELECT COUNT(*) FROM label_class WHERE project_id = :pid"),
-            {"pid": project_id},
-        ).scalar()
+        label_class_store = LabelClassStore(session)
+        label_classes = label_class_store.list_by_project(project_id)
+        num_label_classes = len(label_classes) - 1 # The unassigned class is not counted
 
         # total_objects and labeled_count from project{N}_patch
         tbl = build_table_name(project_id)
         stmt = select(
             func.count().label("total_count"),
-            func.count(case((text("label_class_id > 1"), 1))).label("labeled_count"),
+            func.count(case((text(f"label_class_id > {UNASSIGNED_CLASS_ID}"), 1))).label("labeled_count"),
         ).select_from(text(tbl))
         row = session.execute(stmt).one()
         total_row = row.total_count

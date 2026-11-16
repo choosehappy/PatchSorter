@@ -60,7 +60,7 @@ export const MAX_PATCH_SIZE = 300
 export const DEFAULT_PATCH_SIZE = 80
 
 // QueryRange (inverted: density=0 → large query box, density=100 → small query box)
-export const DEFAULT_QUERY_RANGE = 16
+export const DEFAULT_QUERY_RANGE = 64
 export const MIN_QUERY_RANGE = 2
 export const MAX_QUERY_RANGE = 64
 

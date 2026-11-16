@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import datetime
+import glob
 import os
 import shutil
 from pathlib import Path
@@ -140,6 +142,83 @@ class NASWriteStore(FileStore):
         dest = dest_dir / filename
         shutil.move(src, dest)
         return dest
+
+    def get_checkpoint_dir(self, project_id: int) -> Path:
+        """Return the **full path** to the checkpoints directory for a project.
+
+        Creates the directory (and parents) if it does not exist.
+        """
+        checkpoint_dir = self.get_project_path(project_id) / "checkpoints"
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        return checkpoint_dir
+
+    def get_latest_checkpoint_dir(self, project_id: int) -> Path | None:
+        """Return the **full path** to the latest checkpoint directory, or ``None``."""
+        checkpoint_dir = self.get_checkpoint_dir(project_id)
+        if not checkpoint_dir.is_dir():
+            return None
+        dirs = [d for d in checkpoint_dir.iterdir() if d.is_dir()]
+        if not dirs:
+            return None
+        return max(dirs)
+
+    def get_all_checkpoint_dirs(self, project_id: int) -> list[Path]:
+        """Return all checkpoint directories sorted newest-first."""
+        checkpoint_dir = self.get_checkpoint_dir(project_id)
+        if not checkpoint_dir.is_dir():
+            return []
+        dirs = [d for d in checkpoint_dir.iterdir() if d.is_dir()]
+        dirs.sort(reverse=True)
+        return dirs
+
+    def get_checkpoint_dir_by_name(self, project_id: int, name: str) -> Path | None:
+        """Return the full path to a checkpoint directory by timestamp name, or ``None``."""
+        checkpoint_dir = self.get_checkpoint_dir(project_id)
+        if not checkpoint_dir.is_dir():
+            return None
+        candidate = checkpoint_dir / name
+        return candidate if candidate.is_dir() else None
+
+    def get_new_checkpoint_dir_path(self, project_id: int) -> Path:
+        """Return a new timestamped checkpoint directory path for the given project."""
+        checkpoint_dir = self.get_checkpoint_dir(project_id)
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H-%M-%S')
+        return checkpoint_dir / timestamp
+
+    def truncate_checkpoints(self, project_id: int, max_checkpoints: int) -> None:
+        """Keep only the latest ``max_checkpoints`` checkpoint directories, delete older ones."""
+        checkpoint_dirs = self.get_all_checkpoint_dirs(project_id)
+        if len(checkpoint_dirs) <= max_checkpoints:
+            return
+        for old_dir in checkpoint_dirs[max_checkpoints:]:
+            shutil.rmtree(old_dir, ignore_errors=True)
+
+    def get_checkpoint_path(self, project_id: int, ckpt_type: str, checkpoint_dir: Path | None = None) -> Path:
+        """Return the full path to a checkpoint file for the given component type.
+
+        Args:
+            project_id: Project integer ID.
+            ckpt_type: One of ``"backbone"`` or ``"head"``.
+            checkpoint_dir: Checkpoint directory. If ``None``, uses the project
+                checkpoint directory (does not resolve to a specific timestamp).
+
+        Returns:
+            The **full path** to the checkpoint file.
+        """
+        base = checkpoint_dir if checkpoint_dir is not None else self.get_checkpoint_dir(project_id)
+        return base / f"{ckpt_type}{constants.CHECKPOINT_EXT}"
+
+    def get_latest_checkpoint_path(self, project_id: int, ckpt_type: str) -> Path | None:
+        """Return the full path to the latest checkpoint file, or ``None``.
+
+        Args:
+            project_id: Project integer ID.
+            ckpt_type: One of ``"backbone"`` or ``"head"``.
+        """
+        latest_dir = self.get_latest_checkpoint_dir(project_id)
+        if latest_dir is None:
+            return None
+        return self.get_checkpoint_path(project_id, ckpt_type, latest_dir)
 
 
 class NASReadStore(FileStore):

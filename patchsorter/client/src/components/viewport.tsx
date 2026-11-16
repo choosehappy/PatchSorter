@@ -192,6 +192,15 @@ export default function Viewport({
         annotationLayerRef.current.draw()
     }
 
+    function getClampedBounds() {
+        return {
+            left: Math.max(0, mapRef.current.bounds().left),
+            top: Math.max(0, mapRef.current.bounds().top),
+            right: Math.min(WORLD_SIZE, mapRef.current.bounds().right),
+            bottom: Math.min(WORLD_SIZE, mapRef.current.bounds().bottom),
+        }
+    }
+
     // Keep a mutable ref for tile-URL state so the GeoJS callback always reads
     // the latest values without needing to re-register it.
     const tileStateRef = useRef({ colorBy, filterBy, selectedCells, numClasses, classIds })
@@ -338,12 +347,13 @@ export default function Viewport({
         const numCols = Math.max(1, Math.ceil(width / spacing))
         const numRows = Math.max(1, Math.ceil(height / spacing))
 
+        // Cell-centred grid covering the full bounds, including partial edge cells.
         const points: { x: number; y: number }[] = []
-        for (let row = 0; (row + 1) * spacing < height; row++) {
-            for (let col = 0; (col + 1) * spacing < width; col++) {
+        for (let row = 0; row < numRows + 1; row++) {
+            for (let col = 0; col < numCols + 1; col++) {
                 points.push({
-                    x: bounds.left + col * spacing,
-                    y: bounds.top + row * spacing,
+                    x: Math.min(bounds.left + (col) * spacing, bounds.right),
+                    y: Math.min(bounds.top + (row) * spacing, bounds.bottom),
                 })
             }
         }
@@ -409,7 +419,8 @@ export default function Viewport({
             mapDivRef.current, WORLD_SIZE, WORLD_SIZE, WORLD_SIZE / 2, WORLD_SIZE / 2
         )
         params.map.zoom = 0
-        params.map.minZoom = 0
+        params.map.min = -2
+        params.map.clampZoom = false
         params.map.max = maxOsmZoom
         params.map.center = { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 }
         paramsRef.current = params
@@ -693,7 +704,7 @@ export default function Viewport({
             return
         }
 
-        const bounds = mapRef.current.bounds()
+        const bounds = getClampedBounds()
 
         const lp = buildLpQuery()
 
@@ -714,7 +725,7 @@ export default function Viewport({
             if (panZoomClearTimeout) clearTimeout(panZoomClearTimeout)
             panZoomClearTimeout = setTimeout(async () => {
                 if (!mapRef.current || !quadFeatureRef.current || !quadLayerRef.current) return
-                const bounds = mapRef.current.bounds()
+                const bounds = getClampedBounds()
                 const lp = buildLpQuery()
                 bboxAbortRef.current?.abort()
                 bboxAbortRef.current = new AbortController()

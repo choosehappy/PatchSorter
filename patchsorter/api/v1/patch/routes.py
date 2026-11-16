@@ -43,9 +43,12 @@ def list_patches(
             settings_store = SettingsStore(session)
             max_level = settings_store.get_int("max_level", project_id)
             world_size = settings_store.get_int("world_size", project_id)
-            i_min, j_min, i_max, j_max = _world_to_grid_bbox(
-                x_min, y_min, x_max, y_max, max_level, max_level, world_size
-            )
+            try:
+                i_min, j_min, i_max, j_max = _world_to_grid_bbox(
+                    x_min, y_min, x_max, y_max, max_level, max_level, world_size
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
             rows = store.get_patches_within_grid_bbox(
                 i_min, i_max, j_min, j_max,
                 cursor=cursor,

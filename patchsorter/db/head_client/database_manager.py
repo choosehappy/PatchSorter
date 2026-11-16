@@ -1,8 +1,8 @@
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from patchsorter.db.utils import SessionManager
-from patchsorter.db.head_client.models import Base, Project, all_project_models, build_table_name, build_pred_table_name
+from patchsorter.db.head_client.models import LABEL_CLASS_ID_FUNCTION_SQL, LABEL_CLASS_ID_TRIGGER_STATEMENTS, Base, Project, all_project_models, build_table_name, build_pred_table_name
 from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.confusion_matrix import ConfusionMatrixStore
 from patchsorter.config.constants import PredPatchSuffix
@@ -20,44 +20,6 @@ from patchsorter.db.head_client.models import (
 
 from typing import Any, Dict, List
 
-class CitusShardMap:
-    def __init__(self, session, table_a: str, table_b: str):
-        self.table_a = table_a
-        self.table_b = table_b
-
-        self.map = self._get_map_for_tables(session,table_a, table_b)
-
-    @staticmethod
-    def _get_map_for_tables(session, table_a: str, table_b: str):
-        """
-        Returns a dictionary mapping {shard_id_a: shard_id_b} 
-        for two colocated tables.
-        """
-        query = text(f"""
-            SELECT s1.shardid AS shard_a, s2.shardid AS shard_b
-            FROM pg_dist_shard s1
-            JOIN pg_dist_shard s2 ON s1.shardminvalue = s2.shardminvalue 
-                                 AND s1.shardmaxvalue = s2.shardmaxvalue
-            JOIN pg_dist_partition p1 ON s1.logicalrelid = p1.logicalrelid
-            JOIN pg_dist_partition p2 ON s2.logicalrelid = p2.logicalrelid
-            WHERE s1.logicalrelid = '{table_a}'::regclass
-              AND s2.logicalrelid = '{table_b}'::regclass
-              AND p1.colocationid = p2.colocationid;
-        """)
-        result = session.execute(query)
-        rows = result.fetchall()
-        return {row.shard_a: row.shard_b for row in rows}
-        
-    def get_table_a_shard_list(self) -> List[int]:
-        return list(self.map.keys())
-    
-    def get_table_b_shard_list(self) -> List[int]:
-        return list(self.map.values())
-    
-    def get_b_shard_for_a_shard(self, shard_a: int) -> int:
-        return self.map[shard_a]
-
-
 class DatabaseManager:
     """Schema and DDL manager implemented on top of a SessionManager."""
 
@@ -72,21 +34,6 @@ class DatabaseManager:
                 cur.execute("SELECT * FROM citus_get_active_worker_nodes();")
                 return cur.fetchall()
 
-    def register_project_models(self) -> None:
-        """Query all existing project IDs and register their per-project ORM
-        models with ``Base.metadata``.
-
-        Call this once at application startup so that operations such as
-        ``drop_all_tables`` and ``setup_schema`` are aware of all project-
-        scoped tables (``project{N}_patch``, ``project{N}_pred_patch_*``,
-        ``project{N}_confusion_matrix_l*``) and can resolve FK dependencies
-        correctly without manual CASCADE workarounds.
-        """
-        with self.sm.get_session() as session:
-            project_ids = session.execute(select(Project.project_id)).scalars().all()
-
-        for project_id in project_ids:
-            all_project_models(int(project_id))
 
     def drop_all_tables(self) -> None:
         # check if the project table exists:
@@ -128,12 +75,9 @@ class DatabaseManager:
 
         Base.metadata.create_all(self.sm.engine)
 
-        # Seed the reserved "unassigned" label class (label_class_id = 1)
-        seed_statement = """
-            INSERT INTO label_class (project_id, name, color_code)
-            SELECT NULL, 'unassigned', NULL
-            WHERE NOT EXISTS (SELECT 1 FROM label_class WHERE label_class_id = 1);
-        """
+        # label_class ids are assigned by the label_class_assign_id trigger, installed on the
+        # shards after distribution (see install_label_class_trigger). The per-project
+        # UNASSIGNED row is inserted by ProjectStore.create.
         distribution_statements = [
             "SELECT create_reference_table('project');",
             "SELECT create_reference_table('image');",
@@ -154,15 +98,54 @@ class DatabaseManager:
                 except Exception as e:
                     print(f"Citus extension creation failed: {e}")
 
-                cur.execute(seed_statement)
                 for stmt in distribution_statements:
                     try:
                         cur.execute(stmt)
                     except Exception as e:
                         print(f"Distribution command failed (may already be distributed): {e}")
-                
+
+                conn.commit()
+                self.install_label_class_trigger(cur)
 
             conn.commit()
+
+    @staticmethod
+    def install_label_class_trigger(cur) -> None:
+        """Install the ``label_class`` ID-assignment trigger.
+
+        Citus refuses to distribute a table that already has triggers, so for a
+        distributed (reference) table the trigger is created on the shards with
+        ``run_command_on_shards`` after distribution. The trigger function is
+        created on the coordinator and on all workers first. For a plain table
+        the trigger is created directly. Safe to call repeatedly.
+
+        Args:
+            cur: An open psycopg cursor; the caller commits.
+        """
+        cur.execute("SELECT 1 FROM pg_dist_partition WHERE logicalrelid = 'label_class'::regclass")
+        distributed = cur.fetchone() is not None
+
+        cur.execute(LABEL_CLASS_ID_FUNCTION_SQL)
+        if not distributed:
+            for stmt in LABEL_CLASS_ID_TRIGGER_STATEMENTS:
+                cur.execute(stmt.replace("%1$s", "label_class"))
+            return
+
+        # https://learn.microsoft.com/en-us/postgresql/citus/triggers?view=citus-14
+        cur.execute("SELECT run_command_on_workers(%s)", (LABEL_CLASS_ID_FUNCTION_SQL,))
+        for stmt in LABEL_CLASS_ID_TRIGGER_STATEMENTS:
+            cur.execute("SELECT shardid, result FROM run_command_on_shards('label_class', %s) WHERE NOT success", (stmt,))
+            failures = cur.fetchall()
+            if failures:
+                raise RuntimeError(f"Failed to install label_class trigger on shards: {failures}")
+
+        cur.execute(
+            "SELECT shardid FROM run_command_on_shards('label_class', %s) WHERE NOT success OR result <> '1'",
+            ("SELECT count(*) FROM pg_trigger WHERE tgrelid = '%1$s'::regclass AND tgname = 'label_class_assign_id_trg'",),
+        )
+        missing = cur.fetchall()
+        if missing:
+            raise RuntimeError(f"label_class trigger missing on shards: {missing}")
 
     def rotate_pred_patch_tables(self, project_id: int) -> None:
         """Rotate ``pred_patch_latest`` → ``pred_patch_last`` via a 3-way rename.
@@ -557,14 +540,7 @@ class DatabaseManager:
 
             self.setup_triggers(project_id, conn)
             conn.commit()
-
-    def get_shard_map_for_patch_and_pred(self, project_id: int) -> CitusShardMap:
-        """Get a mapping of {patch_shard_id: pred_patch_shard_id} for the colocated shards of project{N}_patch and project{N}_pred_patch_latest.
-
-        This is used by the application to route queries to the correct shard when joining patch and pred_patch tables together.
-        """
-        with self.sm.get_session() as session:
-            return CitusShardMap(session, build_table_name(project_id), build_pred_table_name(project_id, PredPatchSuffix.LATEST))
+            
             
     def clear_predictions(self, project_id: int) -> None:
         """Clear all rows from all pred_patch tables across all projects.

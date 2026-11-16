@@ -106,13 +106,13 @@ class SQLiteDataset:
                 WHERE score_timestamp > 0
                 """
             )
-            # conn.execute(  #TODO: might not need?
-            #     f"""
-            #     CREATE INDEX IF NOT EXISTS idx_{self.table_name}_tmp_label_positive
-            #     ON {self.table_name} (tmp_label)
-            #     WHERE tmp_label > -1
-            #     """
-            # )
+            conn.execute(
+                f"""
+                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_tmp_label_positive
+                ON {self.table_name} (tmp_label)
+                WHERE tmp_label > -1
+                """
+            )
 
             conn.commit()
 

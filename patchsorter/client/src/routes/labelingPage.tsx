@@ -9,6 +9,7 @@ import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
 import LabelPicker from '../components/LabelPicker'
 import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, assignLabelsByIdsProjectsProjectIdPatchesPost, assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
+import DLActorControl from '../components/labelingPage/DLActorControl'
 import { DEFAULT_REFRESH_INTERVAL_MS, DEFAULT_QUERY_RANGE, PERFECT_SQUARE_LIMITS } from '../constants'
 
 
@@ -154,7 +155,7 @@ export default function LabelingPage() {
     })
 
     const { data: galleryTotal = null } = useQuery<number | null>({
-        queryKey: ['galleryTotal', projectId, lassoPolygon],
+        queryKey: ['galleryTotal', projectId, lassoPolygon, lp],
         queryFn: async () => {
             const bbox = computeBboxFromPolygon(lassoPolygon!)
             const { data, error } = await getConfusionMatrixProjectsProjectIdConfusionMatrixGet({
@@ -164,6 +165,7 @@ export default function LabelingPage() {
                     y_min: bbox.y_min,
                     x_max: bbox.x_max,
                     y_max: bbox.y_max,
+                    lp,
                 },
             })
             if (error) throw error
@@ -402,6 +404,7 @@ export default function LabelingPage() {
                             />
                             Show Patch Grid
                         </label>
+
                         <div className="control-group">
                             <label>Query Limit: {PERFECT_SQUARE_LIMITS[queryLimitIndex]}</label>
                             <input
@@ -417,6 +420,7 @@ export default function LabelingPage() {
                                 <span>sparse</span>
                             </div>
                         </div>
+                        <DLActorControl projectId={projectId} />
                     </div>
                 </div>
 

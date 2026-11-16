@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from patchsorter.db.head_client.models import Image, build_table_name, build_pred_table_name
 
-from patchsorter.config.constants import PredPatchSuffix
+from patchsorter.config.constants import PredPatchSuffix, UNASSIGNED_CLASS_ID
 
 
 class ImageStore:
@@ -143,7 +143,7 @@ class ImageStore:
         transaction:
 
         1. Reset all ``label_class_id`` values on the project's patches for
-           this image to ``1`` (the reserved "Unlabeled" class).
+           this image to ``UNASSIGNED_CLASS_ID`` (the reserved "Unlabeled" class).
         2. Delete predictions from ``project{N}_pred_patch_latest`` whose
            ``patch_id`` belongs to this image.
         3. Delete predictions from ``project{N}_pred_patch_last`` for the same
@@ -162,7 +162,7 @@ class ImageStore:
         # Step 1: reset ground-truth labels on affected patches.
         self._session.execute(
             text(
-                f"UPDATE {build_table_name(n)} SET label_class_id = 1 WHERE image_id = :image_id"
+                f"UPDATE {build_table_name(n)} SET label_class_id = {UNASSIGNED_CLASS_ID} WHERE image_id = :image_id"
             ),
             {"image_id": image_id},
         )

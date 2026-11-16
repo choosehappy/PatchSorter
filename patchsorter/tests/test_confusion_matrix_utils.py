@@ -137,12 +137,11 @@ def test_world_to_grid_bbox_clamped_above_world():
 
 
 def test_world_to_grid_bbox_swapped_coords():
-    """_world_to_grid_bbox handles swapped x_min/x_max correctly."""
-    world_size = 256
-    max_level = 0
-    level = 0
-    result = _world_to_grid_bbox(100, 50, 50, 100, level, max_level, world_size)
-    assert result == (50, 50, 100, 100)
+    """_world_to_grid_bbox raises when min exceeds max."""
+    with pytest.raises(ValueError):
+        _world_to_grid_bbox(100, 50, 50, 100, 0, 0, 256)
+    with pytest.raises(ValueError):
+        _world_to_grid_bbox(50, 100, 100, 50, 0, 0, 256)
 
 
 def test_world_to_grid_bbox_float_coords():

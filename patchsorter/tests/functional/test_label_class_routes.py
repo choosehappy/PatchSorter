@@ -1,19 +1,30 @@
 """Functional tests for GET /projects/{project_id}/label_classes/ and /{label_class_id}."""
 
 from fastapi.testclient import TestClient
+from sqlalchemy import text
+
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID
+from patchsorter.db.head_client import ProjectStore
 
 
 # --- List label classes -------------------------------------------------------
 
 
-def test_list_label_classes_empty(client: TestClient):
-    """GET /projects/1/label_classes/ returns the reserved 'unassigned' class when no user classes exist."""
-    response = client.get("/projects/1/label_classes/")
-    assert response.status_code == 200
-    body = response.json()
-    assert len(body) >= 1
-    names = [lc["name"] for lc in body]
-    assert "unassigned" in names
+def test_list_label_classes_empty(client: TestClient, test_db):
+    """A freshly created project has only its own reserved 'unassigned' class."""
+    with test_db.get_session() as session:
+        project_id = ProjectStore(session).create("Empty Project")["project_id"]
+    try:
+        response = client.get(f"/projects/{project_id}/label_classes/")
+        assert response.status_code == 200
+        body = response.json()
+        assert [(lc["label_class_id"], lc["name"], lc["project_id"]) for lc in body] == [
+            (UNASSIGNED_CLASS_ID, "unassigned", project_id)
+        ]
+    finally:
+        with test_db.get_session() as session:
+            session.execute(text("DELETE FROM label_class WHERE project_id = :p"), {"p": project_id})
+            session.execute(text("DELETE FROM project WHERE project_id = :p"), {"p": project_id})
 
 
 def test_list_label_classes_returns_all(client: TestClient, seeded_project):

@@ -53,6 +53,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from patchsorter.config.constants import UNASSIGNED_CLASS_ID
 from patchsorter.db.head_client import ImageStore, LabelClassStore, PatchStore, ProjectStore
 from patchsorter.db.head_client.database_manager import DatabaseManager
 from patchsorter.db.utils import SessionManager
@@ -216,6 +217,14 @@ def example_project(
         ).mappings().one()
     )
 
+    db_session.execute(
+        text(
+            "INSERT INTO label_class (label_class_id, project_id, name) "
+            "VALUES (:id, 1, 'unassigned')"
+        ),
+        {"id": UNASSIGNED_CLASS_ID},
+    )
+
     lc_store = LabelClassStore(db_session)
     lc_tumor = lc_store.create(1, "Tumor", "#FF0000")
     lc_normal = lc_store.create(1, "Normal", "#00FF00")
@@ -274,3 +283,40 @@ def example_project(
         "label_classes": [lc_tumor, lc_normal],
         "image": image,
     }
+
+
+# ---------------------------------------------------------------------------
+# Function-scoped: seeded project for settings tests
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="function")
+def seeded_project(
+    db_session: Session, _project1_tables: None
+) -> Dict[str, Any]:
+    """Seed the database with a project (``project_id = 1``).
+
+    Yields a dict with key ``project_id``.
+    """
+    project = dict(
+        db_session.execute(
+            text(
+                """
+                INSERT INTO project (project_id, project_name, description)
+                OVERRIDING SYSTEM VALUE
+                VALUES (1, :name, :desc)
+                RETURNING *
+                """
+            ),
+            {"name": "Test Project", "desc": "Seeded project for settings tests"},
+        ).mappings().one()
+    )
+
+    db_session.execute(
+        text(
+            "INSERT INTO label_class (label_class_id, project_id, name) "
+            "VALUES (:id, 1, 'unassigned')"
+        ),
+        {"id": UNASSIGNED_CLASS_ID},
+    )
+
+    return {"project_id": project["project_id"]}

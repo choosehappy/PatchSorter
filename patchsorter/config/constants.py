@@ -44,7 +44,9 @@ PATCH_CSV_EXTS = {".csv"}
 
 PATCH_BATCH_SIZE = 1000
 
-UNASSIGNED_CLASS_ID = 1
+UNASSIGNED_CLASS_ID = -1
+UNASSIGNED_CLASS_NAME = "unassigned"
+UNASSIGNED_CLASS_COLOR = "#000000"
 
 
 class PatchCSVColumns(StrEnum):
@@ -66,6 +68,14 @@ class LargeImageMetadataKeys(StrEnum):
     IMAGE_HEIGHT = "sizeY"
     TILE_WIDTH = "tileWidth"
     BASE_MAGNIFICATION = "magnification"
+
+
+class CheckpointModuleType(StrEnum):
+    BACKBONE = "backbone"
+    HEAD = "head"
+
+
+CHECKPOINT_EXT = ".safetensors"
 
 GC_TTL_SECONDS = 3600
 GC_INTERVAL_SECONDS = 300

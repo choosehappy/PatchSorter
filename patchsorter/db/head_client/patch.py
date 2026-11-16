@@ -8,9 +8,8 @@ from sqlalchemy.orm import Session
 import numpy as np
 
 from patchsorter.config.constants import PredPatchSuffix
-from patchsorter.db.grid_index import HierarchicalGridIndexIJPair
+from patchsorter.db.utils import build_local_node_shards_query, build_local_worker_shards_query
 from patchsorter.db.head_client.models import build_table_name, build_pred_table_name, patch_model
-from patchsorter.db.head_client.settings import SettingsStore
 
 
 class PatchStore:
@@ -31,6 +30,45 @@ class PatchStore:
         self.project_id = project_id
         self._session = session
         self.table_name = build_table_name(project_id)
+
+    def get_local_node_shards(self, group_id) -> List[int]:
+        """Return the patch table's Citus shard IDs that reside on the **current node**.
+
+        New rows can be written via a distributed query — the Citus planner
+        decides automatically whether it can run locally using the Citus
+        metadata tables. This method is only needed for read paths (DL
+        training) that must iterate shards local to this node individually.
+
+        Args:
+            group_id: Citus ``group_id`` identifying the node (typically the
+                node's ``nodeid`` from ``pg_dist_node``).
+
+        Returns:
+            List of numeric Citus shard IDs of ``self.table_name`` placed on
+            the given node.
+        """
+        query = build_local_node_shards_query(self.table_name, group_id)
+        rows = self._session.execute(query).fetchall()
+        return [r.shard_id for r in rows]
+
+    def get_local_worker_shards(self, num_workers: int, worker_rank: int, group_id) -> List[int]:
+        """Return the patch table's Citus shard IDs assigned to a **specific ray train worker**.
+
+        Args:
+            num_workers: Total number of ray train worker processes in the group (Citus worker node).
+            worker_rank: The 0-based rank of the target ray train worker (must be in
+                ``[0, num_workers)``).
+            group_id: Citus ``group_id`` identifying the node (typically the
+                node's ``nodeid`` from ``pg_dist_node``).
+
+        Returns:
+            List of numeric Citus shard IDs of ``self.table_name`` on the
+            given node, filtered to only shards assigned to the specified
+            worker.
+        """
+        query = build_local_worker_shards_query(self.table_name, num_workers, worker_rank, group_id)
+        rows = self._session.execute(query).fetchall()
+        return [r.shard_id for r in rows]
 
     def insert(
         self,
@@ -278,6 +316,30 @@ class PatchStore:
             params,
         )
         return result.rowcount
+
+    def update_train_priority(self, updates: List[Tuple[int, float]]) -> int:
+        """Batch-update the ``train_priority`` column for a set of patches.
+
+        Writes through the logical distributed table, so Citus routes each
+        row to its owning shard via the ``patch_id`` distribution column —
+        callers don't need to know which shard a patch lives on.
+
+        Args:
+            updates: List of ``(patch_id, train_priority)`` tuples.
+
+        Returns:
+            Number of rows updated.
+        """
+        if not updates:
+            return 0
+        self._session.execute(
+            text(
+                f"UPDATE {self.table_name} SET train_priority = :train_priority"
+                f" WHERE patch_id = :patch_id"
+            ),
+            [{"patch_id": pid, "train_priority": priority} for pid, priority in updates],
+        )
+        return len(updates)
 
     def bulk_update_labels_by_cells(
         self,
@@ -828,17 +890,19 @@ class PatchStore:
 
 
     def get_patch_by_id(self, patch_id: int) -> Optional[Dict[str, Any]]:
-        """Return a single patch row dict by patch_id, including patch_image.
+        """Return a single patch row dict by ``patch_id``, including ``patch_image``.
+
+        Looks up the patch by its primary key and returns all column values
+        as a dictionary (via SQLAlchemy's ``__dict__`` accessor).  Includes the
+        raw image bytes (``patch_image`` column) in the result.
 
         Args:
-            patch_id: The patch_id to look up.
+            patch_id: The ``patch_id`` primary key to look up.
 
         Returns:
-            A dict with patch columns (including ``patch_image``), or ``None``
-            if no matching row exists.
+            A dict with all patch columns (including ``patch_image``), or
+            ``None`` if no matching row exists.
         """
-
-
         Patch = patch_model(self.project_id)
         row = (
             self._session.query(Patch)
@@ -848,12 +912,17 @@ class PatchStore:
         return row.__dict__ if row else None
 
     def clear_predictions(self) -> None:
-        """Clear all rows from both pred_patch_latest and pred_patch_last for *project_id*.
+        """Remove all prediction rows from ``pred_patch_latest`` and ``pred_patch_last``.
 
-        Used when a user requests to clear model predictions for a project.  This is a
-        more efficient way to clear predictions than deleting rows from the patch table
-        because it does not require any trigger activity or vacuuming of the patch
-        shards.
+        Used when a user clears model predictions for a project.  Truncating
+        the prediction tables directly is more efficient than deleting rows
+        from the patch table because it avoids trigger activity and subsequent
+        VACUUM overhead on the patch shards.
+
+        This operation is irreversible — all prediction data for the project
+        is permanently deleted and cannot be recovered.  After calling this
+        method, the project will have no predictions until new ones are
+        generated by a model inference step.
         """
         self._session.execute(text(f"TRUNCATE TABLE {build_pred_table_name(self.project_id, PredPatchSuffix.LATEST)};"))
         self._session.execute(text(f"TRUNCATE TABLE {build_pred_table_name(self.project_id, PredPatchSuffix.LAST)};"))
