@@ -189,12 +189,6 @@ def get_patch_context(
         # Open tile source and get base magnification
         image_path = image_row["image_path"]
         ts = large_image.open(str(image_path))
-        base_mag = ts.getMetadata().get("mmPerPixel")
-        if base_mag is not None:
-            # mmPerPixel is stored, convert to magnification (40x base = 0.25 µm/pixel = 0.00025 mm/pixel)
-            base_mag = 0.25 / (base_mag * 1000)
-        else:
-            base_mag = 40.0
 
         # Build a box geometry centered at centroid with side = context_size (base-pixel units)
         half = context_size / 2.0
