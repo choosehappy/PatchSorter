@@ -1,157 +1,185 @@
-"""Unit tests for CitusShardMap — requires the ``_project1_tables`` fixture."""
+"""Unit tests for ``CitusShardMap`` and shard query builders."""
 
+from unittest.mock import MagicMock
+
+import pandas as pd
 import pytest
 
-from patchsorter.db.head_client.database_manager import CitusShardMap
+from patchsorter.db.utils import CitusShardMap
 
 
-# --- Helper ---------------------------------------------------------------
+# --- Test data helpers ------------------------------------------------------
 
-def _make_shard_map(session, table_a="project1_patch", table_b="project1_pred_patch_latest"):
-    return CitusShardMap(session, table_a, table_b)
-
-
-# --- __init__ / _get_map_for_tables ---------------------------------------
-
-def test_init_populates_map_with_colocated_tables(_project1_tables, db_session):
-    """__init__ queries Citus system tables and populates the shard map for colocated tables."""
-    sm = _make_shard_map(db_session)
-    assert isinstance(sm.map, dict)
+def _make_row(shard_a: int, shard_b: int):
+    return MagicMock(shard_a=shard_a, shard_b=shard_b)
 
 
-def test_map_keys_are_shard_ids(_project1_tables, db_session):
-    """All keys in the map are integer shard IDs."""
-    sm = _make_shard_map(db_session)
-    for key in sm.map:
-        assert isinstance(key, int)
+SAMPLE_ROWS = [
+    _make_row(100, 200),
+    _make_row(101, 201),
+    _make_row(102, 202),
+]
 
 
-def test_map_values_are_shard_ids(_project1_tables, db_session):
-    """All values in the map are integer shard IDs."""
-    sm = _make_shard_map(db_session)
-    for val in sm.map:
-        assert isinstance(val, int)
+# --- CitusShardMap.__init__ / from_rows ------------------------------------
+
+def test_constructor_stores_rows_as_dataframe():
+    sm = CitusShardMap(SAMPLE_ROWS)
+    assert isinstance(sm.map, pd.DataFrame)
+    assert list(sm.map.columns) == ["shard_a", "shard_b"]
+    assert len(sm.map) == len(SAMPLE_ROWS)
 
 
-def test_map_is_not_empty_for_distributed_tables(_project1_tables, db_session):
-    """Colocated distributed tables produce a non-empty shard map."""
-    sm = _make_shard_map(db_session)
-    if not sm.map:
-        pytest.skip("No Citus worker nodes — map is empty")
-    assert len(sm.map) > 0
+def test_from_rows_produces_same_result():
+    sm1 = CitusShardMap(SAMPLE_ROWS)
+    sm2 = CitusShardMap.from_rows(SAMPLE_ROWS)
+    pd.testing.assert_frame_equal(sm1.map, sm2.map)
 
 
-# --- get_table_a_shard_list -----------------------------------------------
-
-def test_get_table_a_shard_list_returns_keys(_project1_tables, db_session):
-    """get_table_a_shard_list() returns the same keys as self.map."""
-    sm = _make_shard_map(db_session)
-    keys = sm.get_table_a_shard_list()
-    assert set(keys) == set(sm.map.keys())
+def test_from_rows_with_empty_list():
+    sm = CitusShardMap.from_rows([])
+    assert len(sm.map) == 0
 
 
-def test_get_table_a_shard_list_returns_list(_project1_tables, db_session):
-    """get_table_a_shard_list() returns a list type."""
-    sm = _make_shard_map(db_session)
+# --- get_table_a_shard_list -------------------------------------------------
+
+def test_get_table_a_shard_list_returns_correct_values():
+    sm = CitusShardMap(SAMPLE_ROWS)
+    assert sm.get_table_a_shard_list() == [100, 101, 102]
+
+
+def test_get_table_a_shard_list_returns_list():
+    sm = CitusShardMap(SAMPLE_ROWS)
     result = sm.get_table_a_shard_list()
     assert isinstance(result, list)
 
 
-def test_get_table_a_shard_list_length_matches_map(_project1_tables, db_session):
-    """get_table_a_shard_list() length equals the shard map size."""
-    sm = _make_shard_map(db_session)
-    assert len(sm.get_table_a_shard_list()) == len(sm.map)
+def test_get_table_a_shard_list_empty_for_empty_input():
+    sm = CitusShardMap.from_rows([])
+    assert sm.get_table_a_shard_list() == []
 
 
-# --- get_table_b_shard_list -----------------------------------------------
+# --- get_table_b_shard_list -------------------------------------------------
 
-def test_get_table_b_shard_list_returns_values(_project1_tables, db_session):
-    """get_table_b_shard_list() returns the same values as self.map."""
-    sm = _make_shard_map(db_session)
-    values = sm.get_table_b_shard_list()
-    assert set(values) == set(sm.map.values())
+def test_get_table_b_shard_list_returns_correct_values():
+    sm = CitusShardMap(SAMPLE_ROWS)
+    assert sm.get_table_b_shard_list() == [200, 201, 202]
 
 
-def test_get_table_b_shard_list_returns_list(_project1_tables, db_session):
-    """get_table_b_shard_list() returns a list type."""
-    sm = _make_shard_map(db_session)
+def test_get_table_b_shard_list_returns_list():
+    sm = CitusShardMap(SAMPLE_ROWS)
     result = sm.get_table_b_shard_list()
     assert isinstance(result, list)
 
 
-def test_get_table_b_shard_list_length_matches_map(_project1_tables, db_session):
-    """get_table_b_shard_list() length equals the shard map size."""
-    sm = _make_shard_map(db_session)
-    assert len(sm.get_table_b_shard_list()) == len(sm.map)
+def test_get_table_b_shard_list_empty_for_empty_input():
+    sm = CitusShardMap.from_rows([])
+    assert sm.get_table_b_shard_list() == []
 
 
-# --- get_b_shard_for_a_shard ----------------------------------------------
+# --- get_b_shard_for_a_shard ------------------------------------------------
 
-def test_get_b_shard_for_a_shard_returns_correct_mapping(_project1_tables, db_session):
-    """get_b_shard_for_a_shard() returns the expected shard_b for a known shard_a."""
-    sm = _make_shard_map(db_session)
-    a_list = sm.get_table_a_shard_list()
-    if not a_list:
-        pytest.skip("No Citus worker nodes — no shard data available")
-    shard_a = a_list[0]
-    result = sm.get_b_shard_for_a_shard(shard_a)
-    assert result == sm.map[shard_a]
+def test_get_b_shard_for_a_shard_returns_correct_mapping():
+    sm = CitusShardMap(SAMPLE_ROWS)
+    assert sm.get_b_shard_for_a_shard(100) == 200
+    assert sm.get_b_shard_for_a_shard(101) == 201
+    assert sm.get_b_shard_for_a_shard(102) == 202
 
 
-def test_get_b_shard_for_a_shard_returns_int(_project1_tables, db_session):
-    """get_b_shard_for_a_shard() returns an integer."""
-    sm = _make_shard_map(db_session)
-    a_list = sm.get_table_a_shard_list()
-    if not a_list:
-        pytest.skip("No Citus worker nodes — no shard data available")
-    shard_a = a_list[0]
-    result = sm.get_b_shard_for_a_shard(shard_a)
+def test_get_b_shard_for_a_shard_returns_int():
+    sm = CitusShardMap(SAMPLE_ROWS)
+    result = sm.get_b_shard_for_a_shard(100)
     assert isinstance(result, int)
 
 
-def test_get_b_shard_for_a_shard_raises_on_missing_key(_project1_tables, db_session):
-    """get_b_shard_for_a_shard() raises KeyError for an unknown shard_a."""
-    sm = _make_shard_map(db_session)
+def test_get_b_shard_for_a_shard_raises_on_missing_key():
+    sm = CitusShardMap(SAMPLE_ROWS)
+    with pytest.raises(KeyError, match="shard_a=9999 not found"):
+        sm.get_b_shard_for_a_shard(9999)
+
+
+def test_get_b_shard_for_a_shard_empty_map_raises():
+    sm = CitusShardMap.from_rows([])
     with pytest.raises(KeyError):
-        sm.get_b_shard_for_a_shard(-999999)
+        sm.get_b_shard_for_a_shard(1)
 
 
-# --- Bidirectional consistency --------------------------------------------
+# --- get_a_shard_for_b_shard ------------------------------------------------
 
-def test_reverse_lookup_consistent(_project1_tables, db_session):
-    """For every (a, b) pair, looking up b in the reverse map yields a."""
-    sm = _make_shard_map(db_session)
-    a_list = sm.get_table_a_shard_list()
-    for shard_a in a_list:
+def test_get_a_shard_for_b_shard_returns_correct_mapping():
+    sm = CitusShardMap(SAMPLE_ROWS)
+    assert sm.get_a_shard_for_b_shard(200) == 100
+    assert sm.get_a_shard_for_b_shard(201) == 101
+    assert sm.get_a_shard_for_b_shard(202) == 102
+
+
+def test_get_a_shard_for_b_shard_returns_int():
+    sm = CitusShardMap(SAMPLE_ROWS)
+    result = sm.get_a_shard_for_b_shard(200)
+    assert isinstance(result, int)
+
+
+def test_get_a_shard_for_b_shard_raises_on_missing_key():
+    sm = CitusShardMap(SAMPLE_ROWS)
+    with pytest.raises(KeyError, match="shard_b=9999 not found"):
+        sm.get_a_shard_for_b_shard(9999)
+
+
+def test_get_a_shard_for_b_shard_empty_map_raises():
+    sm = CitusShardMap.from_rows([])
+    with pytest.raises(KeyError):
+        sm.get_a_shard_for_b_shard(1)
+
+
+# --- Bidirectional consistency ----------------------------------------------
+
+def test_bidirectional_lookup_consistency():
+    sm = CitusShardMap(SAMPLE_ROWS)
+    for shard_a in sm.get_table_a_shard_list():
         shard_b = sm.get_b_shard_for_a_shard(shard_a)
-        # Build reverse lookup
-        reverse = {v: k for k, v in sm.map.items()}
-        assert reverse[shard_b] == shard_a
+        assert sm.get_a_shard_for_b_shard(shard_b) == shard_a
 
 
-def test_no_duplicate_shard_a(_project1_tables, db_session):
-    """get_table_a_shard_list() has no duplicate shard IDs."""
-    sm = _make_shard_map(db_session)
+def test_no_duplicate_shard_a():
+    sm = CitusShardMap(SAMPLE_ROWS)
     a_list = sm.get_table_a_shard_list()
     assert len(a_list) == len(set(a_list))
 
 
-def test_no_duplicate_shard_b(_project1_tables, db_session):
-    """get_table_b_shard_list() has no duplicate shard IDs."""
-    sm = _make_shard_map(db_session)
+def test_no_duplicate_shard_b():
+    sm = CitusShardMap(SAMPLE_ROWS)
     b_list = sm.get_table_b_shard_list()
     assert len(b_list) == len(set(b_list))
 
 
-# --- Different table pairs ------------------------------------------------
+# --- build_local_node_shard_map_query ---------------------------------------
 
-def test_init_with_different_colocated_tables(_project1_tables, db_session):
-    """CitusShardMap works with a different pair of colocated tables."""
-    sm = _make_shard_map(db_session, table_a="project1_patch", table_b="project1_pred_patch_last")
-    assert isinstance(sm.map, dict)
+def test_local_node_query_contains_pg_dist_placement_joins():
+    from patchsorter.db.utils import _SHARD_MAP_SQL
+    assert "pg_dist_placement" in _SHARD_MAP_SQL
 
 
-def test_map_for_confusion_matrix_pair(_project1_tables, db_session):
-    """CitusShardMap works with patch and confusion_matrix tables."""
-    sm = CitusShardMap(db_session, "project1_patch", "project1_confusion_matrix_l8")
-    assert isinstance(sm.map, dict)
+def test_local_node_query_has_groupid_param():
+    from patchsorter.db.utils import _SHARD_MAP_SQL
+    assert ":groupid" in _SHARD_MAP_SQL
+
+
+def test_local_node_query_no_worker_filter_in_base():
+    from patchsorter.db.utils import _SHARD_MAP_SQL
+    # Base SQL should not contain the worker filter
+    assert "WHERE rn" not in _SHARD_MAP_SQL
+
+
+# --- build_local_worker_shard_map_query -------------------------------------
+
+def test_worker_query_appends_worker_filter():
+    from patchsorter.db.utils import _SHARD_MAP_SQL, _WORKER_FILTER
+    combined = f"{_SHARD_MAP_SQL.rstrip()}\n{_WORKER_FILTER}"
+    assert "WHERE rn" in combined
+
+
+def test_worker_filter_has_modulo_operator():
+    from patchsorter.db.utils import _WORKER_FILTER
+    assert "%" in _WORKER_FILTER
+    assert ":num_workers" in _WORKER_FILTER
+    assert ":current_worker_rank" in _WORKER_FILTER
