@@ -153,6 +153,7 @@ def assign_labels_by_polygon(
 def get_patch_context(
     project_id: int,
     patch_id: int,
+    scale: Optional[int] = Query(default=None, description="Context region scale multiplier"),
 ) -> Response:
     client = get_head_client()
     with client.get_session() as session:
@@ -173,9 +174,10 @@ def get_patch_context(
         if not image_row or not image_row.image_path:
             raise HTTPException(status_code=404, detail="Image not found")
 
-        # Resolve context region scale
+        # Resolve context region scale (query param overrides settings)
         settings_store = SettingsStore(session)
-        scale = settings_store.get_int("context_region_scale")
+        if scale is None:
+            scale = settings_store.get_int("context_region_scale")
 
         patch_size_pixels = settings_store.get_int("patch_size", project_id)
         context_size = scale * patch_size_pixels

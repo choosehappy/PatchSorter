@@ -31,6 +31,7 @@ export default function PatchGallery({
     onSelectionChange,
     onHoverChange,
     onSelectAllChange,
+    contextRegionScale,
 }: {
     projectId: number
     patches: PatchResponse[]
@@ -50,6 +51,7 @@ export default function PatchGallery({
     onSelectionChange: (patches: PatchResponse[]) => void
     onHoverChange: (patch: PatchResponse | null) => void
     onSelectAllChange?: (selectAll: boolean) => void
+    contextRegionScale: number
 }) {
     const [selectAll, setSelectAll] = useState(false)
     const [patchSize, setPatchSize] = useState(DEFAULT_PATCH_SIZE)
@@ -286,6 +288,7 @@ export default function PatchGallery({
                     patch={hoveredPatch}
                     mouseX={hoverMouseX}
                     mouseY={hoverMouseY}
+                    scale={contextRegionScale}
                 />
             )}
         </div>

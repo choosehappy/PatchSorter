@@ -23,6 +23,7 @@ export default function PatchImage({ projectId, patch, labelClasses, isSelected 
     const [imageSrc, setImageSrc] = useState<string | null>(null)
     const [imageError, setImageError] = useState(false)
 
+    // Fetch: only creates URLs
     useEffect(() => {
         let cancelled = false
         const fetchImage = async () => {
@@ -32,11 +33,10 @@ export default function PatchImage({ projectId, patch, labelClasses, isSelected 
                     url: '/projects/{project_id}/patches/{patch_id}/image',
                 })
                 if (!cancelled && res.data) {
-                    const blob = res.data as Blob
-                    const url = URL.createObjectURL(blob)
-                    setImageSrc(url)
+                    setImageSrc(URL.createObjectURL(res.data as Blob))
                 }
             } catch (err) {
+                if (cancelled) return
                 console.error('Failed to fetch patch image:', err)
                 setImageError(true)
             }
@@ -46,6 +46,12 @@ export default function PatchImage({ projectId, patch, labelClasses, isSelected 
             cancelled = true
         }
     }, [projectId, patch.patch_id])
+
+    // Second useEffect is registered to clean up the object URL when it changes or on unmount
+    useEffect(() => {
+        if (!imageSrc) return
+        return () => URL.revokeObjectURL(imageSrc)
+    }, [imageSrc])
 
     const outerBorderColor = getLabelColor(patch.pred_label_class_id ?? null, labelClasses)
     const innerBorderColor = getLabelColor(patch.label_class_id, labelClasses)

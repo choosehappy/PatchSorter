@@ -8,6 +8,7 @@ interface PatchContextOverlayProps {
     patch: PatchResponse
     mouseX: number
     mouseY: number
+    scale: number
 }
 
 export default function PatchContextOverlay({
@@ -15,6 +16,7 @@ export default function PatchContextOverlay({
     patch,
     mouseX,
     mouseY,
+    scale,
 }: PatchContextOverlayProps) {
     const [imageSrc, setImageSrc] = useState<string | null>(null)
     const [imageError, setImageError] = useState(false)
@@ -27,13 +29,13 @@ export default function PatchContextOverlay({
             try {
                 const res = await getPatchContextProjectsProjectIdPatchesPatchIdContextGet({
                     path: { project_id: projectId, patch_id: patch.patch_id },
+                    query: { scale },
                 })
                 if (!cancelled && res.data) {
-                    const blob = res.data as Blob
-                    const url = URL.createObjectURL(blob)
-                    setImageSrc(url)
+                    setImageSrc(URL.createObjectURL(res.data as Blob))
                 }
             } catch (err) {
+                if (cancelled) return
                 console.error('Failed to fetch patch context:', err)
                 setImageError(true)
             }
@@ -42,7 +44,13 @@ export default function PatchContextOverlay({
         return () => {
             cancelled = true
         }
-    }, [projectId, patch.patch_id])
+    }, [projectId, patch.patch_id, scale])
+
+    // Second useEffect is registered to clean up the object URL when it changes or on unmount
+    useEffect(() => {
+        if (!imageSrc) return
+        return () => URL.revokeObjectURL(imageSrc)
+    }, [imageSrc])
 
     useEffect(() => {
         if (!overlayRef.current || !imageSrc) return
