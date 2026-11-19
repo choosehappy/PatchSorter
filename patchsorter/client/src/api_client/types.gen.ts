@@ -84,6 +84,18 @@ export type CreateProjectRequest = {
      * Description
      */
     description?: string | null;
+    /**
+     * Patch Size
+     */
+    patch_size?: number | null;
+    /**
+     * Patch Extraction Method
+     */
+    patch_extraction_method?: string | null;
+    /**
+     * Object Radius
+     */
+    object_radius?: number | null;
 };
 
 /**
@@ -1344,6 +1356,45 @@ export type AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostRespon
 };
 
 export type AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponse = AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses[keyof AssignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPostResponses];
+
+export type GetPatchContextProjectsProjectIdPatchesPatchIdContextGetData = {
+    body?: never;
+    path: {
+        /**
+         * Project Id
+         */
+        project_id: number;
+        /**
+         * Patch Id
+         */
+        patch_id: number;
+    };
+    query?: {
+        /**
+         * Scale
+         *
+         * Context region scale multiplier
+         */
+        scale?: number | null;
+    };
+    url: '/projects/{project_id}/patches/{patch_id}/context';
+};
+
+export type GetPatchContextProjectsProjectIdPatchesPatchIdContextGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetPatchContextProjectsProjectIdPatchesPatchIdContextGetError = GetPatchContextProjectsProjectIdPatchesPatchIdContextGetErrors[keyof GetPatchContextProjectsProjectIdPatchesPatchIdContextGetErrors];
+
+export type GetPatchContextProjectsProjectIdPatchesPatchIdContextGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
 
 export type ListSettingsSettingsGetData = {
     body?: never;

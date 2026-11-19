@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import PatchImage from './PatchImage'
+import PatchContextOverlay from './PatchContextOverlay'
 import './patchGallery.css'
 import type { PatchResponse, LabelClassResponse } from '../api_client'
 import { PAGE_SIZE_OPTIONS, MIN_PATCH_SIZE, MAX_PATCH_SIZE, DEFAULT_PATCH_SIZE } from '../constants'
@@ -30,6 +31,7 @@ export default function PatchGallery({
     onSelectionChange,
     onHoverChange,
     onSelectAllChange,
+    contextRegionScale,
 }: {
     projectId: number
     patches: PatchResponse[]
@@ -49,10 +51,14 @@ export default function PatchGallery({
     onSelectionChange: (patches: PatchResponse[]) => void
     onHoverChange: (patch: PatchResponse | null) => void
     onSelectAllChange?: (selectAll: boolean) => void
+    contextRegionScale: number
 }) {
     const [selectAll, setSelectAll] = useState(false)
     const [patchSize, setPatchSize] = useState(DEFAULT_PATCH_SIZE)
     const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null)
+    const [hoveredPatch, setHoveredPatch] = useState<PatchResponse | null>(null)
+    const [hoverMouseX, setHoverMouseX] = useState(0)
+    const [hoverMouseY, setHoverMouseY] = useState(0)
 
     const gridRef = useRef<HTMLDivElement>(null)
     const dragState = useRef<{
@@ -212,7 +218,12 @@ export default function PatchGallery({
                 </div>
             </div>
 
-            <div className="gallery-scroll" onMouseDown={handleScrollMouseDown} onClick={handleScrollClick}>
+            <div className="gallery-scroll" onMouseDown={handleScrollMouseDown} onClick={handleScrollClick} onMouseMove={e => {
+                if (hoveredPatch) {
+                    setHoverMouseX(e.clientX)
+                    setHoverMouseY(e.clientY)
+                }
+            }}>
                 {!hasLasso ? (
                     <div className="gallery-loading">Draw a lasso on the map to browse patches.</div>
                 ) : isLoading && patches.length === 0 ? (
@@ -229,8 +240,14 @@ export default function PatchGallery({
                                     key={patch.patch_id}
                                     data-patch-id={patch.patch_id}
                                     className="patch-grid-cell"
-                                    onMouseEnter={() => onHoverChange(patch)}
-                                    onMouseLeave={() => onHoverChange(null)}
+                                    onMouseEnter={() => {
+                                        onHoverChange(patch)
+                                        setHoveredPatch(patch)
+                                    }}
+                                    onMouseLeave={() => {
+                                        onHoverChange(null)
+                                        setHoveredPatch(null)
+                                    }}
                                     onMouseDown={e => {
                                         if (e.button !== 0 || !(e.ctrlKey || e.metaKey)) return
                                         e.preventDefault()
@@ -264,6 +281,16 @@ export default function PatchGallery({
                     </div>
                 )}
             </div>
+
+            {hoveredPatch && (
+                <PatchContextOverlay
+                    projectId={projectId}
+                    patch={hoveredPatch}
+                    mouseX={hoverMouseX}
+                    mouseY={hoverMouseY}
+                    scale={contextRegionScale}
+                />
+            )}
         </div>
     )
 }

@@ -25,6 +25,9 @@ class ProjectStatsResponse(BaseModel):
 class CreateProjectRequest(BaseModel):
     name: str
     description: Optional[str] = None
+    patch_size: Optional[int] = None
+    patch_extraction_method: Optional[str] = None
+    object_radius: Optional[int] = None
 
 
 class UpdateProjectRequest(BaseModel):

@@ -8,8 +8,8 @@ import ConfusionMatrix, { type ConfusionData } from '../components/confusionMatr
 import RefreshTimer from '../components/refreshTimer'
 import PatchGallery from '../components/PatchGallery'
 import LabelPicker from '../components/LabelPicker'
-import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, assignLabelsByIdsProjectsProjectIdPatchesPost, assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
-import { DEFAULT_REFRESH_INTERVAL_MS, DEFAULT_QUERY_RANGE, PERFECT_SQUARE_LIMITS } from '../constants'
+import { getConfusionMatrixProjectsProjectIdConfusionMatrixGet, infoProjectsProjectIdInfoGet, listLabelClassesProjectsProjectIdLabelClassesGet, listPatchesProjectsProjectIdPatchesGet, listSettingsSettingsGet, assignLabelsByIdsProjectsProjectIdPatchesPost, assignLabelsByPolygonProjectsProjectIdPatchesPolygonassignPost, type LabelClassResponse, type PatchResponse, type WorldInfo } from '../api_client'
+import { DEFAULT_REFRESH_INTERVAL_MS, DEFAULT_QUERY_RANGE, PERFECT_SQUARE_LIMITS, DEFAULT_PAGE_SIZE } from '../constants'
 
 
 
@@ -36,7 +36,7 @@ export default function LabelingPage() {
     const [worldInfo, setWorldInfo] = useState<WorldInfo | null>(null)
     const [refreshTick, setRefreshTick] = useState(0)
     const [refreshIntervalMs, setRefreshIntervalMs] = useState<number | null>(DEFAULT_REFRESH_INTERVAL_MS)
-    const [pageSize, setPageSize] = useState(24)
+    const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
     const [lassoPolygon, setLassoPolygon] = useState<number[][] | null>(null)
     const [activePage, setActivePage] = useState(0)
     const [selectedPatches, setSelectedPatches] = useState<PatchResponse[]>([])
@@ -108,6 +108,18 @@ export default function LabelingPage() {
             }),
         staleTime: Infinity,
     })
+
+    const { data: settingsData } = useQuery({
+        queryKey: ['settings', projectId],
+        queryFn: () => listSettingsSettingsGet({ query: { project_id: projectId } })
+            .then(({ data }) => data ?? []),
+    })
+
+    const contextRegionScale = useMemo(() => {
+        if (!settingsData) return 3
+        const setting = settingsData.find(s => s.key === 'context_region_scale')
+        return setting ? parseInt(setting.value, 10) : 3
+    }, [settingsData])
 
     const sortedLabelClasses = useMemo(
         () => [...labelClassesData].sort((a, b) => a.label_class_id - b.label_class_id),
@@ -468,6 +480,7 @@ export default function LabelingPage() {
                     onSelectionChange={setSelectedPatches}
                     onHoverChange={setHoveredPatch}
                     onSelectAllChange={setGallerySelectAll}
+                    contextRegionScale={contextRegionScale}
                 />
             </div>
             <LabelPicker

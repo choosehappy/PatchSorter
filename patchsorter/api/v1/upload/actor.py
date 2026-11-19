@@ -1,4 +1,4 @@
-from __future__ import annotations
+from patchsorter.utils.patch_extraction import convert_PIL_to_JPEG_bytes
 
 import csv
 import io
@@ -34,13 +34,11 @@ from patchsorter.db.head_client.patch import PatchStore
 from patchsorter.db.head_client.image import ImageStore
 from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.utils.patch_extraction import (
-    BASE_MAG_PPM_MICRONS,
-    MAG_TO_PPM_FACTOR,
     compute_downsample_factor,
     estimate_object_radius_from_polygons,
     extract_patch_from_geometry,
     get_polygon_radius_in_pixels,
-    mm_per_pixel_at_base,
+    approx_mpp_from_magnification,
 )
 
 # ------------------------------------------------------------------
@@ -324,20 +322,18 @@ def process_row(
     patch_size: int = int(settings.get("patch_size", 64))
     patch_extraction_method: str = settings.get("patch_extraction_method", PatchExtractionMethod.USE_ESTIMATED_OBJECT_SIZE)
     object_radius_str: str | None = settings.get("object_radius")
-    object_radius: float | None = float(object_radius_str) if object_radius_str else None
+    object_radius_microns: float | None = float(object_radius_str) if object_radius_str else None
 
     # Determine downsample strategy
-    mm_per_pixel = mm_per_pixel_at_base(base_mag)
+    mpp_at_base_mag = approx_mpp_from_magnification(base_mag)
 
     if patch_extraction_method == PatchExtractionMethod.USE_MANUAL_OBJECT_RADIUS:
-        if object_radius is None:
+        if object_radius_microns is None:
             raise ValueError("object_radius setting is required when patch_extraction_method is 'use manual object radius'")
-        downsample = compute_downsample_factor(object_radius, base_mag, patch_size, mm_per_pixel)
-        per_patch_downsample = False
+        downsample = compute_downsample_factor(object_radius_microns, base_mag, patch_size, mpp_at_base_mag)
 
     elif patch_extraction_method == PatchExtractionMethod.FIT_ALL_OBJECTS:
-        per_patch_downsample = True
-        downsample = 1.0  # unused but keeps type-checker happy
+        downsample = None  # unused but keeps type-checker happy
     else:
         raise ValueError(f"Unknown patch_extraction_method: {patch_extraction_method}")
 
@@ -359,14 +355,16 @@ def process_row(
         total_patches = 0
 
         for geometry, label, patch_uuid in iterator:
-            if per_patch_downsample:
+            if downsample is None:  # A None downsample indicates per-patch computation is needed
                 radius_pixels = get_polygon_radius_in_pixels(geometry)
-                radius_microns = radius_pixels * mm_per_pixel * 1000
-                computed_downsample = compute_downsample_factor(radius_microns, base_mag, patch_size, mm_per_pixel)
+                radius_microns = radius_pixels * mpp_at_base_mag
+                computed_downsample = compute_downsample_factor(radius_microns, base_mag, patch_size, mpp_at_base_mag)
             else:
                 computed_downsample = downsample
 
-            patch_bytes = extract_patch_from_geometry(ts, geometry, patch_size, computed_downsample, base_mag)
+            patch_bytes = convert_PIL_to_JPEG_bytes(
+                extract_patch_from_geometry(ts, geometry, patch_size, computed_downsample)
+            )
 
             if geometry.geom_type == "Polygon":
                 centroid = geometry.centroid

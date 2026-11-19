@@ -1,5 +1,8 @@
+from shapely import Point
 from typing import List, Optional
 
+import io
+import logging
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Response
 from shapely.geometry import shape
@@ -7,6 +10,7 @@ from sqlalchemy import text
 
 from patchsorter.db.head_client import get_client as get_head_client
 from patchsorter.db.head_client.patch import PatchStore
+from patchsorter.db.head_client.image import ImageStore
 from patchsorter.db.head_client.models import build_table_name
 from patchsorter.db.head_client.settings import SettingsStore
 from patchsorter.api.v1.patch.models import (
@@ -16,6 +20,12 @@ from patchsorter.api.v1.patch.models import (
     SampleByPointRequest,
 )
 from patchsorter.api.v1.confusion_matrix.utils import _parse_label_pairs, _world_to_grid_bbox
+from patchsorter.utils.patch_extraction import extract_patch_from_geometry
+from patchsorter.api.v1.patch.utils import draw_patch_overlays
+
+import large_image
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -139,3 +149,67 @@ def assign_labels_by_polygon(
     return LabelAssignResponse(updated=updated)
 
 
+@router.get("/projects/{project_id}/patches/{patch_id}/context")
+def get_patch_context(
+    project_id: int,
+    patch_id: int,
+    scale: Optional[int] = Query(default=None, description="Context region scale multiplier"),
+) -> Response:
+    client = get_head_client()
+    with client.get_session() as session:
+        store = PatchStore(project_id, session)
+        patch_row = store.get_patch_by_id(patch_id)
+        if not patch_row:
+            raise HTTPException(status_code=404, detail=f"Patch {patch_id} not found")
+
+        centroid_x = patch_row.get("centroid_x")
+        centroid_y = patch_row.get("centroid_y")
+        polygon_wkt = patch_row.get("polygon")
+        downsample_factor = patch_row.get("downsample_factor")
+
+        # Get image path via ImageStore
+        image_id = patch_row.get("image_id")
+        image_store = ImageStore(session)
+        image_row = image_store.get(image_id, project_id)
+        if not image_row or not image_row.image_path:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        # Resolve context region scale (query param overrides settings)
+        settings_store = SettingsStore(session)
+        if scale is None:
+            scale = settings_store.get_int("context_region_scale")
+
+        patch_size_pixels = settings_store.get_int("patch_size", project_id)
+        context_size = scale * patch_size_pixels
+
+        ts = large_image.open(str(image_row.image_path))
+
+        try:
+            region = extract_patch_from_geometry(
+                ts, Point(centroid_x, centroid_y), context_size, downsample_factor
+            )
+        except ValueError:
+            logger.exception(
+                "Failed to extract context region for patch_id=%s, project_id=%s",
+                patch_id,
+                project_id,
+            )
+            raise HTTPException(status_code=500, detail="Failed to extract context region")
+
+        # Draw overlays, centered on the region
+        draw_patch_overlays(
+            region,
+            patch_size_pixels=patch_size_pixels,
+            centroid=(centroid_x, centroid_y),
+            downsample_factor=downsample_factor,
+            polygon_wkt=polygon_wkt,
+        )
+
+        buf = io.BytesIO()
+        region.save(buf, format="JPEG", quality=90)
+
+        return Response(
+            content=buf.getvalue(),
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=31536000"},
+        )

@@ -64,6 +64,7 @@ description = "Number of patches per batch for deep learning inference"
 scope = "project"
 default = "64"
 type = "integer"
+disabled = true 
 description = "Size of each patch in pixels"
 
 [settings.patch_extraction_method]
@@ -77,7 +78,7 @@ description = "Method for extracting patches from tissue objects"
 scope   = "project"
 default = "10"
 type    = "integer"
-description = "Radius of objects in microns (only used when patch_extraction_method is 'use manual object radius')"
+description = "Expected radius of an object in microns (only used when patch_extraction_method is 'use manual object radius')"
 
 # ---------------------------------------------------------------------------
 # Application-scoped settings
@@ -89,3 +90,9 @@ default        = "INFO"
 type           = "enum"
 allowed_values = ["DEBUG", "INFO", "WARNING", "ERROR"]
 description = "Application logging level"
+
+[settings.context_region_scale]
+scope   = "application"
+default = "3"
+type    = "integer"
+description = "Multiplier of patch size for context region (e.g., 2 = 2x patch_size)"
