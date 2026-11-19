@@ -5,7 +5,6 @@ import io
 import logging
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Response
-from PIL import Image
 from shapely.geometry import shape
 from sqlalchemy import text
 
@@ -175,14 +174,10 @@ def get_patch_context(
             raise HTTPException(status_code=404, detail="Image not found")
 
         # Resolve context region scale
-        scale = SettingsStore(session).get_int("context_region_scale")
+        settings_store = SettingsStore(session)
+        scale = settings_store.get_int("context_region_scale")
 
-        # Measure actual patch size from patch_image bytes
-        # NOTE: Patch size should be stored per patch in the db to avoid having to load and decode the image just to measure its size.
-        patch_img_bytes = patch_row.get("patch_image")
-        if not patch_img_bytes:
-            raise HTTPException(status_code=400, detail="Patch has no image data")
-        patch_size_pixels = int(Image.open(io.BytesIO(patch_img_bytes)).width)
+        patch_size_pixels = settings_store.get_int("patch_size", project_id)
         context_size = scale * patch_size_pixels
 
         ts = large_image.open(str(image_row.image_path))
