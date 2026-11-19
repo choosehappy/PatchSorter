@@ -1372,6 +1372,8 @@ export type GetPatchContextProjectsProjectIdPatchesPatchIdContextGetData = {
     query?: {
         /**
          * Scale
+         *
+         * Context region scale multiplier
          */
         scale?: number | null;
     };
