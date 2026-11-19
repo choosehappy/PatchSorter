@@ -24,26 +24,25 @@ export default function PatchContextOverlay({
     const IMG_SIZE = 256
 
     useEffect(() => {
-        let cancelled = false
+        const controller = new AbortController()
         const fetchContext = async () => {
             try {
                 const res = await getPatchContextProjectsProjectIdPatchesPatchIdContextGet({
                     path: { project_id: projectId, patch_id: patch.patch_id },
                     query: { scale },
+                    signal: controller.signal,
                 })
-                if (!cancelled && res.data) {
+                if (res.data) {
                     setImageSrc(URL.createObjectURL(res.data as Blob))
                 }
-            } catch (err) {
-                if (cancelled) return
+            } catch (err: any) {
+                if (err.name === 'AbortError') return
                 console.error('Failed to fetch patch context:', err)
                 setImageError(true)
             }
         }
         fetchContext()
-        return () => {
-            cancelled = true
-        }
+        return () => controller.abort()
     }, [projectId, patch.patch_id, scale])
 
     // Second useEffect is registered to clean up the object URL when it changes or on unmount
